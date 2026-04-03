@@ -159,9 +159,8 @@ tr:hover td{background:var(--surface2);}
 .login-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
 .login-btn{padding:14px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);cursor:pointer;font-family:'Noto Sans KR',sans-serif;font-size:14px;font-weight:500;transition:all .15s;color:var(--text);}
 .login-btn:hover{background:var(--accent-bg);border-color:var(--accent);color:var(--accent);}
-.login-divider{font-size:12px;color:var(--text3);margin:12px 0;position:relative;}
-.login-divider::before,.login-divider::after{content:'';position:absolute;top:50%;width:42%;height:1px;background:var(--border);}
-.login-divider::before{left:0;}.login-divider::after{right:0;}
+.login-divider{font-size:12px;color:var(--text3);margin:12px 0;position:relative;text-align:center;background:var(--surface);display:flex;align-items:center;gap:8px;}
+.login-divider::before,.login-divider::after{content:'';flex:1;height:1px;background:var(--border);}
 .login-master-row{display:flex;gap:8px;}
 .login-master-row input{flex:1;}
 .current-user-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:var(--accent-bg);color:var(--accent-text);border-radius:99px;font-size:12px;font-weight:600;}
@@ -196,6 +195,7 @@ tr:hover td{background:var(--surface2);}
   <button class="nav-btn" onclick="switchTab('search',this)">시리얼 조회</button>
   <button class="nav-btn" onclick="switchTab('workers',this)">엔지니어 관리</button>
   <button class="nav-btn" onclick="switchTab('kpi',this)">KPI 설정</button>
+  <button class="nav-btn" onclick="switchTab('report',this)">실적 리포트</button>
 </nav>
 
 <div class="main">
@@ -306,6 +306,22 @@ tr:hover td{background:var(--surface2);}
       </div>
     </div>
     <div id="search-result"></div>
+  </div>
+
+  <!-- 실적 리포트 -->
+  <div id="tab-report" class="section">
+    <div class="section-header">
+      <span class="section-title">📈 월별 실적 리포트</span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="month" id="report-month" style="height:38px;padding:0 12px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:14px;outline:none;">
+        <button class="btn btn-primary" onclick="renderReport()">조회</button>
+        <button class="btn btn-sm" onclick="exportReportCSV()">CSV 내보내기</button>
+      </div>
+    </div>
+    <div id="report-master-only" style="display:none;">
+      <div class="empty">⚙️ 마스터만 실적 리포트를 볼 수 있습니다.</div>
+    </div>
+    <div id="report-content"></div>
   </div>
 
   <!-- KPI 설정 -->
@@ -629,6 +645,9 @@ function init() {
   document.getElementById('header-date').textContent =
     `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} ${DAYS[now.getDay()]}요일`;
   ['input','summary'].forEach(t=>{ document.getElementById(DATE_INP[t]).value = todayStr(); updateLbl(t); });
+  // 실적 리포트 기본 월 설정
+  const now2 = new Date();
+  document.getElementById('report-month').value = `${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}`;
   setRangeMonth();
   buildChecks();
   syncData();
@@ -644,6 +663,7 @@ function switchTab(name, btn) {
   if(name==='history') renderHistory();
   if(name==='workers') renderWorkers();
   if(name==='kpi') renderKPI();
+  if(name==='report') renderReport();
 }
 
 /* 체크박스 */
@@ -1100,6 +1120,149 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if(kv) kv.addEventListener('input', updateKPIPreview);
 });
 
+
+/* ===== 월별 실적 리포트 ===== */
+async function renderReport() {
+  const el = document.getElementById('report-content');
+  const mo = document.getElementById('report-master-only');
+
+  if(!isMaster) {
+    mo.style.display = 'block'; el.style.display = 'none'; return;
+  }
+  mo.style.display = 'none'; el.style.display = 'block';
+
+  const monthVal = document.getElementById('report-month').value;
+  if(!monthVal) { el.innerHTML = '<div class="empty">년월을 선택하세요.</div>'; return; }
+
+  const [y, m] = monthVal.split('-').map(Number);
+  const monthKPI = kpiMap[monthVal] || 0;
+  const monthEntries = entries.filter(e => String(e.date).startsWith(monthVal));
+  const activeWorkers = workers.filter(w => w !== MASTER_NAME);
+  const wd = monthKPI ? await getWorkdays(y, m) : 0;
+  const dailyTarget = monthKPI && wd && activeWorkers.length ? Math.ceil(monthKPI / wd / activeWorkers.length) : 0;
+  const totalDone = monthEntries.length;
+  const totalRev = monthEntries.reduce((s,e) => s+Number(e.total), 0);
+  const pct = monthKPI ? Math.min(100, Math.round(totalDone/monthKPI*100)) : 0;
+  const progColor = pct>=100?'var(--green)':pct>=70?'var(--amber)':'var(--red)';
+
+  // 상단 요약
+  let h = `<div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <span style="font-size:15px;font-weight:700;">${y}년 ${m}월 종합 실적</span>
+      <span style="font-size:22px;font-weight:700;color:${progColor};">${pct}%</span>
+    </div>
+    <div style="background:var(--surface2);border-radius:6px;height:10px;overflow:hidden;margin-bottom:16px;">
+      <div style="height:100%;border-radius:6px;background:${progColor};width:${pct}%;transition:width .5s;"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;">
+      <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
+        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">월 KPI 목표</div>
+        <div style="font-size:18px;font-weight:700;">${monthKPI>0?fmt(monthKPI):'-'}<span style="font-size:11px;color:var(--text2);">${monthKPI?'대':''}</span></div>
+      </div>
+      <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
+        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">전체 완료</div>
+        <div style="font-size:18px;font-weight:700;color:var(--accent);">${fmt(totalDone)}<span style="font-size:11px;color:var(--text2);">대</span></div>
+      </div>
+      <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
+        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">남은 건수</div>
+        <div style="font-size:18px;font-weight:700;color:${monthKPI&&totalDone<monthKPI?'var(--red)':'var(--green)'};">${monthKPI?Math.max(0,monthKPI-totalDone)+'대':'-'}</div>
+      </div>
+      <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
+        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">총 공임비</div>
+        <div style="font-size:16px;font-weight:700;">${fmt(totalRev)}<span style="font-size:10px;color:var(--text2);">원</span></div>
+      </div>
+      <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
+        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">평일 수</div>
+        <div style="font-size:18px;font-weight:700;">${wd||'-'}<span style="font-size:11px;color:var(--text2);">${wd?'일':''}</span></div>
+      </div>
+      <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
+        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">1인 하루 목표</div>
+        <div style="font-size:18px;font-weight:700;">${dailyTarget||'-'}<span style="font-size:11px;color:var(--text2);">${dailyTarget?'건':''}</span></div>
+      </div>
+    </div>
+  </div>`;
+
+  // 엔지니어별 실적
+  h += `<div class="card" style="padding:0;">
+    <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">엔지니어별 실적</div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th>엔지니어</th>
+        <th style="text-align:right">수리 건수</th>
+        <th style="text-align:right">달성률</th>
+        <th>달성 현황</th>
+        <th style="text-align:right">공임비 합계</th>
+        <th style="text-align:right">1인 목표 대비</th>
+      </tr></thead>
+      <tbody>`;
+
+  activeWorkers.forEach(w => {
+    const wEntries = monthEntries.filter(e => e.worker === w);
+    const cnt = wEntries.length;
+    const wrev = wEntries.reduce((s,e) => s+Number(e.total), 0);
+    const workerTarget = monthKPI && wd ? Math.ceil(monthKPI / wd / activeWorkers.length) * wd : 0;
+    const wpct = workerTarget ? Math.min(100, Math.round(cnt/workerTarget*100)) : 0;
+    const diff = workerTarget ? cnt - workerTarget : 0;
+    let bc, bt;
+    if(!workerTarget){bc='badge-blue';bt='KPI 미설정';}
+    else if(diff>=0){bc='badge-ok';bt='목표 달성';}
+    else{bc='badge-under';bt=`${Math.abs(diff)}건 미달`;}
+    const barColor = wpct>=100?'var(--green)':wpct>=70?'var(--amber)':'var(--red)';
+    h += `<tr>
+      <td style="font-weight:600;">${w}</td>
+      <td style="text-align:right;font-weight:600;">${cnt}건</td>
+      <td style="text-align:right;font-weight:700;color:${barColor};">${workerTarget?wpct+'%':'-'}</td>
+      <td><div style="display:flex;align-items:center;gap:8px;">
+        <div style="flex:1;background:var(--surface2);border-radius:4px;height:6px;overflow:hidden;min-width:80px;">
+          <div style="height:100%;border-radius:4px;background:${barColor};width:${wpct}%;"></div>
+        </div>
+        <span class="badge ${bc}">${bt}</span>
+      </div></td>
+      <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;">${fmt(wrev)}원</td>
+      <td style="text-align:right;color:${diff>=0?'var(--green)':'var(--red)'};font-weight:600;">${workerTarget?(diff>=0?'+'+diff:diff)+'건':'-'}</td>
+    </tr>`;
+  });
+
+  h += `</tbody>
+    <tfoot><tr>
+      <td style="font-weight:700;padding:10px 12px;">합계</td>
+      <td style="text-align:right;font-weight:700;">${totalDone}건</td>
+      <td style="text-align:right;font-weight:700;color:${progColor};">${monthKPI?pct+'%':'-'}</td>
+      <td></td>
+      <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);">${fmt(totalRev)}원</td>
+      <td></td>
+    </tr></tfoot>
+  </table></div></div>`;
+
+  el.innerHTML = h;
+}
+
+function exportReportCSV() {
+  const monthVal = document.getElementById('report-month').value;
+  if(!monthVal){ notify('년월을 선택하세요.','error'); return; }
+  const [y, m] = monthVal.split('-').map(Number);
+  const monthKPI = kpiMap[monthVal] || 0;
+  const monthEntries = entries.filter(e => String(e.date).startsWith(monthVal));
+  const activeWorkers = workers.filter(w => w !== MASTER_NAME);
+  const totalDone = monthEntries.length;
+  const totalRev = monthEntries.reduce((s,e)=>s+Number(e.total),0);
+  const pct = monthKPI ? Math.min(100, Math.round(totalDone/monthKPI*100)) : 0;
+
+  const hd = '엔지니어,수리건수,월목표,달성률(%),공임비합계(원)';
+  const ls = activeWorkers.map(w => {
+    const wEntries = monthEntries.filter(e=>e.worker===w);
+    const cnt = wEntries.length;
+    const wrev = wEntries.reduce((s,e)=>s+Number(e.total),0);
+    return `${w},${cnt},${monthKPI||'-'},${monthKPI?Math.round(cnt/(monthKPI/activeWorkers.length)*100)+'%':'-'},${wrev}`;
+  });
+  ls.push(`합계,${totalDone},${monthKPI||'-'},${monthKPI?pct+'%':'-'},${totalRev}`);
+
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿'+[hd,...ls].join('
+')],{type:'text/csv'}));
+  a.download = `폼즈AS_실적리포트_${monthVal}.csv`;
+  a.click(); notify('실적 리포트 CSV 내보내기 완료!');
+}
 
 /* ===== KPI 설정 ===== */
 async function renderKPI() {
