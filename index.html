@@ -196,6 +196,8 @@ tr:hover td{background:var(--surface2);}
   <button class="nav-btn" onclick="switchTab('workers',this)">엔지니어 관리</button>
   <button class="nav-btn" onclick="switchTab('kpi',this)">KPI 설정</button>
   <button class="nav-btn" onclick="switchTab('report',this)">실적 리포트</button>
+  <button class="nav-btn" onclick="switchTab('stock',this)">재고 관리</button>
+  <button class="nav-btn" onclick="switchTab('docs',this)">교육 자료</button>
 </nav>
 
 <div class="main">
@@ -353,6 +355,32 @@ tr:hover td{background:var(--surface2);}
     </div>
   </div>
 
+  <!-- 재고 관리 -->
+  <div id="tab-stock" class="section">
+    <div class="section-header">
+      <span class="section-title">📦 재고 관리</span>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-sm btn-primary" onclick="openAddPartModal()" id="add-part-btn" style="display:none;">+ 부품 추가</button>
+        <button class="btn btn-sm" onclick="syncData(true);renderStock();">🔄 새로고침</button>
+      </div>
+    </div>
+    <div id="stock-content"></div>
+  </div>
+
+  <!-- 교육 자료 -->
+  <div id="tab-docs" class="section">
+    <div class="section-header">
+      <span class="section-title">📚 교육 자료</span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="docs-category-filter" onchange="renderDocs()" style="width:140px;">
+          <option value="">전체 카테고리</option>
+        </select>
+        <button class="btn btn-sm btn-primary" id="add-doc-btn" style="display:none;" onclick="openAddDocModal()">+ 자료 추가</button>
+      </div>
+    </div>
+    <div id="docs-content"></div>
+  </div>
+
   <!-- 엔지니어 관리 -->
   <div id="tab-workers" class="section">
     <div class="section-title" style="margin-bottom:16px;">엔지니어 관리</div>
@@ -384,6 +412,93 @@ tr:hover td{background:var(--surface2);}
       <button class="btn btn-primary" onclick="loginMaster()">확인</button>
     </div>
     <div id="login-error" style="color:var(--red-text);font-size:12px;margin-top:8px;min-height:18px;"></div>
+  </div>
+</div>
+
+<!-- 부품 추가/수정 모달 -->
+<div class="modal-overlay" id="part-modal">
+  <div class="modal" style="width:420px;">
+    <div class="modal-title" id="part-modal-title">부품 추가</div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">부품명</label>
+      <input type="text" id="part-name" placeholder="예: PCB 보드" style="width:100%;">
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">카테고리</label>
+      <input type="text" id="part-category" placeholder="예: 메인부품" style="width:100%;">
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:12px;">
+      <div class="form-group" style="flex:1;">
+        <label class="form-label">현재 재고</label>
+        <input type="text" id="part-qty" placeholder="0" style="width:100%;">
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label class="form-label">최소 재고 (경고 기준)</label>
+        <input type="text" id="part-min-qty" placeholder="5" style="width:100%;">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closePartModal()">취소</button>
+      <button class="btn btn-primary" onclick="savePart()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 입고 모달 -->
+<div class="modal-overlay" id="stock-in-modal">
+  <div class="modal" style="width:380px;">
+    <div class="modal-title">📥 입고 등록</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:14px;" id="stock-in-part-name"></div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">입고 수량</label>
+      <input type="text" id="stock-in-qty" placeholder="수량 입력" style="width:100%;">
+    </div>
+    <div class="form-group" style="margin-bottom:16px;">
+      <label class="form-label">메모 (선택)</label>
+      <input type="text" id="stock-in-note" placeholder="예: 발주처, 입고 사유" style="width:100%;">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeStockInModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveStockIn()">입고 등록</button>
+    </div>
+  </div>
+</div>
+
+<!-- 교육자료 추가 모달 -->
+<div class="modal-overlay" id="doc-modal">
+  <div class="modal" style="width:460px;">
+    <div class="modal-title">📚 자료 추가</div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">제목</label>
+      <input type="text" id="doc-title" placeholder="자료 제목" style="width:100%;">
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:12px;">
+      <div class="form-group" style="flex:1;">
+        <label class="form-label">카테고리</label>
+        <input type="text" id="doc-category" placeholder="예: 수리매뉴얼" style="width:100%;">
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label class="form-label">형태</label>
+        <select id="doc-type" style="width:100%;">
+          <option value="link">🔗 링크</option>
+          <option value="youtube">▶ 유튜브</option>
+          <option value="pdf">📄 PDF</option>
+          <option value="memo">📝 메모</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;" id="doc-link-group">
+      <label class="form-label">링크 URL</label>
+      <input type="text" id="doc-link" placeholder="https://" style="width:100%;">
+    </div>
+    <div class="form-group" style="margin-bottom:16px;">
+      <label class="form-label">메모 (선택)</label>
+      <textarea id="doc-memo" placeholder="간단한 설명이나 메모" style="min-height:60px;"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeDocModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveDoc()">저장</button>
+    </div>
   </div>
 </div>
 
@@ -425,7 +540,7 @@ tr:hover td{background:var(--surface2);}
 </div>
 
 <script>
-const GAS = 'https://script.google.com/macros/s/AKfycby3bgpBeyrAsPsRck3eWnFnfJ5umLhm1K9Yp9Jfol2NT77qyy02IREPj3-YT-R_phLYKw/exec';
+const GAS = 'https://script.google.com/macros/s/AKfycbwn6EAnIznDAlibYZakgvmTiCEjpGyhKvcHOQ2w8qhAitox_TUZOD1B25kOaOZxgOteSQ/exec';
 const HOLIDAY_KEY = 'f52c0659526679a86d04083efd86dff68943cae2fa05a623ff8606b79f3f6814';
 const MASTER_NAME = '최민규';
 
@@ -440,6 +555,7 @@ const DAYS = ['일','월','화','수','목','금','토'];
 let entries = [], workers = [], busy = false;
 let kpiMap = {};
 let holidayCache = {};
+let stock = [], stockLog = [], docs = [];
 
 const fmt = n => Number(n).toLocaleString();
 const todayStr = () => {
@@ -664,6 +780,8 @@ function switchTab(name, btn) {
   if(name==='workers') renderWorkers();
   if(name==='kpi') renderKPI();
   if(name==='report') renderReport();
+  if(name==='stock') renderStock();
+  if(name==='docs') renderDocs();
 }
 
 /* 체크박스 */
@@ -735,6 +853,8 @@ async function addEntry() {
     document.getElementById('inp-note').value = '';
     clearChecks(); renderToday();
     notify(`${serial} 수리 등록 완료!`);
+    // 재고 자동 차감
+    if(stock.length) deductStock(works);
   } catch { notify('저장 실패. 다시 시도해주세요.','error'); }
   busy = false; btn.disabled = false; btn.textContent = '수리 등록';
 }
@@ -1503,6 +1623,254 @@ function exportCSV(mode) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['﻿'+[hd,...ls,summary].join('\n')],{type:'text/csv'}));
   a.download = fn; a.click(); notify('CSV 내보내기 완료!');
+}
+
+
+/* ===== 재고 관리 ===== */
+let editPartId = null;
+let stockInPartId = null;
+
+function renderStock() {
+  // 마스터만 부품 추가 버튼 표시
+  document.getElementById('add-part-btn').style.display = isMaster ? 'inline-flex' : 'none';
+  const el = document.getElementById('stock-content');
+  if(!stock.length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">📦</div>등록된 부품이 없습니다.${isMaster ? '<br><button class="btn btn-primary" style="margin-top:12px;" onclick="openAddPartModal()">+ 부품 추가</button>' : ''}</div>`;
+    return;
+  }
+  // 카테고리별 그룹
+  const cats = [...new Set(stock.map(p => p.category || '기타'))].sort();
+  let h = '';
+  cats.forEach(cat => {
+    const parts = stock.filter(p => (p.category || '기타') === cat);
+    h += `<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px;">${cat}</div>`;
+    h += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:8px;">`;
+    parts.forEach(p => {
+      const isLow = p.qty <= p.minQty;
+      const isEmpty = p.qty <= 0;
+      const color = isEmpty ? 'var(--red)' : isLow ? 'var(--amber)' : 'var(--green)';
+      const bg = isEmpty ? 'var(--red-bg)' : isLow ? 'var(--amber-bg)' : 'var(--green-bg)';
+      h += `<div style="background:var(--surface);border:1px solid ${isEmpty?'#fca5a5':isLow?'#fcd34d':'var(--border)'};border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">${p.name}</div>
+        <div style="font-size:28px;font-weight:700;color:${color};margin-bottom:4px;">${p.qty}<span style="font-size:13px;color:var(--text2);font-weight:400;">개</span></div>
+        ${isEmpty ? '<div style="font-size:11px;color:var(--red-text);font-weight:600;">⚠ 재고 없음</div>' : isLow ? `<div style="font-size:11px;color:var(--amber-text);font-weight:600;">⚠ 재고 부족 (최소 ${p.minQty}개)</div>` : `<div style="font-size:11px;color:var(--green-text);">✓ 정상</div>`}
+        <div style="display:flex;gap:6px;margin-top:10px;">
+          <button class="btn btn-sm btn-primary" style="flex:1;" onclick="openStockInModal('${p.id}')">입고</button>
+          ${isMaster ? `<button class="btn btn-sm" onclick="openEditPartModal('${p.id}')">수정</button>
+          <button class="btn btn-sm btn-danger" onclick="deletePart('${p.id}')">삭제</button>` : ''}
+        </div>
+      </div>`;
+    });
+    h += '</div>';
+  });
+
+  // 최근 이력
+  if(stockLog.length) {
+    const recent = [...stockLog].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,10);
+    h += `<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:20px 0 8px;">최근 입출고 이력</div>
+    <div class="card" style="padding:0;"><div class="table-wrap"><table>
+      <thead><tr><th>날짜</th><th>부품명</th><th>구분</th><th style="text-align:right">수량</th><th>메모</th><th>작업자</th></tr></thead>
+      <tbody>${recent.map(l=>`<tr>
+        <td style="font-size:11px;font-family:'JetBrains Mono',monospace;">${fmtDT(l.date)}</td>
+        <td>${l.partName}</td>
+        <td><span class="badge ${l.type==='in'?'badge-ok':'badge-under'}">${l.type==='in'?'입고':'출고'}</span></td>
+        <td style="text-align:right;font-weight:600;color:${l.type==='in'?'var(--green)':'var(--red)'};">${l.type==='in'?'+':'−'}${l.qty}</td>
+        <td style="font-size:12px;color:var(--text2);">${l.note||'-'}</td>
+        <td style="font-size:12px;">${l.worker||'-'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div></div>`;
+  }
+  el.innerHTML = h;
+}
+
+function openAddPartModal() {
+  editPartId = null;
+  document.getElementById('part-modal-title').textContent = '부품 추가';
+  document.getElementById('part-name').value = '';
+  document.getElementById('part-category').value = '';
+  document.getElementById('part-qty').value = '';
+  document.getElementById('part-min-qty').value = '5';
+  document.getElementById('part-modal').classList.add('open');
+}
+function openEditPartModal(id) {
+  const p = stock.find(x=>x.id===id); if(!p) return;
+  editPartId = id;
+  document.getElementById('part-modal-title').textContent = '부품 수정';
+  document.getElementById('part-name').value = p.name;
+  document.getElementById('part-category').value = p.category || '';
+  document.getElementById('part-qty').value = p.qty;
+  document.getElementById('part-min-qty').value = p.minQty || 0;
+  document.getElementById('part-modal').classList.add('open');
+}
+function closePartModal() { document.getElementById('part-modal').classList.remove('open'); }
+
+async function savePart() {
+  const name = document.getElementById('part-name').value.trim();
+  const category = document.getElementById('part-category').value.trim();
+  const qty = Number(document.getElementById('part-qty').value) || 0;
+  const minQty = Number(document.getElementById('part-min-qty').value) || 0;
+  if(!name){ notify('부품명을 입력하세요.','error'); return; }
+  if(editPartId) {
+    const idx = stock.findIndex(x=>x.id===editPartId);
+    if(idx>-1) stock[idx] = {...stock[idx], name, category, qty, minQty};
+  } else {
+    stock.push({id:'p'+Date.now(), name, category, qty, minQty});
+  }
+  await saveStockToServer();
+  closePartModal();
+  renderStock();
+  notify(editPartId ? '수정되었습니다.' : '부품이 추가되었습니다.');
+}
+
+function deletePart(id) {
+  const p = stock.find(x=>x.id===id); if(!p) return;
+  openModal('부품 삭제', `"${p.name}" 부품을 삭제할까요?`, async()=>{
+    stock = stock.filter(x=>x.id!==id);
+    await saveStockToServer();
+    renderStock();
+    notify('삭제되었습니다.');
+  });
+}
+
+async function saveStockToServer() {
+  const stockData = stock.map(p=>`${p.id}::${p.name}::${p.qty}::${p.category||''}::${p.minQty||0}`).join('||');
+  await gasCall({action:'saveStock', stockData});
+}
+
+function openStockInModal(partId) {
+  stockInPartId = partId;
+  const p = stock.find(x=>x.id===partId);
+  document.getElementById('stock-in-part-name').textContent = p ? `부품: ${p.name} (현재 ${p.qty}개)` : '';
+  document.getElementById('stock-in-qty').value = '';
+  document.getElementById('stock-in-note').value = '';
+  document.getElementById('stock-in-modal').classList.add('open');
+}
+function closeStockInModal() { document.getElementById('stock-in-modal').classList.remove('open'); }
+
+async function saveStockIn() {
+  const qty = Number(document.getElementById('stock-in-qty').value);
+  const note = document.getElementById('stock-in-note').value.trim();
+  if(!qty || qty <= 0){ notify('수량을 입력하세요.','error'); return; }
+  const idx = stock.findIndex(x=>x.id===stockInPartId);
+  if(idx === -1) return;
+  stock[idx].qty += qty;
+  const logId = 'l'+Date.now();
+  const logDate = new Date().toISOString();
+  const log = {logId, partId:stockInPartId, partName:stock[idx].name, type:'in', qty, note, date:logDate, worker:currentUser||''};
+  stockLog.push(log);
+  try {
+    await saveStockToServer();
+    await gasCall({action:'addStockLog', ...log});
+    closeStockInModal();
+    renderStock();
+    notify(`${stock[idx].name} ${qty}개 입고 완료!`);
+  } catch { notify('저장 실패.','error'); }
+}
+
+// 수리 등록 시 재고 자동 차감
+async function deductStock(works) {
+  const workToPartMap = {
+    pcb: 'PCB', panel: '패널', board: '메인보드', nonbat: '논배터리'
+  };
+  for(const w of works) {
+    const keyword = workToPartMap[w];
+    if(!keyword) continue;
+    const idx = stock.findIndex(p => p.name.includes(keyword));
+    if(idx > -1 && stock[idx].qty > 0) {
+      stock[idx].qty -= 1;
+      const logId = 'l'+Date.now()+(Math.random()*1000|0);
+      const logDate = new Date().toISOString();
+      const log = {logId, partId:stock[idx].id, partName:stock[idx].name, type:'out', qty:1, note:'수리 자동 차감', date:logDate, worker:currentUser||''};
+      stockLog.push(log);
+      try {
+        await saveStockToServer();
+        await gasCall({action:'addStockLog', ...log});
+      } catch {}
+    }
+  }
+}
+
+/* ===== 교육 자료 ===== */
+function renderDocs() {
+  document.getElementById('add-doc-btn').style.display = isMaster ? 'inline-flex' : 'none';
+  // 카테고리 필터 업데이트
+  const sel = document.getElementById('docs-category-filter');
+  const curCat = sel.value;
+  const cats = [...new Set(docs.map(d=>d.category||'기타'))].sort();
+  sel.innerHTML = '<option value="">전체 카테고리</option>' + cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+  if(cats.includes(curCat)) sel.value = curCat;
+
+  const filterCat = sel.value;
+  const filtered = filterCat ? docs.filter(d=>(d.category||'기타')===filterCat) : docs;
+  const el = document.getElementById('docs-content');
+
+  if(!filtered.length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">📚</div>등록된 교육 자료가 없습니다.${isMaster?'<br><button class="btn btn-primary" style="margin-top:12px;" onclick="openAddDocModal()">+ 자료 추가</button>':''}</div>`;
+    return;
+  }
+
+  const typeIcon = {link:'🔗', youtube:'▶', pdf:'📄', memo:'📝'};
+  const typeLabel = {link:'링크', youtube:'유튜브', pdf:'PDF', memo:'메모'};
+
+  let h = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">';
+  filtered.forEach(d => {
+    h += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <span style="font-size:11px;background:var(--surface2);padding:2px 8px;border-radius:99px;color:var(--text2);">${d.category||'기타'}</span>
+        <span style="font-size:11px;color:var(--text3);">${typeIcon[d.type]||'🔗'} ${typeLabel[d.type]||'링크'}</span>
+      </div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:6px;line-height:1.4;">${d.title}</div>
+      ${d.memo?`<div style="font-size:12px;color:var(--text2);margin-bottom:10px;line-height:1.5;">${d.memo}</div>`:''}
+      <div style="display:flex;gap:6px;margin-top:10px;">
+        ${d.link?`<a href="${d.link}" target="_blank" class="btn btn-sm btn-primary" style="flex:1;text-align:center;text-decoration:none;">열기</a>`:''}
+        ${isMaster?`<button class="btn btn-sm btn-danger" onclick="deleteDoc('${d.id}')">삭제</button>`:''}
+      </div>
+    </div>`;
+  });
+  h += '</div>';
+  el.innerHTML = h;
+}
+
+function openAddDocModal() {
+  document.getElementById('doc-title').value = '';
+  document.getElementById('doc-category').value = '';
+  document.getElementById('doc-link').value = '';
+  document.getElementById('doc-memo').value = '';
+  document.getElementById('doc-type').value = 'link';
+  document.getElementById('doc-modal').classList.add('open');
+}
+function closeDocModal() { document.getElementById('doc-modal').classList.remove('open'); }
+
+async function saveDoc() {
+  const title = document.getElementById('doc-title').value.trim();
+  const category = document.getElementById('doc-category').value.trim();
+  const type = document.getElementById('doc-type').value;
+  const link = document.getElementById('doc-link').value.trim();
+  const memo = document.getElementById('doc-memo').value.trim();
+  if(!title){ notify('제목을 입력하세요.','error'); return; }
+  const id = 'd'+Date.now();
+  const date = new Date().toISOString();
+  docs.push({id, title, category:category||'기타', type, link, memo, date});
+  const docsData = docs.map(d=>`${d.id}::${d.title}::${d.category||'기타'}::${d.link||''}::${d.memo||''}::${d.date||''}`).join('||');
+  try {
+    await gasCall({action:'saveDocs', docsData});
+    closeDocModal();
+    renderDocs();
+    notify('자료가 추가되었습니다!');
+  } catch { notify('저장 실패.','error'); }
+}
+
+function deleteDoc(id) {
+  const d = docs.find(x=>x.id===id); if(!d) return;
+  openModal('자료 삭제', `"${d.title}" 자료를 삭제할까요?`, async()=>{
+    docs = docs.filter(x=>x.id!==id);
+    const docsData = docs.map(d=>`${d.id}::${d.title}::${d.category||'기타'}::${d.link||''}::${d.memo||''}::${d.date||''}`).join('||');
+    try {
+      await gasCall({action:'saveDocs', docsData});
+      renderDocs();
+      notify('삭제되었습니다.');
+    } catch { notify('삭제 실패.','error'); }
+  });
 }
 
 init();
