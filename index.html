@@ -190,7 +190,7 @@ tr:hover td{background:var(--surface2);}
 
 <nav class="nav">
   <button class="nav-btn active" onclick="switchTab('input',this)">수리 입력</button>
-  <button class="nav-btn" onclick="switchTab('summary',this)">일일 마감</button>
+  <button class="nav-btn" onclick="switchTab('summary',this)">일일 현황</button>
   <button class="nav-btn" onclick="switchTab('history',this)">전체 기록</button>
   <button class="nav-btn" onclick="switchTab('search',this)">시리얼 조회</button>
   <button class="nav-btn" onclick="switchTab('workers',this)">엔지니어 관리</button>
@@ -234,26 +234,17 @@ tr:hover td{background:var(--surface2);}
       </div>
     </div>
 
-    <div class="date-bar">
-      <span class="date-bar-label">조회 날짜</span>
-      <button class="date-nav-btn" onclick="moveDate('input',-1)">‹</button>
-      <input type="date" id="date-input" onchange="renderToday()" style="width:148px;">
-      <button class="date-nav-btn" onclick="moveDate('input',1)">›</button>
-      <button class="today-btn" onclick="setToday('input')">오늘</button>
-      <span class="date-label-text" id="lbl-input"></span>
-    </div>
-
-    <div class="section-header" style="margin-top:4px;">
-      <span style="font-size:14px;font-weight:600;">수리 내역 <span id="today-count" style="color:var(--text2);font-weight:400;"></span></span>
-      <button class="btn btn-sm" onclick="exportCSV('sel')">CSV 내보내기</button>
-    </div>
-    <div class="card" style="padding:0;"><div id="today-list"></div></div>
+  <!-- hidden elements for compatibility -->
+  <input type="date" id="date-input" style="display:none;">
+  <span id="lbl-input" style="display:none;"></span>
+  <span id="today-count" style="display:none;"></span>
+  <div id="today-list" style="display:none;"></div>
   </div>
 
-  <!-- 일일 마감 -->
+  <!-- 일일 현황 -->
   <div id="tab-summary" class="section">
     <div class="section-header">
-      <span class="section-title">일일 마감</span>
+      <span class="section-title">일일 현황</span>
       <button class="btn btn-sm" onclick="syncData()">🔄 새로고침</button>
     </div>
     <div class="date-bar">
@@ -1054,18 +1045,28 @@ async function renderSummary() {
   // 목표 달성 축하 체크
   checkAchievements(list, dailyTarget, activeWorkers);
 
-  we.innerHTML = workers.map(w=>{
-    if(w === MASTER_NAME) return '';
+  // 본인 먼저, 나머지 수리 많은 순 정렬
+  const sortedWorkers = [...activeWorkers].sort((a, b) => {
+    if(a === currentUser) return -1;
+    if(b === currentUser) return 1;
+    const ca = list.filter(e=>e.worker===a).length;
+    const cb = list.filter(e=>e.worker===b).length;
+    return cb - ca;
+  });
+
+  we.innerHTML = sortedWorkers.map(w=>{
     const wl = list.filter(e=>e.worker===w);
     const cnt = wl.length, wrev = wl.reduce((s,e)=>s+Number(e.total),0);
     const target = dailyTarget || 0;
     const diff = target ? cnt - target : 0;
     const pct = target ? Math.min(100, Math.round(cnt/target*100)) : 0;
+    const isMe = w === currentUser;
     let bc,bt,pc;
     if(!target){bc='badge-blue';bt='KPI 미설정';pc='prog-ok';}
     else if(diff>0){bc='badge-over';bt=`${diff}건 초과`;pc='prog-over';}
     else if(diff<0){bc='badge-under';bt=`${Math.abs(diff)}건 미달`;pc='prog-under';}
     else{bc='badge-ok';bt='목표 달성';pc='prog-ok';}
+    const blockId = 'wb-'+w.replace(/\s/g,'_');
     const tbl = wl.length
       ? `<div class="table-wrap"><table>
           <thead><tr><th>시리얼 번호</th><th>수리 항목</th><th>특이사항</th><th style="text-align:right">공임비</th></tr></thead>
@@ -1076,18 +1077,36 @@ async function renderSummary() {
             <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fmt(e.total)}원</td>
           </tr>`;}).join('')}</tbody></table></div>`
       : '<div class="empty" style="padding:20px;">수리 내역 없음</div>';
-    return `<div class="worker-block">
-      <div class="worker-block-header">
-        <div><div class="worker-block-name">${w}</div>
-          <div class="prog-wrap" style="width:160px;margin-top:6px;">
-            <div class="prog-bar ${pc}" style="width:${pct}%"></div></div></div>
+    return `<div class="worker-block" ${isMe?'style="border-color:var(--accent);border-width:2px;"':''}>
+      <div class="worker-block-header" onclick="toggleWorkerBlock('${blockId}')" style="cursor:pointer;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${isMe?'<span style="font-size:11px;background:var(--accent);color:#fff;padding:2px 7px;border-radius:99px;">나</span>':''}
+          <div>
+            <div class="worker-block-name">${w}</div>
+            <div class="prog-wrap" style="width:160px;margin-top:6px;">
+              <div class="prog-bar ${pc}" style="width:${pct}%"></div>
+            </div>
+          </div>
+        </div>
         <div class="worker-block-meta">
           <span style="font-size:13px;color:var(--text2);">${cnt} / ${target||'?'}건</span>
           <span class="badge ${bc}">${bt}</span>
           <span class="worker-block-revenue">${fmt(wrev)}원</span>
+          <span id="arrow-${blockId}" style="font-size:16px;color:var(--text3);transition:transform .2s;display:inline-block;">${isMe?'▲':'▼'}</span>
         </div>
-      </div><div>${tbl}</div></div>`;
+      </div>
+      <div id="${blockId}" style="display:${isMe?'block':'none'};">${tbl}</div>
+    </div>`;
   }).join('');
+}
+
+function toggleWorkerBlock(id) {
+  const el = document.getElementById(id);
+  const arrow = document.getElementById('arrow-'+id);
+  if(!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if(arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
 }
 
 /* 전체 기록 (기간 조회) */
