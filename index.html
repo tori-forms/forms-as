@@ -617,6 +617,9 @@ async function syncData(silent=false) {
         }
       } catch {}
     });
+    stock = data.stock || [];
+    stockLog = data.stockLog || [];
+    docs = (data.docs || []).map(d => ({...d, memo: (d.memo||'')}));
     setSyncStatus('ok');
     renderAll();
     if(!silent) notify('데이터를 불러왔습니다.');
