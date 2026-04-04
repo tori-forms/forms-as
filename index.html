@@ -547,6 +547,7 @@ let entries = [], workers = [], busy = false;
 let kpiMap = {};
 let holidayCache = {};
 let stock = [], stockLog = [], docs = [];
+let tierMap = {}; // { 이름: 'T1'|'T2'|'T3'|'T4' }
 
 const fmt = n => Number(n).toLocaleString();
 const todayStr = () => {
@@ -597,7 +598,14 @@ async function syncData(silent=false) {
   try {
     const data = await gasCall({action:'load'});
     entries = data.entries || [];
-    workers = data.workers || [];
+    // workers: 'name::T2' 형식 지원
+    const rawWorkers = data.workers || [];
+    workers = rawWorkers.map(w => String(w).split('::')[0]);
+    tierMap = {};
+    rawWorkers.forEach(w => {
+      const parts = String(w).split('::');
+      if(parts[1]) tierMap[parts[0]] = parts[1];
+    });
     const rawKpi = data.kpiMap || {};
     kpiMap = {};
     Object.entries(rawKpi).forEach(([k, v]) => {
@@ -702,6 +710,17 @@ function closeModal(){ document.getElementById('modal').classList.remove('open')
 document.getElementById('modal-ok').onclick = ()=>{ closeModal(); if(mcb) mcb(); };
 
 const MASTER_PW = '6537';
+const TIER_COLORS = {
+  T1: { bg:'#f8f8f8', color:'#888', border:'#ddd', label:'T1' },
+  T2: { bg:'#f4ede4', color:'#a0522d', border:'#cd7f32', label:'T2' },
+  T3: { bg:'#f0f0f0', color:'#707070', border:'#aaa', label:'T3' },
+  T4: { bg:'#fffbe6', color:'#b8860b', border:'#ffd700', label:'T4' },
+};
+function tierBadge(tier) {
+  if(!tier || !TIER_COLORS[tier]) return '';
+  const t = TIER_COLORS[tier];
+  return `<span style="display:inline-flex;align-items:center;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:700;background:${t.bg};color:${t.color};border:1px solid ${t.border};margin-left:6px;">${t.label}</span>`;
+}
 let currentUser = null;
 let isMaster = false;
 
@@ -713,7 +732,7 @@ function buildLoginGrid() {
     return;
   }
   grid.innerHTML = workers.map(w =>
-    `<button class="login-btn" onclick="loginAs('${w}')">${w}</button>`
+    `<button class="login-btn" onclick="loginAs('${w}')">${w}${tierBadge(tierMap[w]||'')}</button>`
   ).join('');
 }
 function loginAs(name) {
@@ -1085,7 +1104,7 @@ async function renderSummary() {
         <div style="display:flex;align-items:center;gap:8px;">
           ${isMe?'<span style="font-size:11px;background:var(--accent);color:#fff;padding:2px 7px;border-radius:99px;">나</span>':''}
           <div>
-            <div class="worker-block-name">${w}</div>
+            <div class="worker-block-name">${w}${tierBadge(tierMap[w]||"")}</div>
             <div class="prog-wrap" style="width:160px;margin-top:6px;">
               <div class="prog-bar ${pc}" style="width:${pct}%"></div>
             </div>
@@ -1585,7 +1604,7 @@ async function addWorker() {
   if(workers.includes(n)){ notify('이미 있는 엔지니어입니다.','error'); return; }
   workers.push(n);
   try {
-    await gasCall({action:'saveWorkers', workers:workers.join('||')});
+    await gasCall({action:'saveWorkers', workers:workers.map(w=>tierMap[w]?`${w}::${tierMap[w]}`:w).join('||')});
     document.getElementById('inp-worker').value = '';
     renderWorkerSel(); renderWorkers(); notify(`${n} 추가됨`);
   } catch { workers.pop(); notify('저장 실패. 다시 시도해주세요.','error'); }
@@ -1600,7 +1619,7 @@ function removeWorker(name) {
     async()=>{
       workers = workers.filter(w=>w!==name);
       try {
-        await gasCall({action:'saveWorkers', workers:workers.join('||')});
+        await gasCall({action:'saveWorkers', workers:workers.map(w=>tierMap[w]?`${w}::${tierMap[w]}`:w).join('||')});
         renderWorkerSel(); renderWorkers(); notify(`${name} 삭제됨`);
       } catch { notify('삭제 실패.','error'); }
     });
@@ -1612,13 +1631,36 @@ function renderWorkers() {
   el.innerHTML = workers.map(w=>{
     const ct = entries.filter(e=>e.worker===w&&String(e.date).startsWith(ts)).length;
     const ca = entries.filter(e=>e.worker===w).length;
+    const tier = tierMap[w] || '';
     return `<div class="worker-mgmt-item">
-      <div><span style="font-size:14px;font-weight:500;">${w}</span>
-        <span style="font-size:12px;color:var(--text2);margin-left:8px;">오늘 ${ct}건 / 전체 ${ca}건</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:14px;font-weight:500;">${w}</span>
+        ${tierBadge(tier)}
+        <span style="font-size:12px;color:var(--text2);">오늘 ${ct}건 / 전체 ${ca}건</span>
       </div>
-      ${isMaster ? `<button class="btn btn-sm btn-danger" onclick="removeWorker('${w}')">삭제</button>` : '<span style="font-size:11px;color:var(--text3);">마스터 전용</span>'}
+      <div style="display:flex;align-items:center;gap:8px;">
+        ${isMaster ? `
+        <select onchange="saveTier('${w}',this.value)" style="height:30px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);">
+          <option value="">직급 없음</option>
+          ${['T1','T2','T3','T4'].map(t=>`<option value="${t}" ${tier===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+        <button class="btn btn-sm btn-danger" onclick="removeWorker('${w}')">삭제</button>` 
+        : `<span style="font-size:11px;color:var(--text3);">마스터 전용</span>`}
+      </div>
     </div>`;
   }).join('');
+}
+
+async function saveTier(name, tier) {
+  tierMap[name] = tier || undefined;
+  if(!tier) delete tierMap[name];
+  const workerData = workers.map(w => tierMap[w] ? `${w}::${tierMap[w]}` : w).join('||');
+  try {
+    await gasCall({action:'saveWorkers', workers: workerData});
+    renderWorkers();
+    renderWorkerSel();
+    notify(`${name} 직급이 ${tier||'없음'}으로 변경되었습니다.`);
+  } catch { notify('저장 실패.','error'); }
 }
 
 /* CSV */
