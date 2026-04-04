@@ -1834,12 +1834,12 @@ function renderDocs() {
   const typeBorder = {link:'#bfdbfe', youtube:'#fecaca', pdf:'#bbf7d0', memo:'#fde68a'};
 
   let h = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;">';
+  let h = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;">';
   filtered.forEach(d => {
-    const isMemo = d.type === 'memo' || !d.link;
-    const isMemo = d.type === 'memo' || !d.link;
-    const memoHtml = d.memo ? d.memo.replace(/\[BR\]/g,'<br>') : '';
-
-
+    const isMemo = (d.type === 'memo') || !d.link;
+    const memoText = (d.memo || '').replace(/\[BR\]/g, '\n');
+    const memoHtml = memoText ? memoText.replace(/\n/g, '<br>') : '';
+    const bg = typeBg[d.type] || 'var(--surface)';
     const border = typeBorder[d.type] || 'var(--border)';
     h += `<div style="background:${isMemo?bg:'var(--surface)'};border:1px solid ${isMemo?border:'var(--border)'};border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
