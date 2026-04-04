@@ -1879,7 +1879,8 @@ async function saveDoc() {
   const id = 'd'+Date.now();
   const date = new Date().toISOString();
   docs.push({id, title, category:category||'기타', type, link, memo, date});
-  const docsData = docs.map(d=>`${d.id}::${d.title}::${d.category||'기타'}::${d.link||''}::${d.memo||''}::${d.date||''}`).join('||');
+  const escapeMemo = m => (m||'').replace(/\n/g,'[BR]').replace(/::/g,'[CL]');
+  const docsData = docs.map(d=>`${d.id}::${d.title}::${d.category||'기타'}::${d.link||''}::${escapeMemo(d.memo)}::${d.date||''}`).join('||');
   try {
     await gasCall({action:'saveDocs', docsData});
     closeDocModal();
@@ -1892,7 +1893,8 @@ function deleteDoc(id) {
   const d = docs.find(x=>x.id===id); if(!d) return;
   openModal('자료 삭제', `"${d.title}" 자료를 삭제할까요?`, async()=>{
     docs = docs.filter(x=>x.id!==id);
-    const docsData = docs.map(d=>`${d.id}::${d.title}::${d.category||'기타'}::${d.link||''}::${d.memo||''}::${d.date||''}`).join('||');
+    const escapeMemo2 = m => (m||'').replace(/\n/g,'[BR]').replace(/::/g,'[CL]');
+    const docsData = docs.map(d=>`${d.id}::${d.title}::${d.category||'기타'}::${d.link||''}::${escapeMemo2(d.memo)}::${d.date||''}`).join('||');
     try {
       await gasCall({action:'saveDocs', docsData});
       renderDocs();
