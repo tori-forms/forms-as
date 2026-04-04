@@ -531,7 +531,7 @@ tr:hover td{background:var(--surface2);}
 </div>
 
 <script>
-const GAS = 'https://script.google.com/macros/s/AKfycbzTqf2lRL8j2DGfPbUaTgGesvLpbHChc9CzsbJTWRpEcCGsgcXGQyp3Jzdceo5fGfHRzw/exec';
+const GAS = 'https://script.google.com/macros/s/AKfycbwGEsfo6GbdNR-jAPPl2VQqwuTdvzwJjurSrCHxyOODc_q9DLzwSfAJnpryPyYzZCUQQA/exec';
 const HOLIDAY_KEY = 'f52c0659526679a86d04083efd86dff68943cae2fa05a623ff8606b79f3f6814';
 const MASTER_NAME = '최민규';
 
@@ -570,7 +570,7 @@ const parseWorks = w => {
   try { return JSON.parse(w); } catch { return String(w).split(',').filter(Boolean); }
 };
 
-/* JSONP */
+/* JSONP (GET) */
 function gasCall(params) {
   return new Promise((resolve, reject) => {
     const cb = '__gas_' + Date.now() + '_' + (Math.random()*1e6|0);
@@ -584,6 +584,16 @@ function gasCall(params) {
     document.head.appendChild(s);
     function cleanup(){ clearTimeout(timer); delete window[cb]; s.remove(); }
   });
+}
+
+/* POST (대용량 데이터용) */
+async function gasPost(params) {
+  const res = await fetch(GAS, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(params)
+  });
+  return await res.json();
 }
 
 /* 동기화 상태 */
@@ -627,7 +637,13 @@ async function syncData(silent=false) {
     });
     stock = data.stock || [];
     stockLog = data.stockLog || [];
-    docs = (data.docs || []).map(d => ({...d, memo: (d.memo||'')}));
+    docs = (data.docs || []).map(d => ({
+      ...d,
+      title: (d.title||'').replace(/\[CL\]/g,'::').replace(/\[PP\]/g,'||'),
+      category: (d.category||'').replace(/\[CL\]/g,'::').replace(/\[PP\]/g,'||'),
+      link: (d.link||'').replace(/\[CL\]/g,'::').replace(/\[PP\]/g,'||'),
+      memo: (d.memo||'').replace(/\[BR\]/g,'\n').replace(/\[CL\]/g,'::').replace(/\[PP\]/g,'||')
+    }));
     setSyncStatus('ok');
     renderAll();
     if(!silent) notify('데이터를 불러왔습니다.');
@@ -1920,10 +1936,10 @@ async function saveDoc() {
   const id = 'd'+Date.now();
   const date = new Date().toISOString();
   docs.push({id, title, category:category||'기타', type, link, memo, date});
-  const escapeMemo = m => (m||'').replace(/\n/g,'[BR]').replace(/::/g,'[CL]');
-  const docsData = docs.map(d=>`${d.id}::${d.title}::${d.category||'기타'}::${d.link||''}::${escapeMemo(d.memo)}::${d.date||''}`).join('||');
+  const escapeField = s => (s||'').replace(/\n/g,'[BR]').replace(/::/g,'[CL]').replace(/\|\|/g,'[PP]');
+  const docsData = docs.map(d=>`${d.id}::${escapeField(d.title)}::${escapeField(d.category||'기타')}::${escapeField(d.link||'')}::${escapeField(d.memo)}::${d.date||''}`).join('||');
   try {
-    await gasCall({action:'saveDocs', docsData});
+    await gasPost({action:'saveDocs', docsData});
     closeDocModal();
     renderDocs();
     notify('자료가 추가되었습니다!');
@@ -1934,10 +1950,10 @@ function deleteDoc(id) {
   const d = docs.find(x=>x.id===id); if(!d) return;
   openModal('자료 삭제', `"${d.title}" 자료를 삭제할까요?`, async()=>{
     docs = docs.filter(x=>x.id!==id);
-    const escapeMemo2 = m => (m||'').replace(/\n/g,'[BR]').replace(/::/g,'[CL]');
-    const docsData = docs.map(d=>`${d.id}::${d.title}::${d.category||'기타'}::${d.link||''}::${escapeMemo2(d.memo)}::${d.date||''}`).join('||');
+    const escapeField2 = s => (s||'').replace(/\n/g,'[BR]').replace(/::/g,'[CL]').replace(/\|\|/g,'[PP]');
+    const docsData = docs.map(d=>`${d.id}::${escapeField2(d.title)}::${escapeField2(d.category||'기타')}::${escapeField2(d.link||'')}::${escapeField2(d.memo)}::${d.date||''}`).join('||');
     try {
-      await gasCall({action:'saveDocs', docsData});
+      await gasPost({action:'saveDocs', docsData});
       renderDocs();
       notify('삭제되었습니다.');
     } catch { notify('삭제 실패.','error'); }
