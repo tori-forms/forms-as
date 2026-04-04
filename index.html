@@ -1935,11 +1935,10 @@ async function saveDoc() {
   if(!title){ notify('제목을 입력하세요.','error'); return; }
   const id = 'd'+Date.now();
   const date = new Date().toISOString();
-  docs.push({id, title, category:category||'기타', type, link, memo, date});
-  const escapeField = s => (s||'').replace(/\n/g,'[BR]').replace(/::/g,'[CL]').replace(/\|\|/g,'[PP]');
-  const docsData = docs.map(d=>`${d.id}::${escapeField(d.title)}::${escapeField(d.category||'기타')}::${escapeField(d.link||'')}::${escapeField(d.memo)}::${d.date||''}`).join('||');
   try {
-    await gasPost({action:'saveDocs', docsData});
+    const escapeMemo = m => (m||'').replace(/\n/g,'[BR]').replace(/::/g,'[CL]');
+    await gasCall({action:'addDoc', id, title, category:category||'기타', type, link, memo:escapeMemo(memo), date});
+    docs.push({id, title, category:category||'기타', type, link, memo, date});
     closeDocModal();
     renderDocs();
     notify('자료가 추가되었습니다!');
@@ -1949,17 +1948,14 @@ async function saveDoc() {
 function deleteDoc(id) {
   const d = docs.find(x=>x.id===id); if(!d) return;
   openModal('자료 삭제', `"${d.title}" 자료를 삭제할까요?`, async()=>{
-    docs = docs.filter(x=>x.id!==id);
-    const escapeField2 = s => (s||'').replace(/\n/g,'[BR]').replace(/::/g,'[CL]').replace(/\|\|/g,'[PP]');
-    const docsData = docs.map(d=>`${d.id}::${escapeField2(d.title)}::${escapeField2(d.category||'기타')}::${escapeField2(d.link||'')}::${escapeField2(d.memo)}::${d.date||''}`).join('||');
     try {
-      await gasPost({action:'saveDocs', docsData});
+      await gasCall({action:'deleteDoc', id});
+      docs = docs.filter(x=>x.id!==id);
       renderDocs();
       notify('삭제되었습니다.');
     } catch { notify('삭제 실패.','error'); }
   });
 }
-
 init();
 </script>
 </body>
