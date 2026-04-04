@@ -1812,7 +1812,6 @@ async function deductStock(works) {
 /* ===== 교육 자료 ===== */
 function renderDocs() {
   document.getElementById('add-doc-btn').style.display = isMaster ? 'inline-flex' : 'none';
-  // 카테고리 필터 업데이트
   const sel = document.getElementById('docs-category-filter');
   const curCat = sel.value;
   const cats = [...new Set(docs.map(d=>d.category||'기타'))].sort();
@@ -1834,20 +1833,19 @@ function renderDocs() {
   const typeBorder = {link:'#bfdbfe', youtube:'#fecaca', pdf:'#bbf7d0', memo:'#fde68a'};
 
   let h = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;">';
-  let h = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;">';
   filtered.forEach(d => {
     const isMemo = (d.type === 'memo') || !d.link;
     const memoText = (d.memo || '').replace(/\[BR\]/g, '\n');
     const memoHtml = memoText ? memoText.replace(/\n/g, '<br>') : '';
     const bg = typeBg[d.type] || 'var(--surface)';
-    const border = typeBorder[d.type] || 'var(--border)';
-    h += `<div style="background:${isMemo?bg:'var(--surface)'};border:1px solid ${isMemo?border:'var(--border)'};border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;">
+    const border2 = typeBorder[d.type] || 'var(--border)';
+    h += `<div style="background:${isMemo?bg:'var(--surface)'};border:1px solid ${isMemo?border2:'var(--border)'};border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
         <span style="font-size:11px;background:rgba(0,0,0,.06);padding:3px 9px;border-radius:99px;color:var(--text2);font-weight:600;">${d.category||'기타'}</span>
         <span style="font-size:12px;color:var(--text3);">${typeIcon[d.type]||'🔗'} ${typeLabel[d.type]||'링크'}</span>
       </div>
       <div style="font-size:15px;font-weight:700;margin-bottom:${memoHtml?'10px':'0'};line-height:1.4;color:var(--text);">${d.title}</div>
-      ${memoHtml?`<div style="font-size:13px;color:var(--text2);line-height:1.8;flex:1;white-space:pre-wrap;">${memoHtml}</div>`:''}
+      ${memoHtml?`<div style="font-size:13px;color:var(--text2);line-height:1.8;flex:1;">${memoHtml}</div>`:''}
       <div style="display:flex;gap:6px;margin-top:12px;">
         ${d.link?`<a href="${d.link}" target="_blank" class="btn btn-sm btn-primary" style="flex:1;text-align:center;text-decoration:none;">열기</a>`:''}
         ${isMaster?`<button class="btn btn-sm btn-danger" onclick="deleteDoc('${d.id}')">삭제</button>`:''}
@@ -1857,7 +1855,6 @@ function renderDocs() {
   h += '</div>';
   el.innerHTML = h;
 }
-
 function openAddDocModal() {
   document.getElementById('doc-title').value = '';
   document.getElementById('doc-category').value = '';
