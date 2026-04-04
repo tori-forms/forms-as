@@ -1837,8 +1837,7 @@ function renderDocs() {
   filtered.forEach(d => {
     const isMemo = d.type === 'memo' || !d.link;
     const memoHtml = d.memo
-      ? d.memo.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/
-/g,'<br>')
+      ? d.memo.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')
       : '';
     const bg = typeBg[d.type] || 'var(--surface)';
     const border = typeBorder[d.type] || 'var(--border)';
