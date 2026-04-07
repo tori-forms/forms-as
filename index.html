@@ -172,6 +172,10 @@ tr:hover td{background:var(--surface2);}
 .cheer-emoji{font-size:32px;margin-bottom:6px;}
 .cheer-name{font-size:16px;font-weight:700;color:var(--text);margin-bottom:2px;}
 .cheer-msg{font-size:13px;color:var(--text2);}
+.part-qty-row{display:flex;align-items:center;justify-content:space-between;margin-top:6px;font-size:12px;color:var(--text2);}
+.qty-btn{width:24px;height:24px;border:1px solid var(--border2);border-radius:4px;background:var(--surface);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:background .15s;flex-shrink:0;}
+.qty-btn:hover{background:var(--surface2);}
+.qty-num{min-width:20px;text-align:center;font-weight:600;font-size:13px;}
 </style>
 </head>
 <body>
@@ -538,16 +542,55 @@ tr:hover td{background:var(--surface2);}
 </div>
 
 <script>
-const GAS = 'https://script.google.com/macros/s/AKfycbwW6EmvZyqPhwpVGiOiKc2Xm_4HFBLSojo0YiBWTkAs4HEhRoKXZAnqVA44YqKcqE0BGg/exec';
+const GAS = 'https://script.google.com/macros/s/AKfycbw2osEf9Dj4egWCcyfRztc8KabtjsSnCEy2W5BmqOXnSMCnsKZTMfXLzRJx2W-r8AeHFQ/exec';
 const HOLIDAY_KEY = 'f52c0659526679a86d04083efd86dff68943cae2fa05a623ff8606b79f3f6814';
 const MASTER_NAME = '최민규';
 
 const WORKS = {
-  pcb:    { label:'PCB 교체 (+S/N 라이팅)',               price:15180 },
-  panel:  { label:'일체형 패널 교체 (액정 보호필름 부착)', price:10450 },
-  board:  { label:'메인보드 부분 수리 (충전단자 포함)',     price:10450 },
-  nonbat: { label:'논배터리 작업',                         price:18700 },
+  pcb:    { label:'PCB 교체 (+S/N 라이팅)',               price:15180,
+    parts: [{name:'PCB', qty:1}] },
+  panel:  { label:'일체형 패널 교체 (액정 보호필름 부착)', price:10450,
+    parts: [{name:'All in one LCD panel', qty:1}] },
+  board:  { label:'메인보드 부분 수리 (충전단자 포함)',     price:10450,
+    parts: [] },
+  nonbat: { label:'논배터리 작업',                         price:18700,
+    parts: [
+      {name:'Non battery sub-board', qty:1},
+      {name:'Button fpc board', qty:1},
+      {name:'Wire (sub+fpc)', qty:1},
+      {name:'LCD Fpc cable', qty:1, modelOnly:'S2PRO'},
+      {name:'Back cover', qty:1}
+    ] },
 };
+
+// 부품 수량 상태 (수리 항목 키 → 부품명 → 수량)
+let partQtys = {};
+function initPartQtys() {
+  partQtys = {};
+  Object.entries(WORKS).forEach(([k, v]) => {
+    partQtys[k] = {};
+    (v.parts||[]).forEach(p => { partQtys[k][p.name] = p.qty; });
+  });
+}
+function getPartsData() {
+  const checked = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
+  const model = getModel();
+  const result = {};
+  checked.forEach(k => {
+    (WORKS[k].parts||[]).forEach(p => {
+      if(p.modelOnly && p.modelOnly !== model) return;
+      const qty = partQtys[k]?.[p.name] ?? p.qty;
+      if(qty > 0) result[p.name] = (result[p.name]||0) + qty;
+    });
+    Object.entries(partQtys[k]||{}).forEach(([key, val]) => {
+      if(!key.startsWith('__extra_')) return;
+      const name = typeof val==='object' ? val.name : '';
+      const qty = typeof val==='object' ? val.qty : val;
+      if(name && qty > 0) result[name] = (result[name]||0) + qty;
+    });
+  });
+  return result;
+}
 const DAYS = ['일','월','화','수','목','금','토'];
 
 let entries = [], workers = [], busy = false;
@@ -614,7 +657,11 @@ async function syncData(silent=false) {
   setSyncStatus('loading');
   try {
     const data = await gasCall({action:'load'});
-    entries = (data.entries || []).map(e => ({...e, model: e.model || detectModel(String(e.serial))}));
+    entries = (data.entries || []).map(e => {
+      let parts = {};
+      if(e.parts) { try { parts = typeof e.parts==='string' ? JSON.parse(e.parts) : e.parts; } catch{} }
+      return {...e, model: e.model || detectModel(String(e.serial)), parts};
+    });
     // workers: 'name::T2' 형식 지원
     const rawWorkers = data.workers || [];
     workers = rawWorkers.map(w => String(w).split('::')[0]);
@@ -757,6 +804,13 @@ function autoDetectModel() {
     autoEl.style.display = 'none';
     manualEl.style.display = 'block';
   }
+  // 모델 변경 시 체크박스 상태 유지하며 부품 목록 재렌더
+  const checked = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
+  buildChecks();
+  checked.forEach(k => {
+    const inp = document.querySelector(`#wc-${k} input`);
+    if(inp){ inp.checked = true; document.getElementById('wc-'+k).classList.add('checked'); renderPartQtys(k); }
+  });
 }
 function getModel() {
   const auto = document.getElementById('model-auto').textContent;
@@ -789,6 +843,13 @@ function autoDetectModel() {
     autoEl.style.display = 'none';
     manualEl.style.display = 'block';
   }
+  // 모델 변경 시 체크박스 상태 유지하며 부품 목록 재렌더
+  const checked = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
+  buildChecks();
+  checked.forEach(k => {
+    const inp = document.querySelector(`#wc-${k} input`);
+    if(inp){ inp.checked = true; document.getElementById('wc-'+k).classList.add('checked'); renderPartQtys(k); }
+  });
 }
 function getModel() {
   const auto = document.getElementById('model-auto').textContent;
@@ -885,13 +946,98 @@ function switchTab(name, btn) {
 
 /* 체크박스 */
 function buildChecks() {
-  document.getElementById('work-checks').innerHTML = Object.entries(WORKS).map(([k,v])=>`
-    <label class="work-check" id="wc-${k}">
-      <input type="checkbox" value="${k}" onchange="toggleCheck('${k}');updatePP()">
-      <div><div class="work-check-name">${v.label}</div><div class="work-check-price">${fmt(v.price)}원</div></div>
-    </label>`).join('');
+  initPartQtys();
+  const model = getModel();
+  document.getElementById('work-checks').innerHTML = Object.entries(WORKS).map(([k,v])=>{
+    const visibleParts = (v.parts||[]).filter(p => !p.modelOnly || p.modelOnly === model);
+    return `<div class="work-check" id="wc-${k}" onclick="event.stopPropagation();">
+      <input type="checkbox" value="${k}" style="margin-top:4px;accent-color:var(--accent);width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="toggleCheck('${k}');updatePP();renderPartQtys('${k}')">
+      <div style="flex:1;">
+        <div class="work-check-name">${v.label}</div>
+        <div class="work-check-price">${fmt(v.price)}원</div>
+        <div id="parts-${k}" style="display:none;margin-top:10px;border-top:1px dashed var(--border2);padding-top:10px;">
+          ${visibleParts.map(p=>`
+            <div class="part-qty-row">
+              <span style="color:var(--text2);">${p.name}${p.modelOnly?` <span style="font-size:10px;color:var(--accent);">(${p.modelOnly})</span>`:''}</span>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <button class="qty-btn" type="button" onclick="changeQty('${k}','${p.name}',-1)">−</button>
+                <span class="qty-num" id="qty-${k}-${p.name.replace(/[^a-zA-Z0-9]/g,'_')}">${p.qty}</span>
+                <button class="qty-btn" type="button" onclick="changeQty('${k}','${p.name}',1)">+</button>
+              </div>
+            </div>`).join('')}
+          <div id="extra-parts-${k}"></div>
+          <div style="margin-top:8px;">
+            <button type="button" onclick="addExtraPart('${k}')" style="font-size:11px;color:var(--accent);background:none;border:1px dashed var(--accent);border-radius:4px;padding:3px 8px;cursor:pointer;">+ 부품 추가</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
 }
-const toggleCheck = k => document.getElementById('wc-'+k).classList.toggle('checked', document.querySelector(`#wc-${k} input`).checked);
+const toggleCheck = k => {
+  const checked = document.querySelector(`#wc-${k} input`).checked;
+  document.getElementById('wc-'+k).classList.toggle('checked', checked);
+  renderPartQtys(k);
+};
+function renderPartQtys(k) {
+  const checked = document.querySelector(`#wc-${k} input`)?.checked;
+  const partsEl = document.getElementById('parts-'+k);
+  if(partsEl) partsEl.style.display = checked ? 'block' : 'none';
+}
+function changeQty(workKey, partName, delta) {
+  if(!partQtys[workKey]) partQtys[workKey] = {};
+  const cur = partQtys[workKey][partName] ?? (WORKS[workKey].parts||[]).find(p=>p.name===partName)?.qty ?? 1;
+  const newVal = Math.max(0, cur + delta);
+  partQtys[workKey][partName] = newVal;
+  const safeKey = partName.replace(/[^a-zA-Z0-9]/g,'_');
+  const el = document.getElementById('qty-'+workKey+'-'+safeKey);
+  if(el) el.textContent = newVal;
+  updatePP();
+}
+let extraPartCounters = {};
+function addExtraPart(workKey) {
+  if(!extraPartCounters[workKey]) extraPartCounters[workKey] = 0;
+  const idx = extraPartCounters[workKey]++;
+  const id = `extra-${workKey}-${idx}`;
+  const el = document.getElementById('extra-parts-'+workKey);
+  if(!el) return;
+  const div = document.createElement('div');
+  div.id = id;
+  div.className = 'part-qty-row';
+  div.style.marginTop = '6px';
+  div.innerHTML = `
+    <input type="text" placeholder="부품명" id="extraname-${id}"
+      style="flex:1;height:26px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:4px;outline:none;"
+      oninput="syncExtraPart('${workKey}','${id}')">
+    <div style="display:flex;align-items:center;gap:4px;margin-left:8px;">
+      <button class="qty-btn" type="button" onclick="changeExtraQty('${workKey}','${id}',-1)">−</button>
+      <span class="qty-num" id="extraqty-${id}">1</span>
+      <button class="qty-btn" type="button" onclick="changeExtraQty('${workKey}','${id}',1)">+</button>
+      <button type="button" onclick="removeExtraPart('${workKey}','${id}')" style="margin-left:4px;font-size:12px;color:var(--red-text);background:none;border:none;cursor:pointer;">✕</button>
+    </div>`;
+  el.appendChild(div);
+  if(!partQtys[workKey]) partQtys[workKey] = {};
+  partQtys[workKey]['__extra_'+id] = {name:'', qty:1};
+}
+function syncExtraPart(workKey, id) {
+  const name = document.getElementById('extraname-'+id)?.value.trim()||'';
+  if(!partQtys[workKey]) partQtys[workKey] = {};
+  const cur = partQtys[workKey]['__extra_'+id]||{name:'',qty:1};
+  partQtys[workKey]['__extra_'+id] = {name, qty:cur.qty};
+}
+function changeExtraQty(workKey, id, delta) {
+  if(!partQtys[workKey]) partQtys[workKey] = {};
+  const cur = partQtys[workKey]['__extra_'+id]||{name:'',qty:1};
+  const newVal = Math.max(0, cur.qty+delta);
+  partQtys[workKey]['__extra_'+id] = {name:cur.name, qty:newVal};
+  const el = document.getElementById('extraqty-'+id);
+  if(el) el.textContent = newVal;
+}
+function removeExtraPart(workKey, id) {
+  document.getElementById(id)?.remove();
+  if(partQtys[workKey]) delete partQtys[workKey]['__extra_'+id];
+}
+
 function updatePP() {
   const cs = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
   document.getElementById('price-preview').textContent = cs.length ? `공임비 합계: ${fmt(cs.reduce((s,k)=>s+WORKS[k].price,0))}원` : '';
@@ -899,7 +1045,15 @@ function updatePP() {
 const getChecked = ()=>[...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
 function clearChecks() {
   document.querySelectorAll('#work-checks input').forEach(c=>c.checked=false);
-  Object.keys(WORKS).forEach(k=>document.getElementById('wc-'+k).classList.remove('checked'));
+  Object.keys(WORKS).forEach(k=>{
+    document.getElementById('wc-'+k).classList.remove('checked');
+    const partsEl = document.getElementById('parts-'+k);
+    if(partsEl) partsEl.style.display = 'none';
+    const extraEl = document.getElementById('extra-parts-'+k);
+    if(extraEl) extraEl.innerHTML = '';
+  });
+  extraPartCounters = {};
+  initPartQtys();
   updatePP();
 }
 
@@ -947,8 +1101,9 @@ async function addEntry() {
     const id = Date.now(), date = new Date().toISOString();
     const total = works.reduce((s,k)=>s+WORKS[k].price, 0);
     const model = getModel();
-    await gasCall({action:'add', id, worker, serial, works:JSON.stringify(works), total, date, note, model});
-    entries.push({id, worker, serial, works, total, date, note, model});
+    const parts = JSON.stringify(getPartsData());
+    await gasCall({action:'add', id, worker, serial, works:JSON.stringify(works), total, date, note, model, parts});
+    entries.push({id, worker, serial, works, total, date, note, model, parts:getPartsData()});
     document.getElementById('inp-serial').value = '';
     document.getElementById('inp-note').value = '';
     document.getElementById('inp-model').value = '';
@@ -1182,10 +1337,10 @@ async function renderSummary() {
     const blockId = 'wb-'+w.replace(/\s/g,'_');
     const tbl = wl.length
       ? `<div class="table-wrap"><table>
-          <thead><tr><th>시리얼 번호</th><th>기종</th><th>수리 항목</th><th>특이사항</th><th style="text-align:right">공임비</th></tr></thead>
+          <thead><tr><th>기종</th><th>시리얼 번호</th><th>수리 항목</th><th>특이사항</th><th style="text-align:right">공임비</th></tr></thead>
           <tbody>${wl.map(e=>{const ws=parseWorks(e.works);return`<tr>
-            <td class="mono">${e.serial}</td>
             <td><span style="font-size:10px;font-weight:700;background:${e.model==='S2PRO'?'#ede9fe':'#dbeafe'};color:${e.model==='S2PRO'?'#6d28d9':'#1d4ed8'};padding:2px 7px;border-radius:99px;">${e.model||'-'}</span></td>
+            <td class="mono">${e.serial}</td>
             <td>${ws.map(k=>`<span class="tag">${WORKS[k]?.label||k}</span>`).join('')}</td>
             <td>${e.note?`<span class="note-badge" title="${e.note}">${e.note}</span>`:'<span style="color:var(--text3);font-size:11px;">-</span>'}</td>
             <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fmt(e.total)}원</td>
@@ -1323,14 +1478,15 @@ async function renderHistory() {
       <span class="date-group-meta">${dl.length}건 · ${fmt(dr)}원</span>
     </div>
     <div class="card" style="padding:0;margin-bottom:8px;"><div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>시리얼 번호</th><th>기종</th><th>엔지니어</th><th>수리 항목</th><th>특이사항</th><th style="text-align:right">공임비</th><th>등록 시각</th><th></th></tr></thead>
+      <thead><tr><th>#</th><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>특이사항</th><th>사용 부품</th><th style="text-align:right">공임비</th><th>등록 시각</th><th></th></tr></thead>
       <tbody>${dl.map((e,i)=>{const ws=parseWorks(e.works);return`<tr>
         <td style="color:var(--text3);width:36px;">${i+1}</td>
-        <td class="mono">${e.serial}</td>
         <td><span style="font-size:11px;font-weight:700;background:${e.model==='S2PRO'?'#ede9fe':'#dbeafe'};color:${e.model==='S2PRO'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${e.model||'-'}</span></td>
+        <td class="mono">${e.serial}</td>
         <td>${e.worker}</td>
         <td>${ws.map(k=>`<span class="tag">${WORKS[k]?.label||k}</span>`).join('')}</td>
         <td>${e.note?`<span class="note-badge" title="${e.note}">${e.note}</span>`:'<span style="color:var(--text3);font-size:11px;">-</span>'}</td>
+        <td style="font-size:11px;color:var(--text2);">${e.parts&&Object.keys(e.parts).length?Object.entries(e.parts).map(([n,q])=>`${n}×${q}`).join(', '):'-'}</td>
         <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fmt(e.total)}원</td>
         <td style="color:var(--text3);font-size:11px;font-family:'JetBrains Mono',monospace;white-space:nowrap;">${fmtDT(e.date)}</td>
         <td><button class="btn btn-sm" onclick="openEditModal(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>수정</button></td>
@@ -1772,10 +1928,11 @@ function exportCSV(mode) {
     fn = `폼즈AS_${sel}.csv`;
   }
   if(!rows.length){ notify('내보낼 데이터가 없습니다.','error'); return; }
-  const hd = '번호,날짜,엔지니어,기종,시리얼번호,수리항목,공임비(원),특이사항,등록시각';
+  const hd = '번호,날짜,엔지니어,기종,시리얼번호,수리항목,사용부품,공임비(원),특이사항,등록시각';
   const ls = rows.map((e,i)=>{
     const ws = parseWorks(e.works);
-    return `${i+1},${String(e.date).slice(0,10)},${e.worker},${e.model||'-'},${e.serial},"${ws.map(k=>WORKS[k]?.label||k).join(' / ')}",${e.total},"${e.note||''}",${fmtDT(e.date)}`;
+    const partsStr = e.parts&&Object.keys(e.parts).length ? Object.entries(e.parts).map(([n,q])=>`${n}×${q}`).join(' / ') : '-';
+    return `${i+1},${String(e.date).slice(0,10)},${e.worker},${e.model||'-'},${e.serial},"${ws.map(k=>WORKS[k]?.label||k).join(' / ')}","${partsStr}",${e.total},"${e.note||''}",${fmtDT(e.date)}`;
   });
   const totalRev = rows.reduce((s,e)=>s+Number(e.total),0);
   const summary = `,,,,합계,${totalRev},,`;
