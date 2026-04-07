@@ -661,7 +661,11 @@ async function syncData(silent=false) {
     entries = (data.entries || []).map(e => {
       let parts = {};
       if(e.parts) { try { parts = typeof e.parts==='string' ? JSON.parse(e.parts) : e.parts; } catch{} }
-      return {...e, model: e.model || detectModel(String(e.serial)), parts};
+      // 구버전 기종명 자동 변환
+      let model = e.model || detectModel(String(e.serial));
+      if(model === 'S2') model = 'S2_N';
+      if(model === 'S2PRO') model = 'S2PRO_N';
+      return {...e, model, parts};
     });
     // workers: 'name::T2' 형식 지원
     const rawWorkers = data.workers || [];
