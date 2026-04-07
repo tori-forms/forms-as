@@ -955,7 +955,7 @@ function buildChecks() {
   const model = getModel();
   document.getElementById('work-checks').innerHTML = Object.entries(WORKS).map(([k,v])=>{
     const visibleParts = (v.parts||[]).filter(p => !p.modelOnly || p.modelOnly === model);
-    return `<label class="work-check" id="wc-${k}" onclick="handleWorkClick(event,'${k}')">
+    return `<label class="work-check" id="wc-${k}" style="cursor:pointer;">
       <input type="checkbox" value="${k}" style="margin-top:4px;accent-color:var(--accent);width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="toggleCheck('${k}');updatePP();renderPartQtys('${k}')">
       <div style="flex:1;">
         <div class="work-check-name">${v.label}</div>
@@ -970,25 +970,19 @@ function buildChecks() {
             <div class="part-qty-row">
               <span style="color:var(--text2);">${p.name}${p.modelOnly?` <span style="font-size:10px;color:var(--accent);">(${p.modelOnly})</span>`:''}</span>
               <div style="display:flex;align-items:center;gap:6px;">
-                <button class="qty-btn" type="button" onclick="changeQty('${k}','${p.name}',-1)">−</button>
+                <button class="qty-btn" type="button" onclick="event.preventDefault();event.stopPropagation();changeQty('${k}','${p.name}',-1)">−</button>
                 <span class="qty-num" id="qty-${k}-${p.name.replace(/[^a-zA-Z0-9]/g,'_')}">${p.qty}</span>
-                <button class="qty-btn" type="button" onclick="changeQty('${k}','${p.name}',1)">+</button>
+                <button class="qty-btn" type="button" onclick="event.preventDefault();event.stopPropagation();changeQty('${k}','${p.name}',1)">+</button>
               </div>
             </div>`).join('')}
           <div id="extra-parts-${k}"></div>
           <div style="margin-top:8px;">
-            <button type="button" onclick="addExtraPart('${k}')" style="font-size:11px;color:var(--accent);background:none;border:1px dashed var(--accent);border-radius:4px;padding:3px 8px;cursor:pointer;">+ 부품 추가</button>
+            <button type="button" onclick="event.preventDefault();event.stopPropagation();addExtraPart('${k}')" style="font-size:11px;color:var(--accent);background:none;border:1px dashed var(--accent);border-radius:4px;padding:3px 8px;cursor:pointer;">+ 부품 추가</button>
           </div>
         </div>
       </div>
     </label>`;
   }).join('');
-}
-function handleWorkClick(e, k) {
-  // 버튼이나 input 클릭은 기본 동작 유지
-  if(e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
-  const inp = document.querySelector(`#wc-${k} input`);
-  if(inp) { inp.checked = !inp.checked; toggleCheck(k); updatePP(); renderPartQtys(k); }
 }
 const toggleCheck = k => {
   const checked = document.querySelector(`#wc-${k} input`).checked;
@@ -1388,13 +1382,17 @@ async function renderSummary() {
     const blockId = 'wb-'+w.replace(/\s/g,'_');
     const tbl = wl.length
       ? `<div class="table-wrap"><table>
-          <thead><tr><th>기종</th><th>시리얼 번호</th><th>수리 항목</th><th>특이사항</th><th style="text-align:right">공임비</th></tr></thead>
+          <thead><tr><th>기종</th><th>시리얼 번호</th><th>수리 항목</th><th>특이사항</th><th style="text-align:right">공임비</th><th></th></tr></thead>
           <tbody>${wl.map(e=>{const ws=parseWorks(e.works);return`<tr>
             <td><span style="font-size:10px;font-weight:700;background:${e.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${e.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 7px;border-radius:99px;">${e.model||'-'}</span></td>
             <td class="mono">${e.serial}</td>
             <td>${ws.map(k=>`<span class="tag">${WORKS[k]?.label||k}</span>`).join('')}</td>
             <td>${e.note?`<span class="note-badge" title="${e.note}">${e.note}</span>`:'<span style="color:var(--text3);font-size:11px;">-</span>'}</td>
             <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fmt(e.total)}원</td>
+            <td style="display:flex;gap:4px;">
+              <button class="btn btn-sm" onclick="openEditModal(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>수정</button>
+              <button class="btn btn-sm btn-danger" onclick="delEntry(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>삭제</button>
+            </td>
           </tr>`;}).join('')}</tbody></table></div>`
       : '<div class="empty" style="padding:20px;">수리 내역 없음</div>';
     return `<div class="worker-block" ${isMe?'style="border-color:var(--accent);border-width:2px;"':''}>
@@ -1529,7 +1527,7 @@ async function renderHistory() {
       <span class="date-group-meta">${dl.length}건 · ${fmt(dr)}원</span>
     </div>
     <div class="card" style="padding:0;margin-bottom:8px;"><div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>특이사항</th><th>사용 부품</th><th style="text-align:right">공임비</th><th>등록 시각</th><th></th></tr></thead>
+      <thead><tr><th>#</th><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>특이사항</th><th>사용 부품</th><th style="text-align:right">공임비</th><th></th></tr></thead>
       <tbody>${dl.map((e,i)=>{const ws=parseWorks(e.works);return`<tr>
         <td style="color:var(--text3);width:36px;">${i+1}</td>
         <td><span style="font-size:11px;font-weight:700;background:${e.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${e.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${e.model||'-'}</span></td>
@@ -1539,9 +1537,10 @@ async function renderHistory() {
         <td>${e.note?`<span class="note-badge" title="${e.note}">${e.note}</span>`:'<span style="color:var(--text3);font-size:11px;">-</span>'}</td>
         <td style="font-size:11px;color:var(--text2);">${e.parts&&Object.keys(e.parts).length?Object.entries(e.parts).map(([n,q])=>`${n}×${q}`).join(', '):'-'}</td>
         <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fmt(e.total)}원</td>
-        <td style="color:var(--text3);font-size:11px;font-family:'JetBrains Mono',monospace;white-space:nowrap;">${fmtDT(e.date)}</td>
-        <td><button class="btn btn-sm" onclick="openEditModal(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>수정</button></td>
-        <td><button class="btn btn-sm btn-danger" onclick="delEntryH(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>삭제</button></td>
+        <td style="display:flex;gap:4px;">
+          <button class="btn btn-sm" onclick="openEditModal(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>수정</button>
+          <button class="btn btn-sm btn-danger" onclick="delEntryH(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>삭제</button>
+        </td>
       </tr>`;}).join('')}</tbody>
     </table></div></div>`;
   });
