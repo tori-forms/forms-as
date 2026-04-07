@@ -559,7 +559,7 @@ const WORKS = {
       {name:'Button fpc board', qty:1},
       {name:'Wire (sub+fpc)', qty:1},
       {name:'Power cable 5 Pin', qty:1},
-      {name:'LCD Fpc cable', qty:1, modelOnly:'S2PRO'},
+      {name:'LCD Fpc cable', qty:1, modelOnly:'S2PRO_N'},
       {name:'Back cover', qty:1}
     ] },
 };
@@ -786,8 +786,8 @@ function detectModel(serial) {
   const s = serial.toUpperCase();
   if(!s.startsWith('TO')) return '';
   const num = parseInt(s.slice(2,6));
-  if(num >= 2208 && num <= 2309) return 'S2';
-  if(num >= 2310 && num <= 2505) return 'S2PRO';
+  if(num >= 2208 && num <= 2309) return 'S2_N';
+  if(num >= 2310 && num <= 2505) return 'S2PRO_N';
   return '';
 }
 function autoDetectModel() {
@@ -825,8 +825,8 @@ function detectModel(serial) {
   const s = serial.toUpperCase();
   if(!s.startsWith('TO')) return '';
   const num = parseInt(s.slice(2,6));
-  if(num >= 2208 && num <= 2309) return 'S2';
-  if(num >= 2310 && num <= 2505) return 'S2PRO';
+  if(num >= 2208 && num <= 2309) return 'S2_N';
+  if(num >= 2310 && num <= 2505) return 'S2PRO_N';
   return '';
 }
 function autoDetectModel() {
@@ -1380,7 +1380,7 @@ async function renderSummary() {
       ? `<div class="table-wrap"><table>
           <thead><tr><th>기종</th><th>시리얼 번호</th><th>수리 항목</th><th>특이사항</th><th style="text-align:right">공임비</th></tr></thead>
           <tbody>${wl.map(e=>{const ws=parseWorks(e.works);return`<tr>
-            <td><span style="font-size:10px;font-weight:700;background:${e.model==='S2PRO'?'#ede9fe':'#dbeafe'};color:${e.model==='S2PRO'?'#6d28d9':'#1d4ed8'};padding:2px 7px;border-radius:99px;">${e.model||'-'}</span></td>
+            <td><span style="font-size:10px;font-weight:700;background:${e.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${e.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 7px;border-radius:99px;">${e.model||'-'}</span></td>
             <td class="mono">${e.serial}</td>
             <td>${ws.map(k=>`<span class="tag">${WORKS[k]?.label||k}</span>`).join('')}</td>
             <td>${e.note?`<span class="note-badge" title="${e.note}">${e.note}</span>`:'<span style="color:var(--text3);font-size:11px;">-</span>'}</td>
@@ -1522,7 +1522,7 @@ async function renderHistory() {
       <thead><tr><th>#</th><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>특이사항</th><th>사용 부품</th><th style="text-align:right">공임비</th><th>등록 시각</th><th></th></tr></thead>
       <tbody>${dl.map((e,i)=>{const ws=parseWorks(e.works);return`<tr>
         <td style="color:var(--text3);width:36px;">${i+1}</td>
-        <td><span style="font-size:11px;font-weight:700;background:${e.model==='S2PRO'?'#ede9fe':'#dbeafe'};color:${e.model==='S2PRO'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${e.model||'-'}</span></td>
+        <td><span style="font-size:11px;font-weight:700;background:${e.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${e.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${e.model||'-'}</span></td>
         <td class="mono">${e.serial}</td>
         <td>${e.worker}</td>
         <td>${ws.map(k=>`<span class="tag">${WORKS[k]?.label||k}</span>`).join('')}</td>
@@ -1556,7 +1556,7 @@ function doSearch() {
           <div style="font-size:12px;color:var(--text2);font-family:'JetBrains Mono',monospace;margin-top:2px;">${fmt(e.total)}원</div>
         </div>
       </div>
-      <div style="margin-bottom:6px;">${e.model?`<span style="font-size:11px;font-weight:700;background:${e.model==='S2PRO'?'#ede9fe':'#dbeafe'};color:${e.model==='S2PRO'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;margin-right:4px;">${e.model}</span>`:''}</div>
+      <div style="margin-bottom:6px;">${e.model?`<span style="font-size:11px;font-weight:700;background:${e.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${e.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;margin-right:4px;">${e.model}</span>`:''}</div>
       <div style="margin-bottom:8px;">${ws.map(k=>`<span class="tag">${WORKS[k]?.label||k}</span>`).join('')}</div>
       ${e.note?`<div style="font-size:12px;color:var(--amber-text);background:var(--amber-bg);padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:8px;">📝 ${e.note}</div>`:''}
       <div style="display:flex;gap:6px;">
