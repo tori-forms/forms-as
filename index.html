@@ -1367,7 +1367,8 @@ async function renderSummary() {
     return cb - ca;
   });
 
-  we.innerHTML = sortedWorkers.map(w=>{
+  const activeToday = sortedWorkers.filter(w => list.filter(e=>e.worker===w).length > 0);
+  we.innerHTML = activeToday.map(w=>{
     const wl = list.filter(e=>e.worker===w);
     const cnt = wl.length, wrev = wl.reduce((s,e)=>s+Number(e.total),0);
     const target = dailyTarget || 0;
@@ -1537,7 +1538,7 @@ async function renderHistory() {
         <td>${e.note?`<span class="note-badge" title="${e.note}">${e.note}</span>`:'<span style="color:var(--text3);font-size:11px;">-</span>'}</td>
         <td style="font-size:11px;color:var(--text2);">${e.parts&&Object.keys(e.parts).length?Object.entries(e.parts).map(([n,q])=>`${n}×${q}`).join(', '):'-'}</td>
         <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fmt(e.total)}원</td>
-        <td style="display:flex;gap:4px;">
+        <td style="white-space:nowrap;">
           <button class="btn btn-sm" onclick="openEditModal(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>수정</button>
           <button class="btn btn-sm btn-danger" onclick="delEntryH(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>삭제</button>
         </td>
