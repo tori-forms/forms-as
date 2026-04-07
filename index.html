@@ -558,6 +558,7 @@ const WORKS = {
       {name:'Non battery sub-board', qty:1},
       {name:'Button fpc board', qty:1},
       {name:'Wire (sub+fpc)', qty:1},
+      {name:'Power cable 5 Pin', qty:1},
       {name:'LCD Fpc cable', qty:1, modelOnly:'S2PRO'},
       {name:'Back cover', qty:1}
     ] },
@@ -1313,8 +1314,8 @@ async function renderSummary() {
   // 목표 달성 축하 체크
   checkAchievements(list, dailyTarget, activeWorkers);
 
-  // 본인 먼저, 나머지 수리 많은 순 정렬
-  const sortedWorkers = [...activeWorkers].sort((a, b) => {
+  // 본인 먼저, 나머지 수리 많은 순 정렬 (최민규 포함 전체 표시)
+  const sortedWorkers = [...workers].sort((a, b) => {
     if(a === currentUser) return -1;
     if(b === currentUser) return 1;
     const ca = list.filter(e=>e.worker===a).length;
@@ -1330,7 +1331,7 @@ async function renderSummary() {
     const pct = target ? Math.min(100, Math.round(cnt/target*100)) : 0;
     const isMe = w === currentUser;
     let bc,bt,pc;
-    if(!target){bc='badge-blue';bt='KPI 미설정';pc='prog-ok';}
+    if(!target){bc='badge-blue';bt=(w===MASTER_NAME?'관리자':'KPI 미설정');pc='prog-ok';}
     else if(diff>0){bc='badge-over';bt=`${diff}건 초과`;pc='prog-over';}
     else if(diff<0){bc='badge-under';bt=`${Math.abs(diff)}건 미달`;pc='prog-under';}
     else{bc='badge-ok';bt='목표 달성';pc='prog-ok';}
