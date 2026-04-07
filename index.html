@@ -956,6 +956,11 @@ function buildChecks() {
       <div style="flex:1;">
         <div class="work-check-name">${v.label}</div>
         <div class="work-check-price">${fmt(v.price)}원</div>
+        ${visibleParts.length > 0 ? `<div style="margin-top:8px;">
+          <button type="button" id="parts-toggle-${k}" onclick="togglePartsSection('${k}')" style="font-size:11px;color:var(--text2);background:none;border:1px solid var(--border2);border-radius:4px;padding:3px 8px;cursor:pointer;display:none;">
+            ▼ 부품 보기 (${visibleParts.length}개)
+          </button>
+        </div>` : ''}
         <div id="parts-${k}" style="display:none;margin-top:10px;border-top:1px dashed var(--border2);padding-top:10px;">
           ${visibleParts.map(p=>`
             <div class="part-qty-row">
@@ -983,7 +988,42 @@ const toggleCheck = k => {
 function renderPartQtys(k) {
   const checked = document.querySelector(`#wc-${k} input`)?.checked;
   const partsEl = document.getElementById('parts-'+k);
-  if(partsEl) partsEl.style.display = checked ? 'block' : 'none';
+  const toggleBtn = document.getElementById('parts-toggle-'+k);
+  const model = getModel();
+  const visibleParts = (WORKS[k]?.parts||[]).filter(p => !p.modelOnly || p.modelOnly === model);
+
+  if(!checked) {
+    if(partsEl) partsEl.style.display = 'none';
+    if(toggleBtn) toggleBtn.style.display = 'none';
+    return;
+  }
+
+  if(visibleParts.length <= 1) {
+    // 부품 0~1개: 그냥 바로 펼침, 토글 없음
+    if(partsEl) partsEl.style.display = 'block';
+    if(toggleBtn) toggleBtn.style.display = 'none';
+  } else {
+    // 부품 2개 이상: 토글 버튼 표시, 기본 접힘
+    if(toggleBtn) {
+      toggleBtn.style.display = 'inline-block';
+      const isOpen = partsEl && partsEl.style.display === 'block';
+      toggleBtn.textContent = isOpen ? `▲ 부품 숨기기` : `▼ 부품 보기 (${visibleParts.length}개)`;
+    }
+    if(partsEl && partsEl.style.display !== 'block') {
+      partsEl.style.display = 'none';
+    }
+  }
+}
+
+function togglePartsSection(k) {
+  const partsEl = document.getElementById('parts-'+k);
+  const toggleBtn = document.getElementById('parts-toggle-'+k);
+  const model = getModel();
+  const visibleParts = (WORKS[k]?.parts||[]).filter(p => !p.modelOnly || p.modelOnly === model);
+  if(!partsEl) return;
+  const isOpen = partsEl.style.display === 'block';
+  partsEl.style.display = isOpen ? 'none' : 'block';
+  if(toggleBtn) toggleBtn.textContent = isOpen ? `▼ 부품 보기 (${visibleParts.length}개)` : `▲ 부품 숨기기`;
 }
 function changeQty(workKey, partName, delta) {
   if(!partQtys[workKey]) partQtys[workKey] = {};
