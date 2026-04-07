@@ -76,7 +76,7 @@ textarea::placeholder{color:var(--text3);}
 
 .table-wrap{overflow-x:auto;}
 table{width:100%;border-collapse:collapse;}
-th{font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;padding:8px 12px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap;}
+th{font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;padding:8px 12px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap;vertical-align:middle;}
 td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle;font-size:13px;}
 tr:last-child td{border-bottom:none;}
 tr:hover td{background:var(--surface2);}
@@ -955,7 +955,7 @@ function buildChecks() {
   const model = getModel();
   document.getElementById('work-checks').innerHTML = Object.entries(WORKS).map(([k,v])=>{
     const visibleParts = (v.parts||[]).filter(p => !p.modelOnly || p.modelOnly === model);
-    return `<div class="work-check" id="wc-${k}" onclick="event.stopPropagation();">
+    return `<label class="work-check" id="wc-${k}" onclick="handleWorkClick(event,'${k}')">
       <input type="checkbox" value="${k}" style="margin-top:4px;accent-color:var(--accent);width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="toggleCheck('${k}');updatePP();renderPartQtys('${k}')">
       <div style="flex:1;">
         <div class="work-check-name">${v.label}</div>
@@ -981,8 +981,14 @@ function buildChecks() {
           </div>
         </div>
       </div>
-    </div>`;
+    </label>`;
   }).join('');
+}
+function handleWorkClick(e, k) {
+  // 버튼이나 input 클릭은 기본 동작 유지
+  if(e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+  const inp = document.querySelector(`#wc-${k} input`);
+  if(inp) { inp.checked = !inp.checked; toggleCheck(k); updatePP(); renderPartQtys(k); }
 }
 const toggleCheck = k => {
   const checked = document.querySelector(`#wc-${k} input`).checked;
