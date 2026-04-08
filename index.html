@@ -1722,13 +1722,9 @@ function exportReportCSV() {
   });
   ls.push(`합계,${totalDone},${monthKPI||'-'},${monthKPI?pct+'%':'-'},${totalRev}`);
 
-  const csvContent2 = [hd,...ls].join('\n');
-  const encoder2 = new TextEncoder();
-  const buf2 = encoder2.encode('\uFEFF' + csvContent2);
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([buf2],{type:'text/csv;charset=utf-8;'}));
-  a.download = `폼즈AS_실적리포트_${monthVal}.csv`;
-  a.click(); notify('실적 리포트 CSV 내보내기 완료!');
+  const csvContent2 = [hd,...ls].join('\r\n');
+  downloadCSV(csvContent2, `폼즈AS_실적리포트_${monthVal}.csv`);
+  notify('실적 리포트 CSV 내보내기 완료!');
 }
 
 /* ===== KPI 설정 ===== */
@@ -1992,13 +1988,24 @@ function exportCSV(mode) {
   });
   const totalRev = rows.reduce((s,e)=>s+Number(e.total),0);
   const summary = `,,,,합계,${totalRev},,`;
-  const csvContent = [hd,...ls,summary].join('\n');
-  // EUC-KR 인코딩으로 변환 (엑셀 호환)
-  const encoder = new TextEncoder();
-  const buf = encoder.encode('\uFEFF' + csvContent);
+  // EUC-KR로 인코딩 (엑셀에서 한글 깨짐 방지)
+  const csvContent = [hd,...ls,summary].join('\r\n');
+  downloadCSV(csvContent, fn);
+  notify('CSV 내보내기 완료!');
+}
+
+function downloadCSV(content, filename) {
+  // UTF-8 BOM 방식
+  const bom = '\uFEFF';
+  const blob = new Blob([bom + content], {type: 'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([buf],{type:'text/csv;charset=utf-8;'}));
-  a.download = fn; a.click(); notify('CSV 내보내기 완료!');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 
