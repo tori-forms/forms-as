@@ -1722,8 +1722,11 @@ function exportReportCSV() {
   });
   ls.push(`합계,${totalDone},${monthKPI||'-'},${monthKPI?pct+'%':'-'},${totalRev}`);
 
+  const csvContent2 = [hd,...ls].join('\n');
+  const encoder2 = new TextEncoder();
+  const buf2 = encoder2.encode('\uFEFF' + csvContent2);
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob(['﻿'+[hd,...ls].join('\n')],{type:'text/csv'}));
+  a.href = URL.createObjectURL(new Blob([buf2],{type:'text/csv;charset=utf-8;'}));
   a.download = `폼즈AS_실적리포트_${monthVal}.csv`;
   a.click(); notify('실적 리포트 CSV 내보내기 완료!');
 }
@@ -1989,8 +1992,12 @@ function exportCSV(mode) {
   });
   const totalRev = rows.reduce((s,e)=>s+Number(e.total),0);
   const summary = `,,,,합계,${totalRev},,`;
+  const csvContent = [hd,...ls,summary].join('\n');
+  // EUC-KR 인코딩으로 변환 (엑셀 호환)
+  const encoder = new TextEncoder();
+  const buf = encoder.encode('\uFEFF' + csvContent);
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob(['﻿'+[hd,...ls,summary].join('\n')],{type:'text/csv'}));
+  a.href = URL.createObjectURL(new Blob([buf],{type:'text/csv;charset=utf-8;'}));
   a.download = fn; a.click(); notify('CSV 내보내기 완료!');
 }
 
