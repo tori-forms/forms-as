@@ -205,6 +205,7 @@ tr:hover td{background:var(--surface2);}
   <button class="nav-btn" onclick="switchTab('stock',this)">재고 관리</button>
   <button class="nav-btn" onclick="switchTab('docs',this)">교육 자료</button>
   <button class="nav-btn" onclick="switchTab('shipping',this)">출고 관리</button>
+  <button class="nav-btn client-only-tab" onclick="switchTab('shipview',this)">출고 현황</button>
 </nav>
 
 <div class="main">
@@ -370,6 +371,17 @@ tr:hover td{background:var(--surface2);}
       </div>
     </div>
     <div id="stock-content"></div>
+  </div>
+
+  <!-- 출고 현황 (고객사용) -->
+  <div id="tab-shipview" class="section">
+    <div class="section-header">
+      <span class="section-title">📦 출고 현황</span>
+      <button class="btn btn-sm btn-primary" onclick="exportShipviewXlsx()">엑셀 내보내기</button>
+    </div>
+    <div id="shipview-content">
+      <div class="empty">데이터를 불러오는 중...</div>
+    </div>
   </div>
 
   <!-- 출고 관리 -->
@@ -758,6 +770,10 @@ async function syncData(silent=false) {
     // 출고 이력도 같이 로드
     if(data.shipLog) {
       shipHistory = data.shipLog;
+      // 출고현황 탭이 열려있으면 갱신
+      if(document.getElementById('tab-shipview')?.style.display !== 'none') {
+        renderShipview();
+      }
     }
     docs = (data.docs || []).map(d => ({
       ...d,
@@ -1242,8 +1258,15 @@ function renderShipHistory() {
   let h = '';
   Object.keys(groups).sort((a,b)=>b.localeCompare(a)).forEach(date => {
     const list = groups[date];
+    const fmtDateH = s => {
+      if(!s || s==='미확인') return '날짜 미확인';
+      const d = new Date(s);
+      if(isNaN(d)) return s;
+      const days = ['일','월','화','수','목','금','토'];
+      return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
+    };
     h += `<div class="date-group-header">
-      <span class="date-group-title">${dateLabel(date)}</span>
+      <span class="date-group-title">${fmtDateH(date)}</span>
       <span class="date-group-meta">${list.length}건 출고</span>
     </div>
     <div class="card" style="padding:0;margin-bottom:8px;">
@@ -1263,6 +1286,149 @@ function renderShipHistory() {
     </div>`;
   });
   el.innerHTML = h;
+}
+
+/* ===== 출고 현황 (고객사용) ===== */
+function renderShipview() {
+  const el = document.getElementById('shipview-content');
+  if(!el) return;
+  if(!shipHistory.length) {
+    el.innerHTML = '<div class="empty" style="padding:40px;">출고 이력이 없습니다.</div>';
+    return;
+  }
+
+  // 출고일별 그룹핑
+  const groups = {};
+  shipHistory.forEach(h => {
+    const key = h.shipDate ? h.shipDate.slice(0,10) : '미확인';
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(h);
+  });
+
+  const fmt2 = n => String(n).padStart(2,'0');
+  const fmtDate = s => {
+    if(!s) return '-';
+    const d = new Date(s);
+    if(isNaN(d)) return s;
+    const days = ['일','월','화','수','목','금','토'];
+    return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
+  };
+
+  let html2 = '';
+  Object.keys(groups).sort((a,b) => b.localeCompare(a)).forEach(date => {
+    const list = groups[date];
+    const totalFee = list.reduce((s,x) => {
+      const e = entries.find(en => String(en.serial) === String(x.serial));
+      return s + (e ? Number(e.total) : 0);
+    }, 0);
+
+    html2 += `<div style="margin-bottom:24px;">
+      <div class="date-group-header">
+        <span class="date-group-title" style="font-size:15px;font-weight:700;">${fmtDate(date)}</span>
+        <span class="date-group-meta">${list.length}건 · 공임비 합계 ${fmt(totalFee)}원</span>
+      </div>
+      <div class="card" style="padding:0;">
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>#</th><th>기종</th><th>시리얼 번호</th><th>수리 항목</th>
+            <th style="text-align:right">공임비</th>
+            <th style="text-align:right">부품비</th>
+            <th style="text-align:right">합계</th>
+          </tr></thead>
+          <tbody>${list.map((x,i) => {
+            const e = entries.find(en => String(en.serial) === String(x.serial));
+            const fee = e ? Number(e.total) : 0;
+            const works = e ? e.works : '[]';
+            return `<tr>
+              <td style="text-align:center;color:var(--text3);">${i+1}</td>
+              <td><span style="font-size:11px;font-weight:700;background:${x.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.model||'-'}</span></td>
+              <td class="mono">${x.serial}</td>
+              <td>${workTags(works)}</td>
+              <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fee?fmt(fee)+' 원':'-'}</td>
+              <td style="text-align:right;color:var(--text3);font-size:12px;">-</td>
+              <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:12px;">${fee?fmt(fee)+' 원':'-'}</td>
+            </tr>`;
+          }).join('')}</tbody>
+          <tfoot><tr>
+            <td colspan="4" style="font-weight:700;padding:10px 12px;">합계</td>
+            <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;">${fmt(totalFee)} 원</td>
+            <td style="text-align:right;color:var(--text3);">-</td>
+            <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;">${fmt(totalFee)} 원</td>
+          </tr></tfoot>
+        </table></div>
+      </div>
+    </div>`;
+  });
+  el.innerHTML = html2;
+}
+
+function exportShipviewXlsx() {
+  if(!shipHistory.length) { notify('출고 이력이 없습니다.', 'error'); return; }
+
+  const groups = {};
+  shipHistory.forEach(h => {
+    const key = h.shipDate ? h.shipDate.slice(0,10) : '미확인';
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(h);
+  });
+
+  const wb = XLSX.utils.book_new();
+  const fmtDate2 = s => {
+    if(!s) return '-';
+    const d = new Date(s);
+    if(isNaN(d)) return s;
+    const days = ['일','월','화','수','목','금','토'];
+    return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일(${days[d.getDay()]})`;
+  };
+
+  Object.keys(groups).sort((a,b) => b.localeCompare(a)).forEach(date => {
+    const list = groups[date];
+    const rows = [['#','기종','시리얼번호','수리항목','공임비(원)','부품비(원)','합계(원)']];
+    let totalFee = 0;
+    list.forEach((x, i) => {
+      const e = entries.find(en => String(en.serial) === String(x.serial));
+      const fee = e ? Number(e.total) : 0;
+      const ws2 = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k).join(' / ') : '-';
+      totalFee += fee;
+      rows.push([i+1, x.model||'-', x.serial, ws2, fee, '', fee]);
+    });
+    rows.push(['합계','','','',totalFee,'',totalFee]);
+
+    const ws3 = XLSX.utils.aoa_to_sheet(rows);
+    ws3['!cols'] = [5,10,18,35,12,12,12].map(w=>({wch:w}));
+    const sheetName = date.replace(/-/g,'').slice(2); // 260411
+    XLSX.utils.book_append_sheet(wb, ws3, sheetName);
+  });
+
+  XLSX.writeFile(wb, `출고현황_${new Date().toISOString().slice(0,10)}.xlsx`);
+  notify('출고현황 엑셀 내보내기 완료!');
+}
+
+/* ===== 고객사 모드 ===== */
+function initClientMode() {
+  // URL에 ?mode=client 있으면 고객사 모드
+  const params = new URLSearchParams(window.location.search);
+  if(params.get('mode') !== 'client') return;
+
+  // 헤더 타이틀 변경
+  document.querySelector('.header-title') && (document.querySelector('.header-title').textContent = 'AS 출고 현황');
+
+  // 고객사 모드: 출고현황 탭만 보이게
+  document.querySelectorAll('.nav-btn').forEach(btn => btn.style.display = 'none');
+  const shipviewBtn = document.querySelector('[onclick*="shipview"]');
+  if(shipviewBtn) {
+    shipviewBtn.style.display = 'flex';
+    shipviewBtn.style.pointerEvents = 'none'; // 탭 이동 불가
+  }
+
+  // 로그인 버튼 숨기기
+  const loginArea = document.querySelector('.header-right');
+  if(loginArea) loginArea.style.display = 'none';
+
+  // 출고현황 탭으로 바로 이동
+  document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
+  const shipviewTab = document.getElementById('tab-shipview');
+  if(shipviewTab) shipviewTab.style.display = 'block';
 }
 
 function exportShippingXlsx() {
@@ -1308,6 +1474,7 @@ function init() {
   setRangeMonth();
   buildChecks();
   syncData();
+  initClientMode();
   // 출고 날짜 기본값: 오늘
   const shipDateEl = document.getElementById('ship-date');
   if(shipDateEl) shipDateEl.value = todayStr();
@@ -1328,6 +1495,7 @@ function switchTab(name, btn) {
   if(name==='stock') renderStock();
   if(name==='docs') renderDocs();
   if(name==='shipping') { initShipping(); }
+  if(name==='shipview') { renderShipview(); }
 }
 
 /* 체크박스 */
