@@ -979,9 +979,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const sd = document.getElementById('ship-date');
   const st = document.getElementById('ship-time');
   const ah = document.getElementById('aging-hours');
-  if(sd) sd.addEventListener('change', updateDeadline);
-  if(st) st.addEventListener('change', updateDeadline);
-  if(ah) ah.addEventListener('input', updateDeadline);
+  if(sd) sd.addEventListener('change', renderShipping);
+  if(st) st.addEventListener('change', renderShipping);
+  if(ah) ah.addEventListener('input', renderShipping);
 });
 
 /* 삭제 권한 체크 */
@@ -1067,19 +1067,26 @@ function renderShipping() {
 
   // 출고 가능 테이블
   h += `<div class="card" style="padding:0;margin-bottom:12px;">
-    <div style="padding:12px 18px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);">
-      <span style="font-size:13px;font-weight:700;color:var(--green);">✅ 출고 가능 (${ok.filter(x=>!x.excluded).length}건)</span>
+    <div style="padding:12px 18px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px;">
+      <span style="font-size:13px;font-weight:700;color:var(--green);">✅ 출고 가능 (${activeOk.length}건)</span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-sm btn-danger" id="exclude-selected-btn" style="display:none;" onclick="excludeSelected()">선택 제외</button>
+        <button class="btn btn-sm btn-primary" id="restore-selected-btn" style="display:none;" onclick="restoreSelected()">선택 복원</button>
+      </div>
     </div>
     <div class="table-wrap"><table>
-      <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>특이사항</th><th></th></tr></thead>
-      <tbody>${ok.map((x,i) => `<tr style="${x.excluded?'opacity:.35;':''}">
+      <thead><tr>
+        <th style="width:36px;text-align:center;"><input type="checkbox" id="ship-all-check" style="accent-color:var(--accent);" onchange="toggleAllShip(this.checked)"></th>
+        <th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>특이사항</th>
+      </tr></thead>
+      <tbody>${ok.map((x,i) => `<tr style="${x.excluded?'opacity:.35;background:#fef2f2;':''}">
+        <td style="text-align:center;"><input type="checkbox" class="ship-row-check" data-idx="${i}" style="accent-color:var(--accent);" onchange="onShipCheckChange()"></td>
         <td><span style="font-size:11px;font-weight:700;background:${x.entry.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.entry.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.entry.model||'-'}</span></td>
         <td class="mono">${x.entry.serial}</td>
         <td>${x.entry.worker}</td>
         <td>${workTags(x.entry.works)}</td>
         <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
-        <td style="font-size:12px;color:var(--amber-text);">${x.entry.note||'-'}</td>
-        <td><button class="btn btn-sm ${x.excluded?'btn-primary':'btn-danger'}" onclick="toggleShipOk(${i})">${x.excluded?'복원':'제외'}</button></td>
+        <td style="font-size:12px;color:${x.entry.note?'var(--amber-text)':'var(--text3)'};">${x.entry.note||'-'}</td>
       </tr>`).join('')}</tbody>
     </table></div>
   </div>`;
@@ -1109,10 +1116,32 @@ function renderShipping() {
   resultEl.innerHTML = h;
 }
 
-function toggleShipOk(i) {
-  window._shipOk[i].excluded = !window._shipOk[i].excluded;
-  const ok = window._shipOk;
-  const activeCount = ok.filter(x=>!x.excluded).length;
+function toggleAllShip(checked) {
+  document.querySelectorAll('.ship-row-check').forEach(cb => { cb.checked = checked; });
+  onShipCheckChange();
+}
+
+function onShipCheckChange() {
+  const checked = document.querySelectorAll('.ship-row-check:checked');
+  const excludeBtn = document.getElementById('exclude-selected-btn');
+  const restoreBtn = document.getElementById('restore-selected-btn');
+  if(excludeBtn) excludeBtn.style.display = checked.length ? 'inline-flex' : 'none';
+  if(restoreBtn) restoreBtn.style.display = checked.length ? 'inline-flex' : 'none';
+}
+
+function excludeSelected() {
+  document.querySelectorAll('.ship-row-check:checked').forEach(cb => {
+    const i = parseInt(cb.dataset.idx);
+    if(window._shipOk[i]) window._shipOk[i].excluded = true;
+  });
+  renderShipping();
+}
+
+function restoreSelected() {
+  document.querySelectorAll('.ship-row-check:checked').forEach(cb => {
+    const i = parseInt(cb.dataset.idx);
+    if(window._shipOk[i]) window._shipOk[i].excluded = false;
+  });
   renderShipping();
 }
 
@@ -1269,7 +1298,7 @@ function init() {
   // 출고 날짜 기본값: 오늘
   const shipDateEl = document.getElementById('ship-date');
   if(shipDateEl) shipDateEl.value = todayStr();
-  updateDeadline();
+  renderShipping();
 }
 
 /* 탭 */
