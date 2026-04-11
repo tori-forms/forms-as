@@ -1004,15 +1004,15 @@ function initShipping() {
 }
 
 function renderShipping() {
-  const dateVal = document.getElementById('ship-date').value;
-  const timeVal = document.getElementById('ship-time').value || '12:00';
-  const agingH = Number(document.getElementById('aging-hours').value) || 24;
+  const dateVal = document.getElementById('ship-date')?.value;
+  const timeVal = document.getElementById('ship-time')?.value || '12:00';
+  const agingH = Number(document.getElementById('aging-hours')?.value) || 24;
   const deadlineEl = document.getElementById('ship-deadline');
   const resultEl = document.getElementById('shipping-result');
 
   if(!dateVal) {
-    deadlineEl.textContent = '날짜를 선택하세요';
-    resultEl.innerHTML = '';
+    if(deadlineEl) deadlineEl.textContent = '날짜를 선택하세요';
+    if(resultEl) resultEl.innerHTML = '';
     return;
   }
 
@@ -1022,12 +1022,11 @@ function renderShipping() {
   const fmt2 = n => String(n).padStart(2,'0');
   const fmtDT2 = d => `${d.getFullYear()}.${fmt2(d.getMonth()+1)}.${fmt2(d.getDate())} ${fmt2(d.getHours())}:${fmt2(d.getMinutes())}`;
 
-  deadlineEl.textContent = `${fmtDT2(deadlineDT)} 이전 등록 → 출고 가능`;
+  if(deadlineEl) deadlineEl.textContent = `${fmtDT2(deadlineDT)} 이전 등록 → 출고 가능`;
 
-  // 이미 출고된 시리얼 목록
+  // 이미 출고된 시리얼 제외
   const shippedSerials = new Set(shipHistory.map(h => h.serial));
 
-  // 전체 entries에서 분류 (출고된 것 제외)
   const ok = [];
   const hold = [];
 
@@ -1041,21 +1040,24 @@ function renderShipping() {
     }
   });
 
-  // ok는 등록 최신순 정렬
   ok.sort((a,b) => b.repairDT - a.repairDT);
   hold.sort((a,b) => b.repairDT - a.repairDT);
 
   window._shipOk = ok;
   window._shipHold = hold;
 
-  document.getElementById('shipping-export-btn').style.display = ok.filter(x=>!x.excluded).length ? 'inline-flex' : 'none';
+  const activeCount = ok.filter(x=>!x.excluded).length;
+
+  // 상단 버튼 표시
+  const exportBtn = document.getElementById('shipping-export-btn');
   const completeBtn = document.getElementById('shipping-complete-btn');
-  if(completeBtn) completeBtn.style.display = ok.filter(x=>!x.excluded).length ? 'inline-flex' : 'none';
+  if(exportBtn) exportBtn.style.display = activeCount ? 'inline-flex' : 'none';
+  if(completeBtn) completeBtn.style.display = activeCount ? 'inline-flex' : 'none';
 
   let h = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
     <div class="stat-card" style="border-left:4px solid var(--green);">
       <div class="stat-label">출고 가능</div>
-      <div class="stat-val" style="color:var(--green);">${ok.filter(x=>!x.excluded).length}<span style="font-size:14px;color:var(--text2);font-weight:400;">건</span></div>
+      <div class="stat-val" style="color:var(--green);">${activeCount}<span style="font-size:14px;color:var(--text2);font-weight:400;">건</span></div>
       <div class="stat-sub">${fmtDT2(deadlineDT)} 이전 등록</div>
     </div>
     <div class="stat-card" style="border-left:4px solid var(--amber);">
@@ -1068,7 +1070,7 @@ function renderShipping() {
   // 출고 가능 테이블
   h += `<div class="card" style="padding:0;margin-bottom:12px;">
     <div style="padding:12px 18px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px;">
-      <span style="font-size:13px;font-weight:700;color:var(--green);">✅ 출고 가능 (${activeOk.length}건)</span>
+      <span style="font-size:13px;font-weight:700;color:var(--green);">✅ 출고 가능 (${activeCount}건)</span>
       <div style="display:flex;gap:8px;align-items:center;">
         <button class="btn btn-sm btn-danger" id="exclude-selected-btn" style="display:none;" onclick="excludeSelected()">선택 제외</button>
         <button class="btn btn-sm btn-primary" id="restore-selected-btn" style="display:none;" onclick="restoreSelected()">선택 복원</button>
@@ -1106,15 +1108,16 @@ function renderShipping() {
           <td>${workTags(x.entry.works)}</td>
           <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
           <td style="font-size:11px;color:var(--amber-text);white-space:nowrap;">${fmtDT2(x.agingEndDT)}</td>
-          <td style="font-size:12px;color:var(--amber-text);">${x.entry.note||'-'}</td>
+          <td style="font-size:12px;color:${x.entry.note?'var(--amber-text)':'var(--text3)'};">${x.entry.note||'-'}</td>
           <td><button class="btn btn-sm btn-primary" onclick="moveToOk(${i})">출고 추가</button></td>
         </tr>`).join('')}</tbody>
       </table></div>
     </div>`;
   }
 
-  resultEl.innerHTML = h;
+  if(resultEl) resultEl.innerHTML = h;
 }
+
 
 function toggleAllShip(checked) {
   document.querySelectorAll('.ship-row-check').forEach(cb => { cb.checked = checked; });
