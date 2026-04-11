@@ -585,7 +585,7 @@ tr:hover td{background:var(--surface2);}
     <div class="modal-msg" id="modal-msg"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">취소</button>
-      <button class="btn btn-danger" id="modal-ok">삭제</button>
+      <button class="btn btn-primary" id="modal-ok">확인</button>
     </div>
   </div>
 </div>
@@ -838,9 +838,12 @@ function notify(msg, type='success') {
 
 /* 모달 */
 let mcb;
-function openModal(title, msg, cb) {
+function openModal(title, msg, cb, okText='확인', okClass='btn-primary') {
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-msg').textContent = msg;
+  const okBtn = document.getElementById('modal-ok');
+  okBtn.textContent = okText;
+  okBtn.className = 'btn ' + okClass;
   document.getElementById('modal').classList.add('open');
   mcb = cb;
 }
@@ -1154,42 +1157,52 @@ function moveToOk(i) {
 }
 
 function completeShipping() {
-  const ok = (window._shipOk || []).filter(x => !x.excluded);
+  const ok = window._shipOk || [];
   if(!ok.length) { notify('출고 가능 목록이 없습니다.', 'error'); return; }
   const dateVal = document.getElementById('ship-date').value;
   const timeVal = document.getElementById('ship-time').value || '12:00';
   const shipDTStr = `${dateVal}T${timeVal}:00`;
   const shipLabel = `${dateVal} ${timeVal}`;
 
-  openModal('출고 완료 처리',
-    `${ok.length}건을 ${shipLabel} 출고 완료 처리할까요?
-출고 이력에 기록되고 다음 출고탭에서 제외됩니다.`,
+  openModal(
+    '출고 완료 처리',
+    `${ok.length}건을 ${shipLabel} 출고 완료 처리할까요? 출고 이력에 기록되고 다음 출고탭에서 제외됩니다.`,
     async () => {
       try {
+        let done = 0;
         for(const x of ok) {
           await gasCall({
             action: 'addShipLog',
             serial: x.entry.serial,
             shipDate: shipDTStr,
-            worker: x.entry.worker,
+            worker: x.entry.worker || '',
             model: x.entry.model || '',
-            works: JSON.stringify(parseWorks(x.entry.works).map(k=>WORKS[k]?.tag||k))
+            works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k))
           });
+          done++;
         }
-        shipHistory = [...shipHistory, ...ok.map(x => ({
-          serial: x.entry.serial,
-          shipDate: shipDTStr,
-          worker: x.entry.worker,
-          model: x.entry.model || '',
-          works: parseWorks(x.entry.works)
-        }))];
-        notify(`${ok.length}건 출고 완료 처리되었습니다!`);
+        // 로컬 이력에 추가
+        ok.forEach(x => {
+          shipHistory.push({
+            serial: x.entry.serial,
+            shipDate: shipDTStr,
+            worker: x.entry.worker || '',
+            model: x.entry.model || '',
+            works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k))
+          });
+        });
+        // 출고 완료된 것 목록 초기화
+        window._shipOk = null;
+        window._shipHold = null;
+        notify(`${done}건 출고 완료 처리되었습니다!`);
         renderShipping();
         renderShipHistory();
-      } catch(e) {
-        notify('저장 실패: ' + e.message, 'error');
+      } catch(err) {
+        notify('저장 실패: ' + (err.message || err), 'error');
       }
-    }
+    },
+    '출고 완료',
+    'btn-primary'
   );
 }
 
