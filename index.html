@@ -378,43 +378,29 @@ tr:hover td{background:var(--surface2);}
       <span class="section-title">📦 출고 관리</span>
       <button class="btn btn-sm btn-primary" onclick="exportShippingXlsx()" id="shipping-export-btn" style="display:none;">엑셀 내보내기</button>
     </div>
-
-    <!-- 출고 설정 -->
     <div class="card">
-      <div class="card-title">출고 설정</div>
+      <div class="card-title">출고 기준 설정</div>
       <div class="form-row" style="align-items:flex-end;gap:16px;">
         <div class="form-group">
           <label class="form-label">출고 날짜/시간</label>
           <div style="display:flex;gap:8px;align-items:center;">
-            <input type="date" id="ship-date" style="width:160px;">
-            <input type="time" id="ship-time" value="12:00" style="width:110px;height:38px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:14px;outline:none;">
+            <input type="date" id="ship-date" style="width:160px;" onchange="renderShipping()">
+            <input type="time" id="ship-time" value="12:00" style="width:110px;height:38px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:14px;outline:none;" onchange="renderShipping()">
           </div>
         </div>
         <div class="form-group">
           <label class="form-label">에이징 시간</label>
           <div style="display:flex;align-items:center;gap:8px;">
-            <input type="text" id="aging-hours" value="24" style="width:70px;text-align:center;">
+            <input type="text" id="aging-hours" value="24" style="width:70px;text-align:center;" oninput="renderShipping()">
             <span style="font-size:13px;color:var(--text2);">시간</span>
           </div>
         </div>
         <div class="form-group" style="flex:1;">
-          <label class="form-label">수리 등록 마감 시간</label>
-          <div id="ship-deadline" style="font-size:13px;font-weight:600;color:var(--accent);padding:8px 0;">날짜/시간을 선택하세요</div>
+          <label class="form-label">수리 마감 기준</label>
+          <div id="ship-deadline" style="font-size:13px;font-weight:600;color:var(--green);padding:8px 0;">-</div>
         </div>
       </div>
     </div>
-
-    <!-- S/N 입력 -->
-    <div class="card">
-      <div class="card-title">시리얼 번호 목록 입력</div>
-      <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">카톤 S/N 목록을 붙여넣으세요. 숫자+S/N 형식 또는 S/N만 있어도 됩니다.</div>
-      <textarea id="ship-serials" placeholder="예시:&#10;1 TO2310FB3309&#10;2 TO2311FB01580&#10;TO2312GB06707" style="min-height:160px;font-family:'JetBrains Mono',monospace;font-size:12px;" oninput="updateDeadline()"></textarea>
-      <div style="margin-top:12px;display:flex;gap:8px;">
-        <button class="btn btn-primary" onclick="analyzeShipping()">🔍 분석하기</button>
-        <button class="btn" onclick="document.getElementById('ship-serials').value='';document.getElementById('shipping-result').innerHTML='';document.getElementById('shipping-export-btn').style.display='none';">초기화</button>
-      </div>
-    </div>
-
     <div id="shipping-result"></div>
   </div>
 
@@ -979,225 +965,161 @@ function canDelete(entry) {
 
 
 /* ===== 출고 관리 ===== */
-let shippingData = { ok: [], hold: [], notFound: [] };
-
 function initShipping() {
-  const shipDateEl = document.getElementById('ship-date');
-  if(shipDateEl && !shipDateEl.value) shipDateEl.value = todayStr();
-  updateDeadline();
+  if(!document.getElementById('ship-date').value) {
+    document.getElementById('ship-date').value = todayStr();
+  }
+  renderShipping();
 }
 
-function updateDeadline() {
-  const date = document.getElementById('ship-date')?.value;
-  const time = document.getElementById('ship-time')?.value || '12:00';
-  const hours = Number(document.getElementById('aging-hours')?.value) || 24;
-  const el = document.getElementById('ship-deadline');
-  if(!el) return;
-  if(!date) { el.textContent = '날짜/시간을 선택하세요'; return; }
-  const shipDT = new Date(`${date}T${time}:00`);
-  const deadline = new Date(shipDT.getTime() - hours * 3600000);
-  const dd = deadline;
-  const fmt2 = n => String(n).padStart(2,'0');
-  el.textContent = `${dd.getFullYear()}.${fmt2(dd.getMonth()+1)}.${fmt2(dd.getDate())} ${fmt2(dd.getHours())}:${fmt2(dd.getMinutes())} 이전 등록 → 출고 가능`;
-  el.style.color = 'var(--green)';
-}
+function renderShipping() {
+  const dateVal = document.getElementById('ship-date').value;
+  const timeVal = document.getElementById('ship-time').value || '12:00';
+  const agingH = Number(document.getElementById('aging-hours').value) || 24;
+  const deadlineEl = document.getElementById('ship-deadline');
+  const resultEl = document.getElementById('shipping-result');
 
-function parseSerialInput(text) {
-  // "1 TO2310FB3309" 또는 "TO2310FB3309" 형식 파싱
-  const lines = text.split(/[
+  if(!dateVal) {
+    deadlineEl.textContent = '날짜를 선택하세요';
+    resultEl.innerHTML = '';
+    return;
+  }
 
-]+/).map(l => l.trim()).filter(Boolean);
-  const serials = [];
-  lines.forEach(line => {
-    // 숫자 + 공백 + 시리얼 or 시리얼만
-    const match = line.match(/(?:^\d+\s+)?(TO[\w]+)/i);
-    if(match) serials.push(match[1].toUpperCase());
-  });
-  return [...new Set(serials)];
-}
+  const shipDT = new Date(`${dateVal}T${timeVal}:00`);
+  const deadlineDT = new Date(shipDT.getTime() - agingH * 3600000);
 
-function analyzeShipping() {
-  const date = document.getElementById('ship-date').value;
-  const time = document.getElementById('ship-time').value || '12:00';
-  const hours = Number(document.getElementById('aging-hours').value) || 24;
-  const text = document.getElementById('ship-serials').value;
-
-  if(!date) { notify('출고 날짜를 선택하세요.', 'error'); return; }
-  if(!text.trim()) { notify('시리얼 번호를 입력하세요.', 'error'); return; }
-
-  const shipDT = new Date(`${date}T${time}:00`);
-  const deadline = new Date(shipDT.getTime() - hours * 3600000);
-  const inputSerials = parseSerialInput(text);
-
-  const ok = [], hold = [], notFound = [];
-
-  inputSerials.forEach((serial, idx) => {
-    const entry = entries.find(e => String(e.serial).toUpperCase() === serial);
-    if(!entry) {
-      notFound.push({ no: idx+1, serial });
-    } else {
-      const repairDT = new Date(entry.date);
-      if(repairDT <= deadline) {
-        ok.push({ no: idx+1, serial, entry, repairDT, excluded: false });
-      } else {
-        hold.push({ no: idx+1, serial, entry, repairDT, reason: '에이징 미완료' });
-      }
-    }
-  });
-
-  shippingData = { ok, hold, notFound };
-  renderShippingResult(deadline, shipDT);
-}
-
-function renderShippingResult(deadline, shipDT) {
-  const { ok, hold, notFound } = shippingData;
   const fmt2 = n => String(n).padStart(2,'0');
   const fmtDT2 = d => `${d.getFullYear()}.${fmt2(d.getMonth()+1)}.${fmt2(d.getDate())} ${fmt2(d.getHours())}:${fmt2(d.getMinutes())}`;
 
-  const activeOk = ok.filter(x => !x.excluded);
-  document.getElementById('shipping-export-btn').style.display = activeOk.length ? 'inline-flex' : 'none';
+  deadlineEl.textContent = `${fmtDT2(deadlineDT)} 이전 등록 → 출고 가능`;
 
-  let h = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+  // 전체 entries에서 분류
+  const ok = [];
+  const hold = [];
+
+  entries.forEach(e => {
+    const repairDT = new Date(e.date);
+    if(repairDT <= deadlineDT) {
+      ok.push({ entry: e, repairDT, excluded: false });
+    } else {
+      const agingEndDT = new Date(repairDT.getTime() + agingH * 3600000);
+      hold.push({ entry: e, repairDT, agingEndDT });
+    }
+  });
+
+  // ok는 등록 최신순 정렬
+  ok.sort((a,b) => b.repairDT - a.repairDT);
+  hold.sort((a,b) => b.repairDT - a.repairDT);
+
+  window._shipOk = ok;
+  window._shipHold = hold;
+
+  document.getElementById('shipping-export-btn').style.display = ok.length ? 'inline-flex' : 'none';
+
+  let h = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
     <div class="stat-card" style="border-left:4px solid var(--green);">
       <div class="stat-label">출고 가능</div>
-      <div class="stat-val" style="color:var(--green);">${activeOk.length}<span style="font-size:14px;color:var(--text2);">건</span></div>
+      <div class="stat-val" style="color:var(--green);">${ok.filter(x=>!x.excluded).length}<span style="font-size:14px;color:var(--text2);font-weight:400;">건</span></div>
+      <div class="stat-sub">${fmtDT2(deadlineDT)} 이전 등록</div>
     </div>
     <div class="stat-card" style="border-left:4px solid var(--amber);">
       <div class="stat-label">보류 (에이징 미완료)</div>
-      <div class="stat-val" style="color:var(--amber);">${hold.length}<span style="font-size:14px;color:var(--text2);">건</span></div>
-    </div>
-    <div class="stat-card" style="border-left:4px solid var(--red);">
-      <div class="stat-label">미등록</div>
-      <div class="stat-val" style="color:var(--red);">${notFound.length}<span style="font-size:14px;color:var(--text2);">건</span></div>
+      <div class="stat-val" style="color:var(--amber);">${hold.length}<span style="font-size:14px;color:var(--text2);font-weight:400;">건</span></div>
+      <div class="stat-sub">${fmtDT2(deadlineDT)} 이후 등록</div>
     </div>
   </div>`;
 
-  // 출고 가능 목록
+  // 출고 가능 테이블
   h += `<div class="card" style="padding:0;margin-bottom:12px;">
     <div style="padding:12px 18px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);">
-      <span style="font-size:13px;font-weight:700;color:var(--green);">✅ 출고 가능 (${activeOk.length}건)</span>
-      <span style="font-size:11px;color:var(--text3);">등록 마감: ${fmtDT2(deadline)} 이전</span>
+      <span style="font-size:13px;font-weight:700;color:var(--green);">✅ 출고 가능 (${ok.filter(x=>!x.excluded).length}건)</span>
     </div>
     <div class="table-wrap"><table>
-      <thead><tr><th>카톤</th><th>기종</th><th>시리얼 번호</th><th>수리 항목</th><th>수리 등록 시간</th><th>제외</th></tr></thead>
-      <tbody>
-        ${ok.map((x,i) => `<tr style="${x.excluded?'opacity:.4;text-decoration:line-through;':''}">
-          <td style="text-align:center;font-weight:700;">${x.no}</td>
-          <td><span style="font-size:11px;font-weight:700;background:${x.entry.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.entry.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.entry.model||'-'}</span></td>
-          <td class="mono">${x.serial}</td>
-          <td style="font-size:12px;">${parseWorks(x.entry.works).map(k=>WORKS[k]?.label||k).join(' / ')}</td>
-          <td style="font-size:11px;color:var(--text2);font-family:'JetBrains Mono',monospace;">${fmtDT2(x.repairDT)}</td>
-          <td style="text-align:center;">
-            <button class="btn btn-sm ${x.excluded?'btn-primary':'btn-danger'}" onclick="toggleShipExclude(${i})">${x.excluded?'복원':'제외'}</button>
-          </td>
-        </tr>`).join('')}
-      </tbody>
+      <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>특이사항</th><th></th></tr></thead>
+      <tbody>${ok.map((x,i) => `<tr style="${x.excluded?'opacity:.35;':''}">
+        <td><span style="font-size:11px;font-weight:700;background:${x.entry.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.entry.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.entry.model||'-'}</span></td>
+        <td class="mono">${x.entry.serial}</td>
+        <td>${x.entry.worker}</td>
+        <td style="font-size:12px;">${parseWorks(x.entry.works).map(k=>WORKS[k]?.label||k).join('<br>')}</td>
+        <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
+        <td style="font-size:12px;color:var(--amber-text);">${x.entry.note||'-'}</td>
+        <td><button class="btn btn-sm ${x.excluded?'btn-primary':'btn-danger'}" onclick="toggleShipOk(${i})">${x.excluded?'복원':'제외'}</button></td>
+      </tr>`).join('')}</tbody>
     </table></div>
   </div>`;
 
-  // 보류 목록
+  // 보류 테이블
   if(hold.length) {
-    h += `<div class="card" style="padding:0;margin-bottom:12px;">
-      <div style="padding:12px 18px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);">
-        <span style="font-size:13px;font-weight:700;color:var(--amber);">⚠️ 보류 (${hold.length}건)</span>
-        <span style="font-size:11px;color:var(--text3);">출고 기준: ${fmtDT2(shipDT)}</span>
-      </div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>카톤</th><th>기종</th><th>시리얼 번호</th><th>수리 항목</th><th>수리 등록 시간</th><th>사유</th><th>출고 추가</th></tr></thead>
-        <tbody>
-          ${hold.map((x,i) => {
-            const agingEnd = new Date(x.repairDT.getTime() + (Number(document.getElementById('aging-hours').value)||24)*3600000);
-            return `<tr>
-              <td style="text-align:center;font-weight:700;">${x.no}</td>
-              <td><span style="font-size:11px;font-weight:700;background:${x.entry.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.entry.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.entry.model||'-'}</span></td>
-              <td class="mono">${x.serial}</td>
-              <td style="font-size:12px;">${parseWorks(x.entry.works).map(k=>WORKS[k]?.label||k).join(' / ')}</td>
-              <td style="font-size:11px;color:var(--text2);font-family:'JetBrains Mono',monospace;">${fmtDT2(x.repairDT)}</td>
-              <td><span style="font-size:11px;color:var(--amber-text);background:var(--amber-bg);padding:2px 8px;border-radius:4px;">에이징 완료: ${fmtDT2(agingEnd)}</span></td>
-              <td style="text-align:center;">
-                <button class="btn btn-sm btn-primary" onclick="moveHoldToOk(${i})">출고 추가</button>
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table></div>
-    </div>`;
-  }
-
-  // 미등록 목록
-  if(notFound.length) {
     h += `<div class="card" style="padding:0;">
       <div style="padding:12px 18px;border-bottom:1px solid var(--border);">
-        <span style="font-size:13px;font-weight:700;color:var(--red);">❌ 미등록 (${notFound.length}건)</span>
+        <span style="font-size:13px;font-weight:700;color:var(--amber);">⚠️ 보류 (${hold.length}건)</span>
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>카톤</th><th>시리얼 번호</th></tr></thead>
-        <tbody>
-          ${notFound.map(x=>`<tr>
-            <td style="text-align:center;font-weight:700;">${x.no}</td>
-            <td class="mono" style="color:var(--red-text);">${x.serial}</td>
-          </tr>`).join('')}
-        </tbody>
+        <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>에이징 완료 예정</th><th>특이사항</th><th></th></tr></thead>
+        <tbody>${hold.map((x,i) => `<tr>
+          <td><span style="font-size:11px;font-weight:700;background:${x.entry.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.entry.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.entry.model||'-'}</span></td>
+          <td class="mono">${x.entry.serial}</td>
+          <td>${x.entry.worker}</td>
+          <td style="font-size:12px;">${parseWorks(x.entry.works).map(k=>WORKS[k]?.label||k).join('<br>')}</td>
+          <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
+          <td style="font-size:11px;color:var(--amber-text);white-space:nowrap;">${fmtDT2(x.agingEndDT)}</td>
+          <td style="font-size:12px;color:var(--amber-text);">${x.entry.note||'-'}</td>
+          <td><button class="btn btn-sm btn-primary" onclick="moveToOk(${i})">출고 추가</button></td>
+        </tr>`).join('')}</tbody>
       </table></div>
     </div>`;
   }
 
-  document.getElementById('shipping-result').innerHTML = h;
+  resultEl.innerHTML = h;
 }
 
-function toggleShipExclude(idx) {
-  shippingData.ok[idx].excluded = !shippingData.ok[idx].excluded;
-  const date = document.getElementById('ship-date').value;
-  const time = document.getElementById('ship-time').value || '12:00';
-  const hours = Number(document.getElementById('aging-hours').value) || 24;
-  const shipDT = new Date(`${date}T${time}:00`);
-  const deadline = new Date(shipDT.getTime() - hours * 3600000);
-  renderShippingResult(deadline, shipDT);
+function toggleShipOk(i) {
+  window._shipOk[i].excluded = !window._shipOk[i].excluded;
+  const ok = window._shipOk;
+  const activeCount = ok.filter(x=>!x.excluded).length;
+  document.getElementById('shipping-export-btn').style.display = activeCount ? 'inline-flex' : 'none';
+  // 버튼만 업데이트
+  renderShipping();
 }
 
-function moveHoldToOk(idx) {
-  const item = shippingData.hold.splice(idx, 1)[0];
+function moveToOk(i) {
+  const item = window._shipHold.splice(i, 1)[0];
   item.excluded = false;
-  shippingData.ok.push(item);
-  const date = document.getElementById('ship-date').value;
-  const time = document.getElementById('ship-time').value || '12:00';
-  const hours = Number(document.getElementById('aging-hours').value) || 24;
-  const shipDT = new Date(`${date}T${time}:00`);
-  const deadline = new Date(shipDT.getTime() - hours * 3600000);
-  renderShippingResult(deadline, shipDT);
+  window._shipOk.unshift(item);
+  renderShipping();
   notify('출고 목록에 추가되었습니다.');
 }
 
 function exportShippingXlsx() {
-  const activeOk = shippingData.ok.filter(x => !x.excluded);
-  if(!activeOk.length) { notify('출고 가능 목록이 없습니다.', 'error'); return; }
-  const date = document.getElementById('ship-date').value;
+  const ok = (window._shipOk || []).filter(x => !x.excluded);
+  if(!ok.length) { notify('출고 가능 목록이 없습니다.', 'error'); return; }
+  const dateVal = document.getElementById('ship-date').value;
+  const fmt2 = n => String(n).padStart(2,'0');
+  const fmtDT2 = d => `${d.getFullYear()}.${fmt2(d.getMonth()+1)}.${fmt2(d.getDate())} ${fmt2(d.getHours())}:${fmt2(d.getMinutes())}`;
 
-  const rows = [['카톤번호', '기종', '시리얼번호', '수리항목', '공임비(원)', '특이사항', '수리등록시간']];
-  activeOk.forEach(x => {
+  const rows = [['기종','시리얼번호','엔지니어','수리항목','공임비(원)','특이사항','수리등록시간']];
+  ok.forEach(x => {
     const ws = parseWorks(x.entry.works);
-    const fmt2 = n => String(n).padStart(2,'0');
-    const d = x.repairDT;
     rows.push([
-      x.no,
-      x.entry.model || '-',
-      x.serial,
-      ws.map(k => WORKS[k]?.label||k).join(' / '),
+      x.entry.model||'-',
+      x.entry.serial,
+      x.entry.worker,
+      ws.map(k=>WORKS[k]?.label||k).join(' / '),
       x.entry.total,
-      x.entry.note || '',
-      `${d.getFullYear()}.${fmt2(d.getMonth()+1)}.${fmt2(d.getDate())} ${fmt2(d.getHours())}:${fmt2(d.getMinutes())}`
+      x.entry.note||'',
+      fmtDT2(x.repairDT)
     ]);
   });
-  // 합계 행
-  rows.push(['합계', '', '', '', activeOk.reduce((s,x)=>s+Number(x.entry.total),0), '', '']);
+  rows.push(['합계','','','',ok.reduce((s,x)=>s+Number(x.entry.total),0),'','']);
 
   const ws2 = XLSX.utils.aoa_to_sheet(rows);
-  ws2['!cols'] = [8,10,18,50,12,40,18].map(w=>({wch:w}));
+  ws2['!cols'] = [10,18,10,50,12,40,18].map(w=>({wch:w}));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws2, '출고목록');
-  XLSX.writeFile(wb, `출고목록_${date}.xlsx`);
-  notify(`출고목록_${date}.xlsx 다운로드 완료!`);
+  XLSX.writeFile(wb, `출고목록_${dateVal}.xlsx`);
+  notify(`출고목록_${dateVal}.xlsx 다운로드 완료!`);
 }
+
 
 /* Init */
 function init() {
