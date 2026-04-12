@@ -199,13 +199,10 @@ tr:hover td{background:var(--surface2);}
   <button class="nav-btn" onclick="switchTab('summary',this)">일일 현황</button>
   <button class="nav-btn" onclick="switchTab('history',this)">전체 기록</button>
   <button class="nav-btn" onclick="switchTab('search',this)">시리얼 조회</button>
-  <button class="nav-btn" onclick="switchTab('workers',this)">엔지니어 관리</button>
-  <button class="nav-btn" onclick="switchTab('kpi',this)">KPI 설정</button>
-  <button class="nav-btn" onclick="switchTab('report',this)">실적 리포트</button>
-  <button class="nav-btn" onclick="switchTab('stock',this)">재고 관리</button>
   <button class="nav-btn" onclick="switchTab('docs',this)">교육 자료</button>
   <button class="nav-btn" onclick="switchTab('shipping',this)">출고 관리</button>
   <button class="nav-btn client-only-tab" onclick="switchTab('shipview',this)">출고 현황</button>
+  <button class="nav-btn admin-only-tab" id="nav-admin" onclick="switchTab('admin',this)" style="display:none;">⚙️ 관리자</button>
 </nav>
 
 <div class="main">
@@ -360,7 +357,7 @@ tr:hover td{background:var(--surface2);}
       </div>
     </div>
 
-    <!-- 단가 설정 -->
+    <!-- 단가 설정 (관리자 탭으로 이동) -->
     <div class="card" id="price-setting-card" style="display:none;">
       <div class="card-title">💰 단가 설정</div>
       <div style="font-size:12px;color:var(--text2);margin-bottom:16px;">공임비 및 새제품 기준 단가를 설정합니다. 변경 시 대시보드 통계에 즉시 반영됩니다.</div>
@@ -438,6 +435,90 @@ tr:hover td{background:var(--surface2);}
       </div>
     </div>
     <div id="stock-content"></div>
+  </div>
+
+  <!-- 관리자 탭 -->
+  <div id="tab-admin" class="section" style="display:none;">
+    <div class="section-title" style="margin-bottom:16px;">⚙️ 관리자</div>
+
+    <!-- 서브탭 -->
+    <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;overflow-x:auto;">
+      <button id="admtab-workers" onclick="switchAdminTab('workers')" class="admin-sub-btn active-admin-tab" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--accent);">👥 엔지니어 관리</button>
+      <button id="admtab-kpi" onclick="switchAdminTab('kpi')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">📊 KPI 설정</button>
+      <button id="admtab-report" onclick="switchAdminTab('report')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">📈 실적 리포트</button>
+      <button id="admtab-stock" onclick="switchAdminTab('stock')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">📦 재고 관리</button>
+      <button id="admtab-price" onclick="switchAdminTab('price')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">💰 단가 설정</button>
+    </div>
+
+    <!-- 각 서브탭 컨텐츠 -->
+    <div id="admin-workers"></div>
+    <div id="admin-kpi" style="display:none;"></div>
+    <div id="admin-report" style="display:none;"></div>
+    <div id="admin-stock" style="display:none;"></div>
+
+    <!-- 단가 설정 서브탭 -->
+    <div id="admin-price" style="display:none;">
+      <div class="card">
+        <div class="card-title">💰 단가 설정</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:16px;">공임비 및 새제품 기준 단가를 설정합니다. 변경 시 수리 입력 화면과 대시보드에 즉시 반영됩니다.</div>
+        <div style="margin-bottom:20px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px;">수리 항목별 공임비</div>
+          <div style="display:grid;gap:8px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:11px;font-weight:700;background:#dbeafe;color:#2563eb;padding:2px 8px;border-radius:99px;">PCB 교체</span>
+                <span style="font-size:12px;color:var(--text2);">PCB 교체 (+S/N 라이팅)</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input type="number" id="price-pcb" value="15180" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
+                <span style="font-size:12px;color:var(--text2);">원</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:11px;font-weight:700;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:99px;">LCD 교체</span>
+                <span style="font-size:12px;color:var(--text2);">일체형 패널 교체</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input type="number" id="price-panel" value="10450" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
+                <span style="font-size:12px;color:var(--text2);">원</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:11px;font-weight:700;background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:99px;">M/B 수리</span>
+                <span style="font-size:12px;color:var(--text2);">메인보드 부분 수리</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input type="number" id="price-board" value="10450" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
+                <span style="font-size:12px;color:var(--text2);">원</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:11px;font-weight:700;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;">논배터리</span>
+                <span style="font-size:12px;color:var(--text2);">논배터리 작업</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input type="number" id="price-nonbat" value="18700" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
+                <span style="font-size:12px;color:var(--text2);">원</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-bottom:16px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px;">새제품 기준 단가</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+            <div style="font-size:12px;color:var(--text2);">📦 새제품 단가 (절감 효과 계산 기준)</div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <input type="number" id="price-new-product" value="140000" style="width:110px;text-align:right;font-family:'JetBrains Mono',monospace;">
+              <span style="font-size:12px;color:var(--text2);">원</span>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="savePriceSettings()">💾 단가 저장</button>
+      </div>
+    </div>
   </div>
 
   <!-- 출고 현황 (고객사용) -->
@@ -1882,6 +1963,58 @@ function exportShippingXlsx() {
 }
 
 
+/* ===== 관리자 서브탭 ===== */
+function switchAdminTab(tab) {
+  const tabs = ['workers','kpi','report','stock','price'];
+  tabs.forEach(t => {
+    const el = document.getElementById('admin-'+t);
+    const btn = document.getElementById('admtab-'+t);
+    if(el) el.style.display = t===tab ? 'block' : 'none';
+    if(btn) {
+      if(t===tab) {
+        btn.style.borderBottom = '2px solid var(--accent)';
+        btn.style.marginBottom = '-2px';
+        btn.style.color = 'var(--accent)';
+      } else {
+        btn.style.borderBottom = 'none';
+        btn.style.marginBottom = '0';
+        btn.style.color = 'var(--text2)';
+      }
+    }
+  });
+
+  // 각 탭 렌더
+  if(tab === 'workers') renderWorkerAdmin();
+  if(tab === 'kpi') { renderKPIAdmin(); }
+  if(tab === 'report') renderReportAdmin();
+  if(tab === 'stock') renderStockAdmin();
+  if(tab === 'price') loadPriceSettings();
+}
+
+function renderWorkerAdmin() {
+  // 기존 탭의 실제 DOM을 admin 컨테이너 안으로 이동해서 보여줌
+  showTabInAdmin('tab-workers', 'admin-workers', () => renderWorkers());
+}
+function renderKPIAdmin() {
+  showTabInAdmin('tab-kpi', 'admin-kpi', () => { renderKPI(); loadPriceSettings(); });
+}
+function renderReportAdmin() {
+  showTabInAdmin('tab-report', 'admin-report', () => renderReport());
+}
+function renderStockAdmin() {
+  showTabInAdmin('tab-stock', 'admin-stock', () => renderStock());
+}
+
+function showTabInAdmin(srcTabId, destId, renderFn) {
+  const dest = document.getElementById(destId);
+  const src = document.getElementById(srcTabId);
+  if(!dest || !src) return;
+  // src 내용을 dest로 복사 (innerHTML 복사)
+  dest.innerHTML = src.innerHTML;
+  // 렌더 함수 호출
+  if(renderFn) setTimeout(renderFn, 30);
+}
+
 /* ===== 단가 설정 ===== */
 function loadPriceSettings() {
   try {
@@ -1912,6 +2045,11 @@ function savePriceSettings() {
   localStorage.setItem('formsPriceSettings', JSON.stringify({ pcb, panel, board, nonbat, newProduct: np }));
   buildChecks(); // 수리 입력 체크박스 가격 업데이트
   notify('단가 설정이 저장되었습니다!');
+}
+
+function updateAdminNav() {
+  const adminBtn = document.getElementById('nav-admin');
+  if(adminBtn) adminBtn.style.display = isMaster ? 'flex' : 'none';
 }
 
 /* Init */
@@ -1948,9 +2086,8 @@ function switchTab(name, btn) {
   if(name==='stock') renderStock();
   if(name==='docs') renderDocs();
   if(name==='shipping') { initShipping(); }
-  if(name==='shipview') {
-    setSvFilter('all');
-  }
+  if(name==='shipview') { setSvFilter('all'); }
+  if(name==='admin') { switchAdminTab('workers'); }
 }
 
 /* 체크박스 */
