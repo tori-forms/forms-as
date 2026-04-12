@@ -691,7 +691,7 @@ tr:hover td{background:var(--surface2);}
 </div>
 
 <script>
-const GAS = 'https://script.google.com/macros/s/AKfycbw6uF8W-K-f9ktPUz_hOauZnG_r7Axfz3nHjdr5J5JAcqlqRkWJfYHNKXG2e5MStZMKWQ/exec';
+const GAS = 'https://script.google.com/macros/s/AKfycbwloQnEG81FTGqfhFsTZe8YH5zY2Cwo7liYdtYsbrwqN3PDPhpq7ikHJ1n291gxM4GA0g/exec';
 const HOLIDAY_KEY = 'f52c0659526679a86d04083efd86dff68943cae2fa05a623ff8606b79f3f6814';
 const MASTER_NAME = '최민규';
 
@@ -1281,7 +1281,8 @@ function completeShipping() {
             shipDate: shipDTStr,
             worker: x.entry.worker || '',
             model: x.entry.model || '',
-            works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k))
+            works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k)),
+            fee: x.entry.total || 0  // 출고 시점 금액 고정 저장
           });
           done++;
         }
@@ -1292,7 +1293,8 @@ function completeShipping() {
             shipDate: shipDTStr,
             worker: x.entry.worker || '',
             model: x.entry.model || '',
-            works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k))
+            works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k)),
+            fee: x.entry.total || 0  // 출고 시점 금액 고정
           });
         });
         // 출고 완료된 것 목록 초기화
@@ -1461,7 +1463,9 @@ function renderShipDashboard(list) {
   // 각 항목에서 entries 매핑
   const mapped = list.map(x => {
     const e = entries.find(en => String(en.serial) === String(x.serial));
-    return { ...x, entry: e, fee: e ? Number(e.total) : 0, works: e ? parseWorks(e.works) : [] };
+    // 출고 시점 금액 우선 사용 (단가 변경에 영향 없음)
+    const fee = x.fee ? Number(x.fee) : (e ? Number(e.total) : 0);
+    return { ...x, entry: e, fee, works: e ? parseWorks(e.works) : [] };
   });
 
   const totalCount  = mapped.length;
@@ -1703,7 +1707,8 @@ function renderShipview() {
             </tr></thead>
             <tbody>${gList.map((x,i) => {
               const e = entries.find(en => String(en.serial) === String(x.serial));
-              const fee = e ? Number(e.total) : 0;
+              // 출고 시점 저장 금액 우선 사용
+              const fee = x.fee ? Number(x.fee) : (e ? Number(e.total) : 0);
               const works = e ? e.works : '[]';
               const svIdx = shipHistory.indexOf(x);
               return `<tr>
@@ -2227,7 +2232,19 @@ async function saveEdit() {
   const btn = document.getElementById('edit-ok-btn');
   btn.disabled = true; btn.textContent = '저장 중...';
   try {
-    const total = works.reduce((s,k)=>s+WORKS[k].price,0);
+    // 원본 entry의 등록 시점 단가를 유지하기 위해
+    // 수리항목이 추가/제거된 경우에만 해당 항목의 현재 단가 반영
+    // 기존에 있던 항목은 원본 total에서 계산
+    const origEntry = entries.find(x => String(x.id) === String(editTargetId));
+    const origWorks = origEntry ? parseWorks(origEntry.works) : [];
+    const origTotal = origEntry ? Number(origEntry.total) : 0;
+    // 추가된 항목: 현재 단가 더함
+    const added   = works.filter(k => !origWorks.includes(k));
+    // 제거된 항목: 원본 total에서 현재 단가 뺌
+    const removed = origWorks.filter(k => !works.includes(k));
+    const total = origTotal
+      + added.reduce((s,k) => s + (WORKS[k]?.price||0), 0)
+      - removed.reduce((s,k) => s + (WORKS[k]?.price||0), 0);
     await gasCall({action:'edit', id:editTargetId, works:JSON.stringify(works), total, note});
     const idx = entries.findIndex(x=>String(x.id)===String(editTargetId));
     if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; }
