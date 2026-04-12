@@ -1140,11 +1140,12 @@ function buildLoginGrid() {
 }
 function loginAs(name) {
   currentUser = name;
-  isMaster = false;
+  isMaster = (name === MASTER_NAME);
   document.getElementById('login-overlay').style.display = 'none';
   document.getElementById('current-user-badge').style.display = 'inline-flex';
-  document.getElementById('current-user-badge').textContent = '👨‍🔧 ' + name;
+  document.getElementById('current-user-badge').textContent = (isMaster ? '⚙️ ' : '👨‍🔧 ') + name;
   renderWorkerSel();
+  updateAdminNav();
   notify(`${name}님 안녕하세요!`);
 }
 function loginMaster() {
@@ -1156,6 +1157,7 @@ function loginMaster() {
     document.getElementById('current-user-badge').style.display = 'inline-flex';
     document.getElementById('current-user-badge').textContent = '⚙️ 마스터';
     renderWorkerSel();
+    updateAdminNav();
     notify('마스터로 로그인되었습니다.');
   } else {
     document.getElementById('login-error').textContent = '비밀번호가 틀렸습니다.';
@@ -2049,7 +2051,11 @@ function savePriceSettings() {
 
 function updateAdminNav() {
   const adminBtn = document.getElementById('nav-admin');
-  if(adminBtn) adminBtn.style.display = isMaster ? 'flex' : 'none';
+  if(adminBtn) {
+    const show = isMaster || currentUser === MASTER_NAME;
+    adminBtn.style.display = show ? 'flex' : 'none';
+    if(show && !isMaster) isMaster = true; // MASTER_NAME 로그인 시 마스터 권한 부여
+  }
 }
 
 /* Init */
