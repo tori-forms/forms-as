@@ -359,6 +359,73 @@ tr:hover td{background:var(--surface2);}
         <div id="kpi-list"></div>
       </div>
     </div>
+
+    <!-- 단가 설정 -->
+    <div class="card" id="price-setting-card" style="display:none;">
+      <div class="card-title">💰 단가 설정</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:16px;">공임비 및 새제품 기준 단가를 설정합니다. 변경 시 대시보드 통계에 즉시 반영됩니다.</div>
+
+      <!-- 수리 항목별 공임비 -->
+      <div style="margin-bottom:20px;">
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text1);">수리 항목별 공임비</div>
+        <div style="display:grid;gap:8px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:11px;font-weight:700;background:#dbeafe;color:#2563eb;padding:2px 8px;border-radius:99px;">PCB 교체</span>
+              <span style="font-size:12px;color:var(--text2);">PCB 교체 (+S/N 라이팅)</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <input type="number" id="price-pcb" value="15180" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
+              <span style="font-size:12px;color:var(--text2);">원</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:11px;font-weight:700;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:99px;">LCD 교체</span>
+              <span style="font-size:12px;color:var(--text2);">일체형 패널 교체</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <input type="number" id="price-panel" value="10450" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
+              <span style="font-size:12px;color:var(--text2);">원</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:11px;font-weight:700;background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:99px;">M/B 수리</span>
+              <span style="font-size:12px;color:var(--text2);">메인보드 부분 수리</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <input type="number" id="price-board" value="10450" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
+              <span style="font-size:12px;color:var(--text2);">원</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:11px;font-weight:700;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;">논배터리</span>
+              <span style="font-size:12px;color:var(--text2);">논배터리 작업</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <input type="number" id="price-nonbat" value="18700" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
+              <span style="font-size:12px;color:var(--text2);">원</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 새제품 기준 단가 -->
+      <div style="margin-bottom:16px;">
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text1);">새제품 기준 단가</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+          <div style="font-size:12px;color:var(--text2);">📦 새제품 단가 (절감 효과 계산 기준)</div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <input type="number" id="price-new-product" value="140000" style="width:110px;text-align:right;font-family:'JetBrains Mono',monospace;">
+            <span style="font-size:12px;color:var(--text2);">원</span>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" onclick="savePriceSettings()">💾 단가 저장</button>
+    </div>
   </div>
 
   <!-- 재고 관리 -->
@@ -1389,7 +1456,7 @@ function renderShipDashboard(list) {
   const el = document.getElementById('shipview-dash');
   if(!el) return;
 
-  const NEW_PRODUCT_PRICE = 140000; // 새제품 단가
+  const NEW_PRODUCT_PRICE = window.NEW_PRODUCT_PRICE_OVERRIDE || 140000; // 새제품 단가
 
   // 각 항목에서 entries 매핑
   const mapped = list.map(x => {
@@ -1428,26 +1495,44 @@ function renderShipDashboard(list) {
     </div>
   </div>
   <!-- 2행: 절감 효과 하이라이트 -->
-  <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);border-radius:16px;padding:20px 24px;margin-bottom:20px;color:#fff;">
-    <div style="font-size:12px;font-weight:600;opacity:.7;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">새제품 대비 절감 효과 (새제품 단가 ${fmt(NEW_PRODUCT_PRICE)}원 기준)</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;">
-      <div>
-        <div style="font-size:12px;opacity:.7;margin-bottom:4px;">새제품 구입 시</div>
-        <div style="font-size:22px;font-weight:700;">${fmt(totalNew)}<span style="font-size:13px;font-weight:400;opacity:.8;">원</span></div>
+  <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);border-radius:16px;padding:24px;margin-bottom:20px;color:#fff;">
+    <div style="font-size:12px;font-weight:600;opacity:.7;margin-bottom:16px;letter-spacing:.5px;">
+      💰 새제품 대비 절감 효과 <span style="opacity:.5;">(새제품 단가 ${fmt(NEW_PRODUCT_PRICE)}원 기준)</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:0;align-items:center;margin-bottom:16px;">
+      <!-- AS 비용 -->
+      <div style="background:rgba(255,255,255,.1);border-radius:12px;padding:16px;text-align:center;">
+        <div style="font-size:11px;opacity:.7;margin-bottom:6px;font-weight:600;">🔧 AS 수리 비용</div>
+        <div style="font-size:24px;font-weight:800;">${fmt(totalRepair)}<span style="font-size:13px;font-weight:400;opacity:.8;">원</span></div>
+        <div style="font-size:11px;opacity:.6;margin-top:4px;">${totalCount}건 수리</div>
       </div>
-      <div>
-        <div style="font-size:12px;opacity:.7;margin-bottom:4px;">실제 수리 비용</div>
-        <div style="font-size:22px;font-weight:700;">${fmt(totalRepair)}<span style="font-size:13px;font-weight:400;opacity:.8;">원</span></div>
+      <!-- vs -->
+      <div style="text-align:center;padding:0 16px;">
+        <div style="font-size:20px;font-weight:800;opacity:.5;">VS</div>
       </div>
-      <div style="background:rgba(255,255,255,.15);border-radius:12px;padding:12px 16px;">
-        <div style="font-size:12px;opacity:.8;margin-bottom:4px;">💰 절감액</div>
+      <!-- 새제품 -->
+      <div style="background:rgba(255,255,255,.1);border-radius:12px;padding:16px;text-align:center;">
+        <div style="font-size:11px;opacity:.7;margin-bottom:6px;font-weight:600;">📦 새제품 구입 시</div>
+        <div style="font-size:24px;font-weight:800;">${fmt(totalNew)}<span style="font-size:13px;font-weight:400;opacity:.8;">원</span></div>
+        <div style="font-size:11px;opacity:.6;margin-top:4px;">${totalCount}개 × ${fmt(NEW_PRODUCT_PRICE)}원</div>
+      </div>
+      <!-- = -->
+      <div style="text-align:center;padding:0 16px;">
+        <div style="font-size:20px;font-weight:800;opacity:.5;">=</div>
+      </div>
+      <!-- 절감액 -->
+      <div style="background:rgba(134,239,172,.15);border:2px solid rgba(134,239,172,.4);border-radius:12px;padding:16px;text-align:center;">
+        <div style="font-size:11px;color:#86efac;margin-bottom:6px;font-weight:700;">✨ 절감액</div>
         <div style="font-size:26px;font-weight:800;color:#86efac;">${fmt(totalSaved)}<span style="font-size:13px;font-weight:400;opacity:.9;">원</span></div>
-        <div style="font-size:13px;opacity:.9;margin-top:2px;">${savedPct}% 절감</div>
+        <div style="font-size:13px;color:#86efac;margin-top:4px;font-weight:600;">${savedPct}% 절감</div>
       </div>
     </div>
     <!-- 절감률 바 -->
-    <div style="margin-top:14px;background:rgba(255,255,255,.15);border-radius:4px;height:6px;">
-      <div style="height:6px;background:#86efac;border-radius:4px;width:${savedPct}%;transition:width .6s;"></div>
+    <div style="background:rgba(255,255,255,.15);border-radius:4px;height:8px;">
+      <div style="height:8px;background:linear-gradient(90deg,#86efac,#34d399);border-radius:4px;width:${savedPct}%;transition:width .8s;"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;opacity:.5;">
+      <span>AS 수리</span><span>새제품</span>
     </div>
   </div>`;
 
@@ -1586,17 +1671,19 @@ function renderShipview() {
     }).join(' ');
 
     html2 += `<div style="margin-bottom:12px;">
-      <div class="date-group-header" style="cursor:pointer;user-select:none;" onclick="toggleSvGroup('${groupId}')">
-        <span class="date-group-title" style="font-size:14px;font-weight:700;">${formatShipDate(date)}</span>
-        <div style="display:flex;align-items:center;gap:12px;">
-          <span class="date-group-meta">${gList.length}건 · ${fmt(totalFee)}원</span>
-          <span id="${groupId}-arrow" style="font-size:13px;color:var(--text3);">▼</span>
+      <div class="date-group-header" style="cursor:pointer;user-select:none;flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px;" onclick="toggleSvGroup('${groupId}')">
+        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+          <span class="date-group-title" style="font-size:14px;font-weight:700;">${formatShipDate(date)}</span>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span class="date-group-meta">${gList.length}건 · ${fmt(totalFee)}원</span>
+            <span id="${groupId}-arrow" style="font-size:13px;color:var(--text3);">▼</span>
+          </div>
         </div>
-      </div>
-      <div style="padding:6px 4px 8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
-        ${modelBadges}
-        <span style="color:var(--border2);margin:0 2px;font-size:13px;">·</span>
-        ${workBadges}
+        <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+          ${modelBadges}
+          <span style="color:var(--border2);margin:0 2px;font-size:13px;">·</span>
+          ${workBadges}
+        </div>
       </div>
       <div id="${groupId}" style="display:none;">
         <div class="card" style="padding:0;margin-top:4px;">
@@ -1790,6 +1877,38 @@ function exportShippingXlsx() {
 }
 
 
+/* ===== 단가 설정 ===== */
+function loadPriceSettings() {
+  try {
+    const saved = localStorage.getItem('formsPriceSettings');
+    if(!saved) return;
+    const p = JSON.parse(saved);
+    if(p.pcb)    { WORKS.pcb.price    = p.pcb;    const el=document.getElementById('price-pcb');    if(el) el.value=p.pcb; }
+    if(p.panel)  { WORKS.panel.price  = p.panel;  const el=document.getElementById('price-panel');  if(el) el.value=p.panel; }
+    if(p.board)  { WORKS.board.price  = p.board;  const el=document.getElementById('price-board');  if(el) el.value=p.board; }
+    if(p.nonbat) { WORKS.nonbat.price = p.nonbat; const el=document.getElementById('price-nonbat'); if(el) el.value=p.nonbat; }
+    if(p.newProduct) { window.NEW_PRODUCT_PRICE_OVERRIDE = p.newProduct; const el=document.getElementById('price-new-product'); if(el) el.value=p.newProduct; }
+  } catch {}
+}
+
+function savePriceSettings() {
+  const pcb    = Number(document.getElementById('price-pcb')?.value)    || WORKS.pcb.price;
+  const panel  = Number(document.getElementById('price-panel')?.value)  || WORKS.panel.price;
+  const board  = Number(document.getElementById('price-board')?.value)  || WORKS.board.price;
+  const nonbat = Number(document.getElementById('price-nonbat')?.value) || WORKS.nonbat.price;
+  const np     = Number(document.getElementById('price-new-product')?.value) || 140000;
+
+  WORKS.pcb.price    = pcb;
+  WORKS.panel.price  = panel;
+  WORKS.board.price  = board;
+  WORKS.nonbat.price = nonbat;
+  window.NEW_PRODUCT_PRICE_OVERRIDE = np;
+
+  localStorage.setItem('formsPriceSettings', JSON.stringify({ pcb, panel, board, nonbat, newProduct: np }));
+  buildChecks(); // 수리 입력 체크박스 가격 업데이트
+  notify('단가 설정이 저장되었습니다!');
+}
+
 /* Init */
 function init() {
   const now = new Date();
@@ -1800,6 +1919,7 @@ function init() {
   const now2 = new Date();
   document.getElementById('report-month').value = `${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}`;
   setRangeMonth();
+  loadPriceSettings();
   buildChecks();
   syncData();
   initClientMode();
