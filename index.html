@@ -1374,7 +1374,7 @@ function renderShipDashboard(list) {
   const el = document.getElementById('shipview-dash');
   if(!el) return;
 
-  const fmt2 = n => String(n).padStart(2,'0');
+  const NEW_PRODUCT_PRICE = 140000; // 새제품 단가
 
   // 각 항목에서 entries 매핑
   const mapped = list.map(x => {
@@ -1382,12 +1382,18 @@ function renderShipDashboard(list) {
     return { ...x, entry: e, fee: e ? Number(e.total) : 0, works: e ? parseWorks(e.works) : [] };
   });
 
-  const totalCount = mapped.length;
-  const totalFee   = mapped.reduce((s,x) => s+x.fee, 0);
-  const totalParts = 0; // 부품비 추후
+  const totalCount  = mapped.length;
+  const totalFee    = mapped.reduce((s,x) => s+x.fee, 0);
+  const totalParts  = 0; // 부품비 추후 입력
+  const totalRepair = totalFee + totalParts;
+  const totalNew    = totalCount * NEW_PRODUCT_PRICE;
+  const totalSaved  = totalNew - totalRepair;
+  const savedPct    = totalNew > 0 ? Math.round(totalSaved/totalNew*100) : 0;
 
-  // ① 요약 카드
-  let h = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
+  // ① 요약 카드 - 2행 구성
+  let h = `
+  <!-- 1행: 수량/금액 -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px;">
     <div class="stat-card" style="border-left:4px solid var(--accent);">
       <div class="stat-label">총 출고 건수</div>
       <div class="stat-val">${totalCount}<span style="font-size:14px;font-weight:400;color:var(--text2);">건</span></div>
@@ -1398,19 +1404,45 @@ function renderShipDashboard(list) {
     </div>
     <div class="stat-card" style="border-left:4px solid var(--amber);">
       <div class="stat-label">총 부품비</div>
-      <div class="stat-val" style="font-size:20px;color:var(--text3);">-<span style="font-size:12px;font-weight:400;color:var(--text3);">추후 적용</span></div>
+      <div class="stat-val" style="font-size:20px;color:var(--text3);">-</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">추후 적용</div>
     </div>
     <div class="stat-card" style="border-left:4px solid #6d28d9;">
-      <div class="stat-label">총 합계</div>
-      <div class="stat-val" style="font-size:20px;color:#6d28d9;">${fmt(totalFee+totalParts)}<span style="font-size:12px;font-weight:400;color:var(--text2);">원</span></div>
+      <div class="stat-label">총 수리 합계</div>
+      <div class="stat-val" style="font-size:20px;color:#6d28d9;">${fmt(totalRepair)}<span style="font-size:12px;font-weight:400;color:var(--text2);">원</span></div>
+    </div>
+  </div>
+  <!-- 2행: 절감 효과 하이라이트 -->
+  <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);border-radius:16px;padding:20px 24px;margin-bottom:20px;color:#fff;">
+    <div style="font-size:12px;font-weight:600;opacity:.7;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">새제품 대비 절감 효과 (새제품 단가 ${fmt(NEW_PRODUCT_PRICE)}원 기준)</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;">
+      <div>
+        <div style="font-size:12px;opacity:.7;margin-bottom:4px;">새제품 구입 시</div>
+        <div style="font-size:22px;font-weight:700;">${fmt(totalNew)}<span style="font-size:13px;font-weight:400;opacity:.8;">원</span></div>
+      </div>
+      <div>
+        <div style="font-size:12px;opacity:.7;margin-bottom:4px;">실제 수리 비용</div>
+        <div style="font-size:22px;font-weight:700;">${fmt(totalRepair)}<span style="font-size:13px;font-weight:400;opacity:.8;">원</span></div>
+      </div>
+      <div style="background:rgba(255,255,255,.15);border-radius:12px;padding:12px 16px;">
+        <div style="font-size:12px;opacity:.8;margin-bottom:4px;">💰 절감액</div>
+        <div style="font-size:26px;font-weight:800;color:#86efac;">${fmt(totalSaved)}<span style="font-size:13px;font-weight:400;opacity:.9;">원</span></div>
+        <div style="font-size:13px;opacity:.9;margin-top:2px;">${savedPct}% 절감</div>
+      </div>
+    </div>
+    <!-- 절감률 바 -->
+    <div style="margin-top:14px;background:rgba(255,255,255,.15);border-radius:4px;height:6px;">
+      <div style="height:6px;background:#86efac;border-radius:4px;width:${savedPct}%;transition:width .6s;"></div>
     </div>
   </div>`;
 
   // ② 월별 추이 차트
   const monthMap = {};
   mapped.forEach(x => {
-    const key = (x.shipDate||'').slice(0,7);
-    if(!key) return;
+    if(!x.shipDate) return;
+    const d = new Date(x.shipDate);
+    if(isNaN(d)) return;
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     if(!monthMap[key]) monthMap[key] = { count:0, fee:0 };
     monthMap[key].count++;
     monthMap[key].fee += x.fee;
@@ -1448,7 +1480,7 @@ function renderShipDashboard(list) {
         </div>
         <!-- X축 라벨 -->
         <div style="display:flex;gap:8px;">
-          ${months.map(m => `<div style="flex:1;text-align:center;font-size:11px;color:var(--text3);">${m.slice(5)}월</div>`).join('')}
+          ${months.map(m => `<div style="flex:1;text-align:center;font-size:11px;color:var(--text3);">${m.slice(0,4)}년<br>${String(Number(m.slice(5)))}월</div>`).join('')}
         </div>
       </div>
     </div>`}
