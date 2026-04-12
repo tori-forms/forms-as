@@ -379,9 +379,30 @@ tr:hover td{background:var(--surface2);}
       <span class="section-title">📦 출고 현황</span>
       <button class="btn btn-sm btn-primary" onclick="exportShipviewXlsx()">엑셀 내보내기</button>
     </div>
-    <div id="shipview-content">
-      <div class="empty">데이터를 불러오는 중...</div>
+
+    <!-- 기간 필터 -->
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-sm" id="svf-all" onclick="setSvFilter('all')">전체</button>
+        <button class="btn btn-sm" id="svf-month" onclick="setSvFilter('month')">이번 달</button>
+        <button class="btn btn-sm" id="svf-last" onclick="setSvFilter('last')">지난 달</button>
+        <button class="btn btn-sm" id="svf-custom" onclick="setSvFilter('custom')">직접 선택</button>
+        <div id="svf-custom-range" style="display:none;display:flex;gap:6px;align-items:center;">
+          <input type="date" id="sv-from" onchange="renderShipview()" style="width:145px;">
+          <span style="color:var(--text3);">~</span>
+          <input type="date" id="sv-to" onchange="renderShipview()" style="width:145px;">
+        </div>
+      </div>
     </div>
+
+    <!-- 서브탭 -->
+    <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px;">
+      <button id="svtab-dash" onclick="switchSvTab('dash')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--accent);">📊 대시보드</button>
+      <button id="svtab-list" onclick="switchSvTab('list')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text2);">📋 출고 목록</button>
+    </div>
+
+    <div id="shipview-dash"></div>
+    <div id="shipview-content" style="display:none;"></div>
   </div>
 
   <!-- 출고 관리 -->
@@ -1289,6 +1310,185 @@ function renderShipHistory() {
 }
 
 /* ===== 출고 현황 (고객사용) ===== */
+let svFilter = 'all';
+
+function setSvFilter(type) {
+  svFilter = type;
+  // 버튼 활성화
+  ['all','month','last','custom'].forEach(t => {
+    const btn = document.getElementById('svf-'+t);
+    if(btn) btn.className = 'btn btn-sm' + (t===type ? ' btn-primary' : '');
+  });
+  const customRange = document.getElementById('svf-custom-range');
+  if(customRange) customRange.style.display = type==='custom' ? 'flex' : 'none';
+
+  if(type !== 'custom') {
+    const now = new Date();
+    const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    if(type === 'month') {
+      const from = new Date(now.getFullYear(), now.getMonth(), 1);
+      const to = new Date(now.getFullYear(), now.getMonth()+1, 0);
+      const fi = document.getElementById('sv-from'); if(fi) fi.value = fmt(from);
+      const ti = document.getElementById('sv-to');   if(ti) ti.value = fmt(to);
+    } else if(type === 'last') {
+      const from = new Date(now.getFullYear(), now.getMonth()-1, 1);
+      const to = new Date(now.getFullYear(), now.getMonth(), 0);
+      const fi = document.getElementById('sv-from'); if(fi) fi.value = fmt(from);
+      const ti = document.getElementById('sv-to');   if(ti) ti.value = fmt(to);
+    } else {
+      const fi = document.getElementById('sv-from'); if(fi) fi.value = '';
+      const ti = document.getElementById('sv-to');   if(ti) ti.value = '';
+    }
+  }
+  renderShipview();
+}
+
+function switchSvTab(tab) {
+  const dash = document.getElementById('shipview-dash');
+  const list = document.getElementById('shipview-content');
+  const dashBtn = document.getElementById('svtab-dash');
+  const listBtn = document.getElementById('svtab-list');
+  if(tab === 'dash') {
+    if(dash) dash.style.display = 'block';
+    if(list) list.style.display = 'none';
+    if(dashBtn) { dashBtn.style.borderBottom='2px solid var(--accent)'; dashBtn.style.color='var(--accent)'; dashBtn.style.marginBottom='-2px'; }
+    if(listBtn) { listBtn.style.borderBottom='none'; listBtn.style.color='var(--text2)'; }
+  } else {
+    if(dash) dash.style.display = 'none';
+    if(list) list.style.display = 'block';
+    if(dashBtn) { dashBtn.style.borderBottom='none'; dashBtn.style.color='var(--text2)'; dashBtn.style.marginBottom='0'; }
+    if(listBtn) { listBtn.style.borderBottom='2px solid var(--accent)'; listBtn.style.color='var(--accent)'; listBtn.style.marginBottom='-2px'; }
+  }
+}
+
+function getFilteredShipHistory() {
+  const fromVal = document.getElementById('sv-from')?.value || '';
+  const toVal   = document.getElementById('sv-to')?.value   || '';
+  let list = shipHistory;
+  if(fromVal) list = list.filter(h => (h.shipDate||'').slice(0,10) >= fromVal);
+  if(toVal)   list = list.filter(h => (h.shipDate||'').slice(0,10) <= toVal);
+  return list;
+}
+
+function renderShipDashboard(list) {
+  const el = document.getElementById('shipview-dash');
+  if(!el) return;
+
+  const fmt2 = n => String(n).padStart(2,'0');
+
+  // 각 항목에서 entries 매핑
+  const mapped = list.map(x => {
+    const e = entries.find(en => String(en.serial) === String(x.serial));
+    return { ...x, entry: e, fee: e ? Number(e.total) : 0, works: e ? parseWorks(e.works) : [] };
+  });
+
+  const totalCount = mapped.length;
+  const totalFee   = mapped.reduce((s,x) => s+x.fee, 0);
+  const totalParts = 0; // 부품비 추후
+
+  // ① 요약 카드
+  let h = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
+    <div class="stat-card" style="border-left:4px solid var(--accent);">
+      <div class="stat-label">총 출고 건수</div>
+      <div class="stat-val">${totalCount}<span style="font-size:14px;font-weight:400;color:var(--text2);">건</span></div>
+    </div>
+    <div class="stat-card" style="border-left:4px solid var(--green);">
+      <div class="stat-label">총 공임비</div>
+      <div class="stat-val" style="font-size:20px;">${fmt(totalFee)}<span style="font-size:12px;font-weight:400;color:var(--text2);">원</span></div>
+    </div>
+    <div class="stat-card" style="border-left:4px solid var(--amber);">
+      <div class="stat-label">총 부품비</div>
+      <div class="stat-val" style="font-size:20px;color:var(--text3);">-<span style="font-size:12px;font-weight:400;color:var(--text3);">추후 적용</span></div>
+    </div>
+    <div class="stat-card" style="border-left:4px solid #6d28d9;">
+      <div class="stat-label">총 합계</div>
+      <div class="stat-val" style="font-size:20px;color:#6d28d9;">${fmt(totalFee+totalParts)}<span style="font-size:12px;font-weight:400;color:var(--text2);">원</span></div>
+    </div>
+  </div>`;
+
+  // ② 월별 추이 차트
+  const monthMap = {};
+  mapped.forEach(x => {
+    const key = (x.shipDate||'').slice(0,7);
+    if(!key) return;
+    if(!monthMap[key]) monthMap[key] = { count:0, fee:0 };
+    monthMap[key].count++;
+    monthMap[key].fee += x.fee;
+  });
+  const months = Object.keys(monthMap).sort();
+  const maxCount = Math.max(...months.map(m=>monthMap[m].count), 1);
+  const maxFee   = Math.max(...months.map(m=>monthMap[m].fee), 1);
+
+  h += `<div class="card" style="margin-bottom:16px;">
+    <div class="card-title">📈 월별 추이</div>
+    ${months.length === 0 ? '<div class="empty">데이터 없음</div>' : `
+    <div style="overflow-x:auto;">
+      <div style="min-width:${Math.max(months.length*80,300)}px;padding:8px 0;">
+        <!-- 건수 바 -->
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:600;">출고 건수</div>
+        <div style="display:flex;align-items:flex-end;gap:8px;height:80px;margin-bottom:4px;">
+          ${months.map(m => {
+            const pct = Math.round(monthMap[m].count/maxCount*100);
+            return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
+              <div style="font-size:11px;font-weight:700;color:var(--accent);">${monthMap[m].count}</div>
+              <div style="width:100%;background:var(--accent);border-radius:4px 4px 0 0;height:${Math.max(pct*0.6,4)}px;"></div>
+            </div>`;
+          }).join('')}
+        </div>
+        <!-- 금액 바 -->
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:600;margin-top:16px;">공임비 합계</div>
+        <div style="display:flex;align-items:flex-end;gap:8px;height:80px;margin-bottom:8px;">
+          ${months.map(m => {
+            const pct = Math.round(monthMap[m].fee/maxFee*100);
+            return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
+              <div style="font-size:10px;font-weight:600;color:var(--green);">${Math.round(monthMap[m].fee/10000)}만</div>
+              <div style="width:100%;background:var(--green);border-radius:4px 4px 0 0;height:${Math.max(pct*0.6,4)}px;"></div>
+            </div>`;
+          }).join('')}
+        </div>
+        <!-- X축 라벨 -->
+        <div style="display:flex;gap:8px;">
+          ${months.map(m => `<div style="flex:1;text-align:center;font-size:11px;color:var(--text3);">${m.slice(5)}월</div>`).join('')}
+        </div>
+      </div>
+    </div>`}
+  </div>`;
+
+  // ③ 수리 항목 분포
+  const workCount = { pcb:0, panel:0, board:0, nonbat:0 };
+  mapped.forEach(x => {
+    x.works.forEach(k => { if(workCount[k] !== undefined) workCount[k]++; });
+  });
+  const totalWorks = Object.values(workCount).reduce((s,v)=>s+v,0)||1;
+  const workItems = [
+    { key:'pcb',    label:'PCB 교체',   color:'#2563eb', bg:'#dbeafe' },
+    { key:'panel',  label:'LCD 교체',   color:'#16a34a', bg:'#dcfce7' },
+    { key:'board',  label:'M/B 수리',   color:'#7c3aed', bg:'#ede9fe' },
+    { key:'nonbat', label:'논배터리',    color:'#ea580c', bg:'#ffedd5' },
+  ];
+
+  h += `<div class="card">
+    <div class="card-title">🔧 수리 항목 분포</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+      ${workItems.map(w => {
+        const cnt = workCount[w.key];
+        const pct = Math.round(cnt/totalWorks*100);
+        return `<div style="text-align:center;padding:12px;background:${w.bg};border-radius:12px;">
+          <div style="font-size:11px;font-weight:700;color:${w.color};margin-bottom:6px;">${w.label}</div>
+          <div style="font-size:28px;font-weight:800;color:${w.color};">${cnt}</div>
+          <div style="font-size:11px;color:${w.color};opacity:.7;">건 (${pct}%)</div>
+          <div style="margin-top:8px;height:4px;background:rgba(0,0,0,.08);border-radius:2px;">
+            <div style="height:4px;background:${w.color};border-radius:2px;width:${pct}%;"></div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+
+  el.innerHTML = h;
+}
+
+/* ===== 출고 현황 (고객사용) ===== */
 function renderShipview() {
   const el = document.getElementById('shipview-content');
   if(!el) return;
@@ -1326,31 +1526,7 @@ function renderShipview() {
     groups[key].push(h);
   });
 
-  // 전체 합계
-  const grandTotal = list.reduce((s,x) => {
-    const e = entries.find(en => String(en.serial) === String(x.serial));
-    return s + (e ? Number(e.total) : 0);
-  }, 0);
-
-  let html2 = `
-  <div class="card" style="margin-bottom:16px;">
-    <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;">
-      <div class="form-group" style="margin:0;">
-        <label class="form-label">시작일</label>
-        <input type="date" id="sv-from" value="${fromVal}" onchange="renderShipview()" style="width:150px;">
-      </div>
-      <div class="form-group" style="margin:0;">
-        <label class="form-label">종료일</label>
-        <input type="date" id="sv-to" value="${toVal}" onchange="renderShipview()" style="width:150px;">
-      </div>
-      <button class="btn btn-sm" onclick="document.getElementById('sv-from').value='';document.getElementById('sv-to').value='';renderShipview();">전체 보기</button>
-      <div style="margin-left:auto;text-align:right;">
-        <div style="font-size:11px;color:var(--text3);">조회 기간 합계</div>
-        <div style="font-size:18px;font-weight:700;color:var(--accent);">${fmt(grandTotal)}원</div>
-        <div style="font-size:12px;color:var(--text2);">${list.length}건</div>
-      </div>
-    </div>
-  </div>`;
+  let html2 = ``;
 
   if(!list.length) {
     html2 += `<div class="empty" style="padding:40px;">해당 기간에 출고 이력이 없습니다.</div>`;
@@ -1531,7 +1707,7 @@ function initClientMode() {
   if(shipviewTab) { shipviewTab.style.display = 'block'; shipviewTab.classList.add('active'); }
 
   // 데이터 로드 후 렌더
-  syncData().then(() => renderShipview());
+  syncData().then(() => { setSvFilter('all'); });
 }
 
 function exportShippingXlsx() {
@@ -1598,7 +1774,9 @@ function switchTab(name, btn) {
   if(name==='stock') renderStock();
   if(name==='docs') renderDocs();
   if(name==='shipping') { initShipping(); }
-  if(name==='shipview') { renderShipview(); }
+  if(name==='shipview') {
+    setSvFilter('all');
+  }
 }
 
 /* 체크박스 */
