@@ -660,6 +660,7 @@ tr:hover td{background:var(--surface2);}
     <div class="section-header">
       <span class="section-title">📦 출고 관리</span>
       <div style="display:flex;gap:8px;">
+        <button class="btn btn-sm" onclick="refreshShipping()">🔄 새로고침</button>
         <button class="btn btn-sm" onclick="exportShippingXlsx()" id="shipping-export-btn" style="display:none;">엑셀 내보내기</button>
         <button class="btn btn-sm btn-primary" onclick="completeShipping()" id="shipping-complete-btn" style="display:none;">✅ 출고 완료 처리</button>
       </div>
@@ -1285,6 +1286,16 @@ function canDelete(entry) {
 
 
 /* ===== 출고 관리 ===== */
+async function refreshShipping() {
+  notify('새로고침 중...', 'info');
+  window._shipOk = null;
+  window._shipHold = null;
+  await syncData(true);
+  renderShipping();
+  renderShipHistory();
+  notify('새로고침 완료!');
+}
+
 function initShipping() {
   if(!document.getElementById('ship-date').value) {
     document.getElementById('ship-date').value = todayStr();
@@ -1318,8 +1329,8 @@ function renderShipping() {
 
   if(deadlineEl) deadlineEl.textContent = `${fmtDT2(deadlineDT)} 이전 등록 → 출고 가능`;
 
-  // 이미 출고 완료된 시리얼 제외
-  const shippedSerials = new Set(shipHistory.map(h => h.serial));
+  // 출고 완료된 시리얼
+  const shippedSerials = new Set(shipHistory.map(h => String(h.serial)));
 
   // _shipOk, _shipHold 초기화 (날짜/시간 변경 시 재분류)
   if(!window._shipOk) {
@@ -1341,21 +1352,29 @@ function renderShipping() {
   const ok = window._shipOk;
   const hold = window._shipHold;
 
+  // 출고 완료 건 (오늘 날짜 기준)
+  const todayShipped = shipHistory.filter(h => shipDateKey(h.shipDate) === dateVal);
+
   const exportBtn = document.getElementById('shipping-export-btn');
   const completeBtn = document.getElementById('shipping-complete-btn');
   if(exportBtn) exportBtn.style.display = ok.length ? 'inline-flex' : 'none';
   if(completeBtn) completeBtn.style.display = ok.length ? 'inline-flex' : 'none';
 
-  let h = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+  let h = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
     <div class="stat-card" style="border-left:4px solid var(--green);">
       <div class="stat-label">출고 가능</div>
       <div class="stat-val" style="color:var(--green);">${ok.length}<span style="font-size:14px;color:var(--text2);font-weight:400;">건</span></div>
       <div class="stat-sub">${fmtDT2(deadlineDT)} 이전 등록</div>
     </div>
     <div class="stat-card" style="border-left:4px solid var(--amber);">
-      <div class="stat-label">보류</div>
+      <div class="stat-label">보류 (에이징 진행 중)</div>
       <div class="stat-val" style="color:var(--amber);">${hold.length}<span style="font-size:14px;color:var(--text2);font-weight:400;">건</span></div>
       <div class="stat-sub">${fmtDT2(deadlineDT)} 이후 등록</div>
+    </div>
+    <div class="stat-card" style="border-left:4px solid #16a34a;">
+      <div class="stat-label">출고 완료 (${dateVal})</div>
+      <div class="stat-val" style="color:#16a34a;">${todayShipped.length}<span style="font-size:14px;color:var(--text2);font-weight:400;">건</span></div>
+      <div class="stat-sub">출고 처리 완료</div>
     </div>
   </div>`;
 
@@ -1384,9 +1403,9 @@ function renderShipping() {
 
   // 보류 테이블
   if(hold.length) {
-    h += `<div class="card" style="padding:0;">
+    h += `<div class="card" style="padding:0;margin-bottom:12px;">
       <div style="padding:12px 18px;border-bottom:1px solid var(--border);">
-        <span style="font-size:13px;font-weight:700;color:var(--amber);">⚠️ 보류 (${hold.length}건)</span>
+        <span style="font-size:13px;font-weight:700;color:var(--amber);">⚠️ 보류 - 에이징 진행 중 (${hold.length}건)</span>
       </div>
       <div class="table-wrap"><table>
         <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>에이징 완료 예정</th><th>특이사항</th><th></th></tr></thead>
@@ -1400,6 +1419,28 @@ function renderShipping() {
           <td style="font-size:12px;color:${x.entry.note?'var(--amber-text)':'var(--text3)'};">${x.entry.note||'-'}</td>
           <td><button class="btn btn-sm btn-primary" onclick="moveToOk(${i})">출고 추가</button></td>
         </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+  }
+
+  // 출고 완료 목록 (오늘 날짜)
+  if(todayShipped.length) {
+    h += `<div class="card" style="padding:0;">
+      <div style="padding:12px 18px;border-bottom:1px solid var(--border);">
+        <span style="font-size:13px;font-weight:700;color:#16a34a;">✅ 출고 완료 (${todayShipped.length}건)</span>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>출고 시간</th></tr></thead>
+        <tbody>${todayShipped.map(x => {
+          const e = entries.find(en => String(en.serial) === String(x.serial));
+          return `<tr>
+            <td><span style="font-size:11px;font-weight:700;background:${x.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.model||'-'}</span></td>
+            <td class="mono">${x.serial}</td>
+            <td>${x.worker||'-'}</td>
+            <td>${workTags(e?e.works:'[]')}</td>
+            <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(new Date(x.shipDate))}</td>
+          </tr>`;
+        }).join('')}</tbody>
       </table></div>
     </div>`;
   }
