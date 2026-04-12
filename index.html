@@ -117,6 +117,7 @@ tr:hover td{background:var(--surface2);}
 .notif.show{transform:translateY(0);opacity:1;}
 .notif.success{background:var(--green);}
 .notif.error{background:var(--red);}
+.notif.info{background:var(--accent);}
 
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:none;align-items:center;justify-content:center;}
 .modal-overlay.open{display:flex;}
@@ -623,7 +624,10 @@ tr:hover td{background:var(--surface2);}
   <div id="tab-shipview" class="section">
     <div class="section-header">
       <span class="section-title">📦 출고 현황</span>
-      <button class="btn btn-sm btn-primary" onclick="exportShipviewXlsx()">엑셀 내보내기</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-sm" onclick="refreshShipview()">🔄 새로고침</button>
+        <button class="btn btn-sm btn-primary" onclick="exportShipviewXlsx()">엑셀 내보내기</button>
+      </div>
     </div>
 
     <!-- 기간 필터 -->
@@ -1455,7 +1459,7 @@ function completeShipping() {
     async () => {
       try {
         notify('출고 처리 중...', 'info');
-        await Promise.all(ok.map(x => gasCall({
+        await Promise.all(ok.filter(x => x.entry).map(x => gasCall({
           action: 'addShipLog',
           serial: x.entry.serial,
           shipDate: shipDTStr,
@@ -1793,6 +1797,13 @@ function renderShipDashboard(list) {
 }
 
 /* ===== 출고 현황 (고객사용) ===== */
+async function refreshShipview() {
+  notify('새로고침 중...', 'info');
+  await syncData(true);
+  setSvFilter(svFilter || 'all');
+  notify('새로고침 완료!');
+}
+
 function renderShipview() {
   const clientMode = isClientMode();
   const list = getFilteredShipHistory();
@@ -3181,9 +3192,8 @@ function deleteKPI(key) {
 let cheerTimer, cheerTimer2;
 let alreadyCheered = new Set(); // 이미 축하한 엔지니어 (날짜별)
 
-function launchConfetti() {
+function launchConfetti(count=120) {
   const colors = ['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#db2777'];
-  const count = 120;
   for(let i = 0; i < count; i++) {
     setTimeout(()=>{
       const el = document.createElement('div');
@@ -3198,30 +3208,45 @@ function launchConfetti() {
   }
 }
 
-function showCheer(name) {
+function showCheer(names) {
+  // 여러 명 동시 처리
+  const nameList = Array.isArray(names) ? names : [names];
   const emojis = ['🎉','🏆','🥳','🎊','⭐','🔥'];
-  const msgs = ['목표 건수를 달성했습니다!','오늘의 목표 완료!','훌륭해요! 목표 달성!','최고입니다!'];
+  const msgs = ['목표 달성!','오늘의 목표 완료!','훌륭해요!','최고입니다!'];
   const el = document.getElementById('cheer-toast');
   document.getElementById('cheer-emoji').textContent = emojis[Math.floor(Math.random()*emojis.length)];
-  document.getElementById('cheer-name').textContent = name + '님';
-  document.getElementById('cheer-msg').textContent = msgs[Math.floor(Math.random()*msgs.length)];
+  // 여러 명이면 모두 표시
+  const nameText = nameList.length === 1
+    ? nameList[0] + '님'
+    : nameList.map(n=>n+'님').join(', ');
+  document.getElementById('cheer-name').textContent = nameText;
+  const msgBase = msgs[Math.floor(Math.random()*msgs.length)];
+  document.getElementById('cheer-msg').textContent = nameList.length > 1
+    ? `${nameList.length}명 동시 목표 달성! ${msgBase}`
+    : msgBase;
   el.classList.add('show');
-  launchConfetti();
+  // 여러 명이면 콘페티도 더 많이
+  launchConfetti(nameList.length > 1 ? 200 : 120);
   clearTimeout(cheerTimer);
-  cheerTimer = setTimeout(()=>el.classList.remove('show'), 4000);
+  cheerTimer = setTimeout(()=>el.classList.remove('show'), nameList.length > 1 ? 6000 : 4000);
 }
 
 function checkAchievements(list, dailyTarget, activeWorkers) {
   if(!dailyTarget) return;
   const sel = getDate('summary');
+  const newAchievers = [];
   activeWorkers.forEach(w => {
     const key = `${sel}_${w}`;
     const cnt = list.filter(e=>e.worker===w).length;
     if(cnt >= dailyTarget && !alreadyCheered.has(key)) {
       alreadyCheered.add(key);
-      setTimeout(()=>showCheer(w), 300);
+      newAchievers.push(w);
     }
   });
+  // 동시 달성자 한번에 팡파레
+  if(newAchievers.length > 0) {
+    setTimeout(()=>showCheer(newAchievers), 300);
+  }
 }
 
 let lastSearch = '';
