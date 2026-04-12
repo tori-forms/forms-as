@@ -1286,6 +1286,11 @@ function canDelete(entry) {
 
 
 /* ===== 출고 관리 ===== */
+async function loadShipHistory() {
+  // shipHistory는 syncData에서 이미 로드됨 - 추가 로드 불필요
+  return Promise.resolve();
+}
+
 async function refreshShipping() {
   notify('새로고침 중...', 'info');
   window._shipOk = null;
