@@ -1490,25 +1490,21 @@ function renderShipDashboard(list) {
 
 /* ===== 출고 현황 (고객사용) ===== */
 function renderShipview() {
+  const clientMode = isClientMode();
+  const list = getFilteredShipHistory();
+
+  // 대시보드 렌더
+  renderShipDashboard(list);
+
+  // 출고 목록 렌더
   const el = document.getElementById('shipview-content');
   if(!el) return;
 
-  // 기간 필터 UI + 목록 렌더
-  const fromVal = document.getElementById('sv-from')?.value || '';
-  const toVal = document.getElementById('sv-to')?.value || '';
-  const clientMode = isClientMode();
-
-  // 필터링
-  let list = shipHistory;
-  if(fromVal) list = list.filter(h => (h.shipDate||'').slice(0,10) >= fromVal);
-  if(toVal)   list = list.filter(h => (h.shipDate||'').slice(0,10) <= toVal);
-
-  if(!list.length && !shipHistory.length) {
-    el.innerHTML = `<div class="empty" style="padding:40px;">출고 이력이 없습니다.</div>`;
+  if(!list.length) {
+    el.innerHTML = '<div class="empty" style="padding:40px;">해당 기간에 출고 이력이 없습니다.</div>';
     return;
   }
 
-  // 날짜 포맷
   const fmt2 = n => String(n).padStart(2,'0');
   const fmtDate = s => {
     if(!s||s==='미확인') return '날짜 미확인';
@@ -1526,14 +1522,7 @@ function renderShipview() {
     groups[key].push(h);
   });
 
-  let html2 = ``;
-
-  if(!list.length) {
-    html2 += `<div class="empty" style="padding:40px;">해당 기간에 출고 이력이 없습니다.</div>`;
-    el.innerHTML = html2;
-    return;
-  }
-
+  let html2 = '';
   Object.keys(groups).sort((a,b) => b.localeCompare(a)).forEach(date => {
     const gList = groups[date];
     const totalFee = gList.reduce((s,x) => {
@@ -1597,6 +1586,7 @@ function renderShipview() {
 
   el.innerHTML = html2;
 }
+
 
 function toggleSvGroup(id) {
   const el = document.getElementById(id);
