@@ -1455,9 +1455,16 @@ function toggleAllShip(checked) {
 }
 
 function onShipCheckChange() {
-  const anyChecked = document.querySelectorAll('.ship-row-check:checked').length > 0;
+  const checked = document.querySelectorAll('.ship-row-check:checked');
   const excludeBtn = document.getElementById('exclude-selected-btn');
-  if(excludeBtn) excludeBtn.style.display = anyChecked ? 'inline-flex' : 'none';
+  const completeBtn = document.getElementById('shipping-complete-btn');
+  if(excludeBtn) excludeBtn.style.display = checked.length ? 'inline-flex' : 'none';
+  // 출고 완료 버튼 텍스트 - 체크 있으면 선택 건수 표시
+  if(completeBtn) {
+    completeBtn.textContent = checked.length
+      ? `✅ 선택 ${checked.length}건 출고 완료`
+      : `✅ 출고 완료 처리`;
+  }
 }
 
 function excludeSelected() {
@@ -1487,8 +1494,28 @@ function moveToOk(i) {
 }
 
 function completeShipping() {
-  const ok = window._shipOk || [];
-  if(!ok.length) { notify('출고 가능 목록이 없습니다.', 'error'); return; }
+  // 체크된 항목만 출고 처리
+  const checkedBoxes = [...document.querySelectorAll('.ship-row-check:checked')];
+
+  // 체크 없으면 전체 출고 여부 확인
+  const allOk = window._shipOk || [];
+  if(!checkedBoxes.length && !allOk.length) {
+    notify('출고 가능 목록이 없습니다.', 'error');
+    return;
+  }
+
+  let targets;
+  if(checkedBoxes.length > 0) {
+    // 체크된 항목만
+    const idxs = checkedBoxes.map(cb => parseInt(cb.dataset.idx));
+    targets = idxs.map(i => allOk[i]).filter(Boolean);
+  } else {
+    // 체크 없으면 전체
+    targets = allOk;
+  }
+
+  if(!targets.length) { notify('출고할 항목이 없습니다.', 'error'); return; }
+
   const dateVal = document.getElementById('ship-date').value;
   const timeVal = document.getElementById('ship-time').value || '12:00';
   const shipDTStr = `${dateVal}T${timeVal}:00`;
@@ -1496,11 +1523,11 @@ function completeShipping() {
 
   openModal(
     '출고 완료 처리',
-    `${ok.length}건을 ${shipLabel} 출고 완료 처리할까요? 출고 이력에 기록되고 다음 출고탭에서 제외됩니다.`,
+    `선택한 ${targets.length}건을 ${shipLabel} 출고 완료 처리할까요?`,
     async () => {
       try {
         notify('출고 처리 중...', 'info');
-        await Promise.all(ok.filter(x => x.entry).map(x => gasCall({
+        await Promise.all(targets.filter(x => x.entry).map(x => gasCall({
           action: 'addShipLog',
           serial: x.entry.serial,
           shipDate: shipDTStr,
@@ -1509,22 +1536,23 @@ function completeShipping() {
           works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k)),
           fee: x.entry.total || 0
         })));
-        const done = ok.length;
+
         // 로컬 이력에 추가
-        ok.forEach(x => {
+        targets.filter(x => x.entry).forEach(x => {
           shipHistory.push({
             serial: x.entry.serial,
             shipDate: shipDTStr,
             worker: x.entry.worker || '',
             model: x.entry.model || '',
-            works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k)),
-            fee: x.entry.total || 0  // 출고 시점 금액 고정
+            works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k))
           });
         });
-        // 출고 완료된 것 목록 초기화
-        window._shipOk = null;
-        window._shipHold = null;
-        notify(`${done}건 출고 완료 처리되었습니다!`);
+
+        // 출고된 항목을 _shipOk에서 제거
+        const doneSerials = new Set(targets.map(x => x.entry?.serial).filter(Boolean));
+        window._shipOk = (window._shipOk || []).filter(x => !doneSerials.has(x.entry?.serial));
+
+        notify(`${targets.length}건 출고 완료!`);
         renderShipping();
         renderShipHistory();
       } catch(err) {
@@ -1536,14 +1564,6 @@ function completeShipping() {
   );
 }
 
-let shipHistory = [];
-
-async function loadShipHistory() {
-  try {
-    const data = await gasCall({action:'loadShipLog'});
-    shipHistory = data.shipLog || [];
-  } catch {}
-}
 
 function renderShipHistory() {
   const el = document.getElementById('ship-history-content');
