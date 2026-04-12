@@ -202,7 +202,7 @@ tr:hover td{background:var(--surface2);}
   <button class="nav-btn" onclick="switchTab('docs',this)">교육 자료</button>
   <button class="nav-btn" onclick="switchTab('shipping',this)">출고 관리</button>
   <button class="nav-btn client-only-tab" onclick="switchTab('shipview',this)">출고 현황</button>
-  <button class="nav-btn admin-only-tab" id="nav-admin" onclick="switchTab('admin',this)" style="display:none;">⚙️ 관리자</button>
+  <button class="nav-btn admin-only-tab" id="nav-admin" onclick="switchTab('admin',this)" style="display:none;margin-left:auto;border-left:1px solid var(--border);">⚙️ 관리자</button>
 </nav>
 
 <div class="main">
@@ -438,7 +438,7 @@ tr:hover td{background:var(--surface2);}
   </div>
 
   <!-- 관리자 탭 -->
-  <div id="tab-admin" class="section" style="display:none;">
+  <div id="tab-admin" class="section">
     <div class="section-title" style="margin-bottom:16px;">⚙️ 관리자</div>
 
     <!-- 서브탭 -->
@@ -451,10 +451,41 @@ tr:hover td{background:var(--surface2);}
     </div>
 
     <!-- 각 서브탭 컨텐츠 -->
-    <div id="admin-workers"></div>
-    <div id="admin-kpi" style="display:none;"></div>
-    <div id="admin-report" style="display:none;"></div>
-    <div id="admin-stock" style="display:none;"></div>
+    <div id="admin-workers">
+        <div class="card">
+          <div class="card-title">👥 엔지니어 목록</div>
+          <div id="worker-list"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">엔지니어 추가</div>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="new-worker" placeholder="이름 입력" style="flex:1;">
+            <button class="btn btn-primary" onclick="addWorker()">추가</button>
+          </div>
+        </div>
+      </div>
+    <div id="admin-kpi" style="display:none;">
+        <div class="card">
+          <div class="card-title">월별 KPI 입력</div>
+          <div class="form-row" style="align-items:flex-end;gap:12px;">
+            <div class="form-group"><label class="form-label">년월 선택</label><input type="month" id="kpi-month2" style="width:160px;"></div>
+            <div class="form-group"><label class="form-label">월 목표 수량</label><input type="number" id="kpi-val2" placeholder="예: 500" style="width:120px;"></div>
+            <button class="btn btn-primary" onclick="saveKPI2()">저장</button>
+          </div>
+        </div>
+        <div class="card"><div class="card-title">저장된 KPI 목록</div><div id="kpi-list2"></div></div>
+      </div>
+    <div id="admin-report" style="display:none;">
+        <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:16px;">
+          <div class="form-group" style="margin:0;"><label class="form-label">조회 월</label><input type="month" id="report-month2"></div>
+          <button class="btn btn-primary" onclick="renderReport2()">조회</button>
+          <button class="btn" onclick="exportReportCSV()">엑셀 내보내기</button>
+        </div>
+        <div id="report-content2"></div>
+      </div>
+    <div id="admin-stock" style="display:none;">
+        <div id="stock-content2"></div>
+      </div>
 
     <!-- 단가 설정 서브탭 -->
     <div id="admin-price" style="display:none;">
@@ -1968,54 +1999,118 @@ function exportShippingXlsx() {
 /* ===== 관리자 서브탭 ===== */
 function switchAdminTab(tab) {
   const tabs = ['workers','kpi','report','stock','price'];
+
+  // 서브탭 버튼 활성화
   tabs.forEach(t => {
-    const el = document.getElementById('admin-'+t);
     const btn = document.getElementById('admtab-'+t);
-    if(el) el.style.display = t===tab ? 'block' : 'none';
     if(btn) {
-      if(t===tab) {
-        btn.style.borderBottom = '2px solid var(--accent)';
-        btn.style.marginBottom = '-2px';
-        btn.style.color = 'var(--accent)';
-      } else {
-        btn.style.borderBottom = 'none';
-        btn.style.marginBottom = '0';
-        btn.style.color = 'var(--text2)';
-      }
+      btn.style.borderBottom = t===tab ? '2px solid var(--accent)' : 'none';
+      btn.style.marginBottom = t===tab ? '-2px' : '0';
+      btn.style.color = t===tab ? 'var(--accent)' : 'var(--text2)';
     }
   });
 
-  // 각 탭 렌더
-  if(tab === 'workers') renderWorkerAdmin();
-  if(tab === 'kpi') { renderKPIAdmin(); }
-  if(tab === 'report') renderReportAdmin();
-  if(tab === 'stock') renderStockAdmin();
+  // 모든 기존 탭 숨기기 (admin 내부용)
+  ['admin-workers','admin-kpi','admin-report','admin-stock','admin-price'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.style.display = 'none';
+  });
+  // 선택된 탭 보이기
+  const target = document.getElementById('admin-'+tab);
+  if(target) target.style.display = 'block';
+
+  // 렌더 함수 호출
+  if(tab === 'workers') renderWorkers();
+  if(tab === 'kpi') {
+    // admin용 KPI 렌더
+    const now = new Date();
+    const km = document.getElementById('kpi-month2');
+    if(km && !km.value) km.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    renderKPIList('kpi-list2');
+    loadPriceSettings();
+  }
+  if(tab === 'report') {
+    const now = new Date();
+    const rm = document.getElementById('report-month2');
+    if(rm && !rm.value) rm.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    renderReportInto('report-content2', document.getElementById('report-month2')?.value);
+  }
+  if(tab === 'stock') renderStockInto('stock-content2');
   if(tab === 'price') loadPriceSettings();
 }
 
-function renderWorkerAdmin() {
-  // 기존 탭의 실제 DOM을 admin 컨테이너 안으로 이동해서 보여줌
-  showTabInAdmin('tab-workers', 'admin-workers', () => renderWorkers());
-}
-function renderKPIAdmin() {
-  showTabInAdmin('tab-kpi', 'admin-kpi', () => { renderKPI(); loadPriceSettings(); });
-}
-function renderReportAdmin() {
-  showTabInAdmin('tab-report', 'admin-report', () => renderReport());
-}
-function renderStockAdmin() {
-  showTabInAdmin('tab-stock', 'admin-stock', () => renderStock());
+// Admin 탭은 기존 탭 DOM을 직접 이동해서 렌더
+function renderKPIList(targetId) {
+  const el = document.getElementById(targetId || 'kpi-list');
+  if(!el) return;
+  if(!Object.keys(kpiMap).length){ el.innerHTML='<div class="empty">저장된 KPI가 없습니다.</div>'; return; }
+  const months = Object.keys(kpiMap).sort((a,b)=>b.localeCompare(a));
+  el.innerHTML = months.map(k=>{
+    const [y,m2] = k.split('-');
+    const label = `${y}년 ${Number(m2)}월`;
+    const wd = window._wdCache?.[k] || 0;
+    const ac = workers.filter(w=>w!==MASTER_NAME).length;
+    const daily = wd&&ac ? Math.ceil(kpiMap[k]/wd/ac) : 0;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+      <div>
+        <span style="font-size:15px;font-weight:700;">${label}</span>
+        <span style="font-size:12px;color:var(--text2);margin-left:12px;">월 목표 ${fmt(kpiMap[k])}대</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-size:12px;color:var(--text3);" id="wd-${k.replace('-','_')}">평일 ${wd||'...'}일 · ${ac}명</span>
+        <button class="btn btn-sm btn-danger" onclick="deleteKPI('${k}')">삭제</button>
+      </div>
+    </div>`;
+  }).join('');
 }
 
-function showTabInAdmin(srcTabId, destId, renderFn) {
-  const dest = document.getElementById(destId);
-  const src = document.getElementById(srcTabId);
-  if(!dest || !src) return;
-  // src 내용을 dest로 복사 (innerHTML 복사)
-  dest.innerHTML = src.innerHTML;
-  // 렌더 함수 호출
-  if(renderFn) setTimeout(renderFn, 30);
+function saveKPI2() {
+  const month = document.getElementById('kpi-month2')?.value;
+  const val = Number(document.getElementById('kpi-val2')?.value);
+  if(!month||!val){ notify('월과 목표 수량을 입력하세요.','error'); return; }
+  kpiMap[month] = val;
+  gasCall({action:'saveKPI', kpiData: Object.entries(kpiMap).map(([k,v])=>`${k}:${v}`).join('||')})
+    .then(()=>{ notify('KPI 저장 완료!'); renderKPIList('kpi-list2'); })
+    .catch(()=>notify('저장 실패','error'));
 }
+
+function renderReportInto(targetId, monthVal) {
+  // 기존 renderReport 로직을 targetId에 렌더
+  const el = document.getElementById(targetId);
+  if(!el || !monthVal) return;
+  // 기존 report 렌더 함수 활용 - report-month 값 동기화 후 renderReport 호출
+  const rm = document.getElementById('report-month');
+  const origVal = rm?.value;
+  if(rm) rm.value = monthVal;
+  renderReport();
+  // report-content를 복사
+  setTimeout(()=>{
+    const src = document.getElementById('report-content');
+    if(src && el) el.innerHTML = src.innerHTML;
+    if(rm && origVal) rm.value = origVal;
+  }, 100);
+}
+
+function renderReport2() {
+  const monthVal = document.getElementById('report-month2')?.value;
+  renderReportInto('report-content2', monthVal);
+}
+
+function renderStockInto(targetId) {
+  const el = document.getElementById(targetId);
+  if(!el) return;
+  renderStock();
+  setTimeout(()=>{
+    const src = document.getElementById('stock-grid');
+    const logSrc = document.getElementById('stock-log');
+    if(src) el.innerHTML = `<div id="stock-grid2">${src.innerHTML}</div>`;
+  }, 100);
+}
+
+function renderWorkerAdmin() { renderWorkers(); }
+function renderKPIAdmin() { renderKPI(); loadPriceSettings(); }
+function renderReportAdmin() { renderReport(); }
+function renderStockAdmin() { renderStock(); }
 
 /* ===== 단가 설정 ===== */
 function loadPriceSettings() {
