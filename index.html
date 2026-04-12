@@ -568,6 +568,52 @@ tr:hover td{background:var(--surface2);}
             </div>
           </div>
         </div>
+        <!-- 부품비 섹션 -->
+        <div style="margin-bottom:16px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px;">수리 항목별 부품비 (평균)</div>
+          <div style="display:grid;gap:8px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:11px;font-weight:700;background:#dbeafe;color:#2563eb;padding:2px 8px;border-radius:99px;">PCB 교체</span>
+                <span style="font-size:12px;color:var(--text2);">부품비</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input type="number" id="parts-price-pcb" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
+                <span style="font-size:12px;color:var(--text2);">원</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:11px;font-weight:700;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:99px;">LCD 교체</span>
+                <span style="font-size:12px;color:var(--text2);">부품비</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input type="number" id="parts-price-panel" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
+                <span style="font-size:12px;color:var(--text2);">원</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:11px;font-weight:700;background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:99px;">M/B 수리</span>
+                <span style="font-size:12px;color:var(--text2);">부품비</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input type="number" id="parts-price-board" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
+                <span style="font-size:12px;color:var(--text2);">원</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:11px;font-weight:700;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;">논배터리</span>
+                <span style="font-size:12px;color:var(--text2);">부품비</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input type="number" id="parts-price-nonbat" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
+                <span style="font-size:12px;color:var(--text2);">원</span>
+              </div>
+            </div>
+          </div>
+        </div>
         <button class="btn btn-primary" onclick="savePriceSettings()">💾 단가 저장</button>
       </div>
     </div>
@@ -1408,19 +1454,17 @@ function completeShipping() {
     `${ok.length}건을 ${shipLabel} 출고 완료 처리할까요? 출고 이력에 기록되고 다음 출고탭에서 제외됩니다.`,
     async () => {
       try {
-        let done = 0;
-        for(const x of ok) {
-          await gasCall({
-            action: 'addShipLog',
-            serial: x.entry.serial,
-            shipDate: shipDTStr,
-            worker: x.entry.worker || '',
-            model: x.entry.model || '',
-            works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k)),
-            fee: x.entry.total || 0  // 출고 시점 금액 고정 저장
-          });
-          done++;
-        }
+        notify('출고 처리 중...', 'info');
+        await Promise.all(ok.map(x => gasCall({
+          action: 'addShipLog',
+          serial: x.entry.serial,
+          shipDate: shipDTStr,
+          worker: x.entry.worker || '',
+          model: x.entry.model || '',
+          works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k)),
+          fee: x.entry.total || 0
+        })));
+        const done = ok.length;
         // 로컬 이력에 추가
         ok.forEach(x => {
           shipHistory.push({
@@ -1897,15 +1941,19 @@ async function cancelSelectedShip(groupId) {
     `선택한 ${checked.length}건의 출고를 취소할까요? 출고 이력에서 삭제됩니다.`,
     async () => {
       const idxs = checked.map(cb => parseInt(cb.dataset.idx)).sort((a,b) => b-a);
-      for(const idx of idxs) {
-        const item = shipHistory[idx];
-        if(!item) continue;
-        await gasCall({ action: 'deleteShipLog', serial: item.serial, shipDate: item.shipDate });
-        shipHistory.splice(idx, 1);
-      }
+      const items = idxs.map(i => shipHistory[i]).filter(Boolean);
+
+      // 한번에 병렬 처리
+      notify('취소 처리 중...', 'info');
+      await Promise.all(items.map(item =>
+        gasCall({ action: 'deleteShipLog', serial: item.serial, shipDate: item.shipDate })
+      ));
+
+      // 로컬에서 제거 (뒤에서부터)
+      idxs.forEach(i => shipHistory.splice(i, 1));
       window._shipOk = null;
       window._shipHold = null;
-      notify(`${idxs.length}건 출고 취소되었습니다.`);
+      notify(`${items.length}건 출고 취소되었습니다.`);
       renderShipview();
     },
     '출고 취소',
