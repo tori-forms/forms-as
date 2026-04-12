@@ -1279,15 +1279,8 @@ function renderShipHistory() {
   let h = '';
   Object.keys(groups).sort((a,b)=>b.localeCompare(a)).forEach(date => {
     const list = groups[date];
-    const fmtDateH = s => {
-      if(!s || s==='미확인') return '날짜 미확인';
-      const d = new Date(s);
-      if(isNaN(d)) return s;
-      const days = ['일','월','화','수','목','금','토'];
-      return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
-    };
     h += `<div class="date-group-header">
-      <span class="date-group-title">${fmtDateH(date)}</span>
+      <span class="date-group-title">${formatShipDate(date)}</span>
       <span class="date-group-meta">${list.length}건 출고</span>
     </div>
     <div class="card" style="padding:0;margin-bottom:8px;">
@@ -1361,12 +1354,34 @@ function switchSvTab(tab) {
   }
 }
 
+function parseShipDate(s) {
+  if(!s) return null;
+  // ISO 형식: "2026-04-11T12:00:00"
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return new Date(s);
+  // 그 외 형식도 파싱 시도
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
+function formatShipDate(s) {
+  const d = parseShipDate(s);
+  if(!d) return '날짜 미확인';
+  const days = ['일','월','화','수','목','금','토'];
+  return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
+}
+
+function shipDateKey(s) {
+  const d = parseShipDate(s);
+  if(!d) return '미확인';
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
 function getFilteredShipHistory() {
   const fromVal = document.getElementById('sv-from')?.value || '';
   const toVal   = document.getElementById('sv-to')?.value   || '';
   let list = shipHistory;
-  if(fromVal) list = list.filter(h => (h.shipDate||'').slice(0,10) >= fromVal);
-  if(toVal)   list = list.filter(h => (h.shipDate||'').slice(0,10) <= toVal);
+  if(fromVal) list = list.filter(h => shipDateKey(h.shipDate) >= fromVal);
+  if(toVal)   list = list.filter(h => shipDateKey(h.shipDate) <= toVal);
   return list;
 }
 
@@ -1439,9 +1454,8 @@ function renderShipDashboard(list) {
   // ② 월별 추이 차트
   const monthMap = {};
   mapped.forEach(x => {
-    if(!x.shipDate) return;
-    const d = new Date(x.shipDate);
-    if(isNaN(d)) return;
+    const d = parseShipDate(x.shipDate);
+    if(!d) return;
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     if(!monthMap[key]) monthMap[key] = { count:0, fee:0 };
     monthMap[key].count++;
@@ -1537,19 +1551,10 @@ function renderShipview() {
     return;
   }
 
-  const fmt2 = n => String(n).padStart(2,'0');
-  const fmtDate = s => {
-    if(!s||s==='미확인') return '날짜 미확인';
-    const d = new Date(s);
-    if(isNaN(d)) return s;
-    const days = ['일','월','화','수','목','금','토'];
-    return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
-  };
-
   // 날짜 그룹핑
   const groups = {};
   list.forEach(h => {
-    const key = (h.shipDate||'미확인').slice(0,10);
+    const key = shipDateKey(h.shipDate);
     if(!groups[key]) groups[key] = [];
     groups[key].push(h);
   });
@@ -1563,13 +1568,35 @@ function renderShipview() {
     }, 0);
     const groupId = 'svg-' + date.replace(/-/g,'');
 
+    // 기종별/수리항목별 카운트
+    const modelCount = {};
+    const wCount = {};
+    gList.forEach(x => {
+      const e = entries.find(en => String(en.serial) === String(x.serial));
+      const model = x.model || e?.model || '-';
+      modelCount[model] = (modelCount[model]||0) + 1;
+      if(e) parseWorks(e.works).forEach(k => { wCount[k] = (wCount[k]||0)+1; });
+    });
+    const modelBadges = Object.entries(modelCount).map(([m,c]) =>
+      `<span style="font-size:11px;font-weight:700;background:${m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:1px 8px;border-radius:99px;">${m} ${c}건</span>`
+    ).join(' ');
+    const workBadges = Object.entries(wCount).map(([k,c]) => {
+      const w = WORKS[k]; if(!w) return '';
+      return `<span style="font-size:11px;font-weight:700;background:${w.tagBg};color:${w.tagColor};padding:1px 8px;border-radius:99px;">${w.tag} ${c}건</span>`;
+    }).join(' ');
+
     html2 += `<div style="margin-bottom:12px;">
       <div class="date-group-header" style="cursor:pointer;user-select:none;" onclick="toggleSvGroup('${groupId}')">
-        <span class="date-group-title" style="font-size:14px;font-weight:700;">${fmtDate(date)}</span>
+        <span class="date-group-title" style="font-size:14px;font-weight:700;">${formatShipDate(date)}</span>
         <div style="display:flex;align-items:center;gap:12px;">
           <span class="date-group-meta">${gList.length}건 · ${fmt(totalFee)}원</span>
           <span id="${groupId}-arrow" style="font-size:13px;color:var(--text3);">▼</span>
         </div>
+      </div>
+      <div style="padding:6px 4px 8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+        ${modelBadges}
+        <span style="color:var(--border2);margin:0 2px;font-size:13px;">·</span>
+        ${workBadges}
       </div>
       <div id="${groupId}" style="display:none;">
         <div class="card" style="padding:0;margin-top:4px;">
