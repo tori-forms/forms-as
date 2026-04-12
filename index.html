@@ -420,10 +420,31 @@ tr:hover td{background:var(--surface2);}
           </div>
         </div>
       </div>
-
-      <button class="btn btn-primary" onclick="savePriceSettings()">💾 단가 저장</button>
+        <!-- 부품비 -->
+        <div style="margin-bottom:16px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px;">수리 항목별 부품비 (평균)</div>
+          <div style="display:grid;gap:8px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#dbeafe;color:#2563eb;padding:2px 8px;border-radius:99px;">PCB 교체</span><span style="font-size:12px;color:var(--text2);">부품비</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="parts-price-pcb" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:99px;">LCD 교체</span><span style="font-size:12px;color:var(--text2);">부품비</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="parts-price-panel" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:99px;">M/B 수리</span><span style="font-size:12px;color:var(--text2);">부품비</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="parts-price-board" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;">논배터리</span><span style="font-size:12px;color:var(--text2);">부품비</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="parts-price-nonbat" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="savePriceSettings()">💾 단가 저장</button>
+      </div>
     </div>
-  </div>
 
   <!-- 재고 관리 -->
   <div id="tab-stock" class="section">
@@ -1571,6 +1592,8 @@ function getFilteredShipHistory() {
 function renderShipDashboard(list) {
   const el = document.getElementById('shipview-dash');
   if(!el) return;
+  // 일반 엔지니어는 대시보드 숨김 (마스터 또는 고객사만)
+  if(!isMaster && !isClientMode()) { el.innerHTML = ''; return; }
 
   const NEW_PRODUCT_PRICE = window.NEW_PRODUCT_PRICE_OVERRIDE || 140000; // 새제품 단가
 
@@ -1584,7 +1607,10 @@ function renderShipDashboard(list) {
 
   const totalCount  = mapped.length;
   const totalFee    = mapped.reduce((s,x) => s+x.fee, 0);
-  const totalParts  = 0; // 부품비 추후 입력
+  const PP = window.PARTS_PRICE || {};
+  const totalParts = mapped.reduce((s,x) => {
+    return s + x.works.reduce((ws, k) => ws + (PP[k]||0), 0);
+  }, 0);
   const totalRepair = totalFee + totalParts;
   const totalNew    = totalCount * NEW_PRODUCT_PRICE;
   const totalSaved  = totalNew - totalRepair;
@@ -1604,8 +1630,8 @@ function renderShipDashboard(list) {
     </div>
     <div class="stat-card" style="border-left:4px solid var(--amber);">
       <div class="stat-label">총 부품비</div>
-      <div class="stat-val" style="font-size:20px;color:var(--text3);">-</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:2px;">추후 적용</div>
+      <div class="stat-val" style="font-size:20px;${totalParts?'':'color:var(--text3);'}">${totalParts?fmt(totalParts)+' 원':'-'}</div>
+      ${totalParts?'':'<div style="font-size:11px;color:var(--text3);margin-top:2px;">단가 설정 후 표시</div>'}
     </div>
     <div class="stat-card" style="border-left:4px solid #6d28d9;">
       <div class="stat-label">총 수리 합계</div>
@@ -1617,28 +1643,17 @@ function renderShipDashboard(list) {
     <div style="font-size:12px;font-weight:600;opacity:.7;margin-bottom:16px;letter-spacing:.5px;">
       💰 새제품 대비 절감 효과 <span style="opacity:.5;">(새제품 단가 ${fmt(NEW_PRODUCT_PRICE)}원 기준)</span>
     </div>
-    <div style="display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:0;align-items:center;margin-bottom:16px;">
-      <!-- AS 비용 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
       <div style="background:rgba(255,255,255,.1);border-radius:12px;padding:16px;text-align:center;">
         <div style="font-size:11px;opacity:.7;margin-bottom:6px;font-weight:600;">🔧 AS 수리 비용</div>
         <div style="font-size:24px;font-weight:800;">${fmt(totalRepair)}<span style="font-size:13px;font-weight:400;opacity:.8;">원</span></div>
         <div style="font-size:11px;opacity:.6;margin-top:4px;">${totalCount}건 수리</div>
       </div>
-      <!-- vs -->
-      <div style="text-align:center;padding:0 16px;">
-        <div style="font-size:20px;font-weight:800;opacity:.5;">VS</div>
-      </div>
-      <!-- 새제품 -->
       <div style="background:rgba(255,255,255,.1);border-radius:12px;padding:16px;text-align:center;">
         <div style="font-size:11px;opacity:.7;margin-bottom:6px;font-weight:600;">📦 새제품 구입 시</div>
         <div style="font-size:24px;font-weight:800;">${fmt(totalNew)}<span style="font-size:13px;font-weight:400;opacity:.8;">원</span></div>
         <div style="font-size:11px;opacity:.6;margin-top:4px;">${totalCount}개 × ${fmt(NEW_PRODUCT_PRICE)}원</div>
       </div>
-      <!-- = -->
-      <div style="text-align:center;padding:0 16px;">
-        <div style="font-size:20px;font-weight:800;opacity:.5;">=</div>
-      </div>
-      <!-- 절감액 -->
       <div style="background:rgba(134,239,172,.15);border:2px solid rgba(134,239,172,.4);border-radius:12px;padding:16px;text-align:center;">
         <div style="font-size:11px;color:#86efac;margin-bottom:6px;font-weight:700;">✨ 절감액</div>
         <div style="font-size:26px;font-weight:800;color:#86efac;">${fmt(totalSaved)}<span style="font-size:13px;font-weight:400;opacity:.9;">원</span></div>
@@ -1721,14 +1736,10 @@ function renderShipDashboard(list) {
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
       ${workItems.map(w => {
         const cnt = workCount[w.key];
-        const pct = Math.round(cnt/totalWorks*100);
         return `<div style="text-align:center;padding:12px;background:${w.bg};border-radius:12px;">
           <div style="font-size:11px;font-weight:700;color:${w.color};margin-bottom:6px;">${w.label}</div>
-          <div style="font-size:28px;font-weight:800;color:${w.color};">${cnt}</div>
-          <div style="font-size:11px;color:${w.color};opacity:.7;">건 (${pct}%)</div>
-          <div style="margin-top:8px;height:4px;background:rgba(0,0,0,.08);border-radius:2px;">
-            <div style="height:4px;background:${w.color};border-radius:2px;width:${pct}%;"></div>
-          </div>
+          <div style="font-size:32px;font-weight:800;color:${w.color};">${cnt}</div>
+          <div style="font-size:12px;color:${w.color};opacity:.8;margin-top:2px;">건</div>
         </div>`;
       }).join('')}
     </div>
@@ -1780,13 +1791,26 @@ function renderShipview() {
       modelCount[model] = (modelCount[model]||0) + 1;
       if(e) parseWorks(e.works).forEach(k => { wCount[k] = (wCount[k]||0)+1; });
     });
-    const modelBadges = Object.entries(modelCount).map(([m,c]) =>
-      `<span style="font-size:11px;font-weight:700;background:${m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:1px 8px;border-radius:99px;">${m} ${c}건</span>`
-    ).join(' ');
-    const workBadges = Object.entries(wCount).map(([k,c]) => {
-      const w = WORKS[k]; if(!w) return '';
-      return `<span style="font-size:11px;font-weight:700;background:${w.tagBg};color:${w.tagColor};padding:1px 8px;border-radius:99px;">${w.tag} ${c}건</span>`;
-    }).join(' ');
+    // 기종별 > 작업별 계층 통계
+    const modelBadges = Object.entries(modelCount).map(([m,c]) => {
+      // 이 기종의 작업별 카운트
+      const mWorkCount = {};
+      gList.forEach(x => {
+        const e = entries.find(en => String(en.serial) === String(x.serial));
+        const model = x.model || e?.model || '-';
+        if(model !== m) return;
+        if(e) parseWorks(e.works).forEach(k => { mWorkCount[k] = (mWorkCount[k]||0)+1; });
+      });
+      const workDetail = Object.entries(mWorkCount).map(([k,wc]) => {
+        const w = WORKS[k]; if(!w) return '';
+        return `<span style="font-size:10px;font-weight:600;color:${w.tagColor};opacity:.85;">${w.tag} ${wc}</span>`;
+      }).join('<span style="color:#ccc;margin:0 2px;">·</span>');
+      return `<div style="display:inline-flex;align-items:center;gap:6px;background:${m==='S2PRO_N'?'#ede9fe':'#dbeafe'};border-radius:8px;padding:3px 10px;margin-right:6px;">
+        <span style="font-size:11px;font-weight:700;color:${m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};">${m} ${c}건</span>
+        ${workDetail ? `<span style="color:#ccc;">|</span><span style="font-size:10px;">${workDetail}</span>` : ''}
+      </div>`;
+    }).join('');
+    const workBadges = '';
 
     html2 += `<div style="margin-bottom:12px;">
       <div class="date-group-header" style="cursor:pointer;user-select:none;flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px;" onclick="toggleSvGroup('${groupId}')">
@@ -1799,8 +1823,6 @@ function renderShipview() {
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
           ${modelBadges}
-          <span style="color:var(--border2);margin:0 2px;font-size:13px;">·</span>
-          ${workBadges}
         </div>
       </div>
       <div id="${groupId}" style="display:none;">
@@ -2123,6 +2145,13 @@ function loadPriceSettings() {
     if(p.board)  { WORKS.board.price  = p.board;  const el=document.getElementById('price-board');  if(el) el.value=p.board; }
     if(p.nonbat) { WORKS.nonbat.price = p.nonbat; const el=document.getElementById('price-nonbat'); if(el) el.value=p.nonbat; }
     if(p.newProduct) { window.NEW_PRODUCT_PRICE_OVERRIDE = p.newProduct; const el=document.getElementById('price-new-product'); if(el) el.value=p.newProduct; }
+    if(p.ppPcb    !== undefined) { const el=document.getElementById('parts-price-pcb');    if(el) el.value=p.ppPcb; }
+    if(p.ppPanel  !== undefined) { const el=document.getElementById('parts-price-panel');  if(el) el.value=p.ppPanel; }
+    if(p.ppBoard  !== undefined) { const el=document.getElementById('parts-price-board');  if(el) el.value=p.ppBoard; }
+    if(p.ppNonbat !== undefined) { const el=document.getElementById('parts-price-nonbat'); if(el) el.value=p.ppNonbat; }
+    window.PARTS_PRICE = {
+      pcb: p.ppPcb||0, panel: p.ppPanel||0, board: p.ppBoard||0, nonbat: p.ppNonbat||0
+    };
   } catch {}
 }
 
@@ -2132,15 +2161,23 @@ function savePriceSettings() {
   const board  = Number(document.getElementById('price-board')?.value)  || WORKS.board.price;
   const nonbat = Number(document.getElementById('price-nonbat')?.value) || WORKS.nonbat.price;
   const np     = Number(document.getElementById('price-new-product')?.value) || 140000;
+  const ppPcb    = Number(document.getElementById('parts-price-pcb')?.value)    || 0;
+  const ppPanel  = Number(document.getElementById('parts-price-panel')?.value)  || 0;
+  const ppBoard  = Number(document.getElementById('parts-price-board')?.value)  || 0;
+  const ppNonbat = Number(document.getElementById('parts-price-nonbat')?.value) || 0;
 
   WORKS.pcb.price    = pcb;
   WORKS.panel.price  = panel;
   WORKS.board.price  = board;
   WORKS.nonbat.price = nonbat;
   window.NEW_PRODUCT_PRICE_OVERRIDE = np;
+  window.PARTS_PRICE = { pcb: ppPcb, panel: ppPanel, board: ppBoard, nonbat: ppNonbat };
 
-  localStorage.setItem('formsPriceSettings', JSON.stringify({ pcb, panel, board, nonbat, newProduct: np }));
-  buildChecks(); // 수리 입력 체크박스 가격 업데이트
+  localStorage.setItem('formsPriceSettings', JSON.stringify({
+    pcb, panel, board, nonbat, newProduct: np,
+    ppPcb, ppPanel, ppBoard, ppNonbat
+  }));
+  buildChecks();
   notify('단가 설정이 저장되었습니다!');
 }
 
