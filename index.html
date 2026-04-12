@@ -1494,25 +1494,14 @@ function moveToOk(i) {
 }
 
 function completeShipping() {
-  // 체크된 항목만 출고 처리
-  const checkedBoxes = [...document.querySelectorAll('.ship-row-check:checked')];
-
-  // 체크 없으면 전체 출고 여부 확인
   const allOk = window._shipOk || [];
-  if(!checkedBoxes.length && !allOk.length) {
-    notify('출고 가능 목록이 없습니다.', 'error');
-    return;
-  }
+  if(!allOk.length) { notify('출고 가능 목록이 없습니다.', 'error'); return; }
 
-  let targets;
-  if(checkedBoxes.length > 0) {
-    // 체크된 항목만
-    const idxs = checkedBoxes.map(cb => parseInt(cb.dataset.idx));
-    targets = idxs.map(i => allOk[i]).filter(Boolean);
-  } else {
-    // 체크 없으면 전체
-    targets = allOk;
-  }
+  // 체크된 항목 확인
+  const checkedBoxes = [...document.querySelectorAll('.ship-row-check:checked')];
+  const targets = checkedBoxes.length > 0
+    ? checkedBoxes.map(cb => allOk[parseInt(cb.dataset.idx)]).filter(Boolean)
+    : allOk;
 
   if(!targets.length) { notify('출고할 항목이 없습니다.', 'error'); return; }
 
@@ -2021,8 +2010,12 @@ async function cancelSelectedShip(groupId) {
         gasCall({ action: 'deleteShipLog', serial: item.serial, shipDate: item.shipDate })
       ));
 
-      // 로컬에서 제거 (뒤에서부터)
-      idxs.forEach(i => shipHistory.splice(i, 1));
+      // 로컬에서 serial+shipDate 기준으로 제거 (인덱스 방식 버그 수정)
+      const removeKeys = new Set(items.map(it => it.serial + '||' + it.shipDate));
+      for(let i = shipHistory.length - 1; i >= 0; i--) {
+        const key = shipHistory[i].serial + '||' + shipHistory[i].shipDate;
+        if(removeKeys.has(key)) shipHistory.splice(i, 1);
+      }
       window._shipOk = null;
       window._shipHold = null;
       notify(`${items.length}건 출고 취소되었습니다.`);
