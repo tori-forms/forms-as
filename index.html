@@ -922,7 +922,7 @@ function gasCall(params) {
     s.onerror = ()=>{ cleanup(); reject(new Error('error')); };
     s.src = GAS + '?' + qs;
     document.head.appendChild(s);
-    function cleanup(){ clearTimeout(timer); delete window[cb]; s.remove(); }
+    
   });
 }
 
@@ -1085,43 +1085,9 @@ function closeModal(){ document.getElementById('modal').classList.remove('open')
 document.getElementById('modal-ok').onclick = ()=>{ closeModal(); if(mcb) mcb(); };
 
 // 기종 자동 감지
-function detectModel(serial) {
-  if(!serial) return '';
-  const s = serial.toUpperCase();
-  if(!s.startsWith('TO')) return '';
-  const num = parseInt(s.slice(2,6));
-  if(num >= 2208 && num <= 2309) return 'S2_N';
-  if(num >= 2310 && num <= 2505) return 'S2PRO_N';
-  return '';
-}
-function autoDetectModel() {
-  const serial = document.getElementById('inp-serial').value;
-  const detected = detectModel(serial);
-  const autoEl = document.getElementById('model-auto');
-  const manualEl = document.getElementById('inp-model');
-  if(detected) {
-    autoEl.textContent = detected;
-    autoEl.style.display = 'inline-block';
-    manualEl.style.display = 'none';
-    manualEl.value = '';
-  } else {
-    autoEl.textContent = '';
-    autoEl.style.display = 'none';
-    manualEl.style.display = 'block';
-  }
-  // 모델 변경 시 체크박스 상태 유지하며 부품 목록 재렌더
-  const checked = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
-  buildChecks();
-  checked.forEach(k => {
-    const inp = document.querySelector(`#wc-${k} input`);
-    if(inp){ inp.checked = true; document.getElementById('wc-'+k).classList.add('checked'); renderPartQtys(k); }
-  });
-}
-function getModel() {
-  const auto = document.getElementById('model-auto').textContent;
-  const manual = document.getElementById('inp-model').value.trim();
-  return auto || manual;
-}
+
+
+
 
 // 기종 자동 감지
 function detectModel(serial) {
@@ -2150,29 +2116,7 @@ function switchAdminTab(tab) {
 }
 
 // Admin 탭은 기존 탭 DOM을 직접 이동해서 렌더
-function renderKPIList(targetId) {
-  const el = document.getElementById(targetId || 'kpi-list');
-  if(!el) return;
-  if(!Object.keys(kpiMap).length){ el.innerHTML='<div class="empty">저장된 KPI가 없습니다.</div>'; return; }
-  const months = Object.keys(kpiMap).sort((a,b)=>b.localeCompare(a));
-  el.innerHTML = months.map(k=>{
-    const [y,m2] = k.split('-');
-    const label = `${y}년 ${Number(m2)}월`;
-    const wd = window._wdCache?.[k] || 0;
-    const ac = workers.filter(w=>w!==MASTER_NAME).length;
-    const daily = wd&&ac ? Math.ceil(kpiMap[k]/wd/ac) : 0;
-    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
-      <div>
-        <span style="font-size:15px;font-weight:700;">${label}</span>
-        <span style="font-size:12px;color:var(--text2);margin-left:12px;">월 목표 ${fmt(kpiMap[k])}대</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:12px;">
-        <span style="font-size:12px;color:var(--text3);" id="wd-${k.replace('-','_')}">평일 ${wd||'...'}일 · ${ac}명</span>
-        <button class="btn btn-sm btn-danger" onclick="deleteKPI('${k}')">삭제</button>
-      </div>
-    </div>`;
-  }).join('');
-}
+
 
 function saveKPI2() {
   const month = document.getElementById('kpi-month2')?.value;
