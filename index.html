@@ -1504,9 +1504,13 @@ function completeShipping() {
 
   // 체크된 항목 확인
   const checkedBoxes = [...document.querySelectorAll('.ship-row-check:checked')];
-  const targets = checkedBoxes.length > 0
-    ? checkedBoxes.map(cb => allOk[parseInt(cb.dataset.idx)]).filter(Boolean)
-    : allOk;
+  let targets;
+  if(checkedBoxes.length > 0) {
+    targets = checkedBoxes.map(cb => allOk[parseInt(cb.dataset.idx)]).filter(Boolean);
+  } else {
+    // 체크 없으면 전체 출고 여부 한번 더 확인
+    targets = allOk;
+  }
 
   if(!targets.length) { notify('출고할 항목이 없습니다.', 'error'); return; }
 
@@ -1515,9 +1519,10 @@ function completeShipping() {
   const shipDTStr = `${dateVal}T${timeVal}:00`;
   const shipLabel = `${dateVal} ${timeVal}`;
 
+  const isAllMode = checkedBoxes.length === 0;
   openModal(
     '출고 완료 처리',
-    `선택한 ${targets.length}건을 ${shipLabel} 출고 완료 처리할까요?`,
+    `${isAllMode ? '전체' : '선택한'} ${targets.length}건을 ${shipLabel} 출고 완료 처리할까요?`,
     async () => {
       try {
         const validTargets = targets.filter(x => x.entry);
@@ -1549,9 +1554,18 @@ function completeShipping() {
 
         // 출고된 항목을 _shipOk에서 제거
         const doneSerials = new Set(validTargets.map(x => x.entry?.serial).filter(Boolean));
+        // 완료된 건 _shipOk에서 제거
         window._shipOk = (window._shipOk || []).filter(x => !doneSerials.has(x.entry?.serial));
+        // _shipHold에서도 혹시 있으면 제거
+        window._shipHold = (window._shipHold || []).filter(x => !doneSerials.has(x.entry?.serial));
 
-        notify(`${targets.length}건 출고 완료!`);
+        // 버튼/체크박스 상태 초기화
+        const excludeBtn = document.getElementById('exclude-selected-btn');
+        const completeBtn = document.getElementById('shipping-complete-btn');
+        if(excludeBtn) excludeBtn.style.display = 'none';
+        if(completeBtn) completeBtn.textContent = '✅ 출고 완료 처리';
+
+        notify(`${validTargets.length}건 출고 완료!`);
         renderShipping();
         renderShipHistory();
       } catch(err) {
