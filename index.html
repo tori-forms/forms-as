@@ -1795,8 +1795,79 @@ function renderShipDashboard(list) {
     '<div style="flex:1;min-width:180px;">'+legend+'</div>'+
     '</div></div>';
 
+  // ② 월별 추이 차트 - 공임비+부품비 합산 (절감효과 위에 표시)
+  const PP2 = window.PARTS_PRICE || {};
+  const monthMap = {};
+  mapped.forEach(x => {
+    const d = parseShipDate(x.shipDate);
+    if(!d) return;
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if(!monthMap[key]) monthMap[key] = { count:0, fee:0, parts:0, total:0 };
+    const modelParts = PP2.modelParts?.[x.model] || {};
+    const partsAmt = x.works.reduce((ws, k) => ws + (modelParts[k]||0), 0);
+    monthMap[key].count++;
+    monthMap[key].fee += x.fee;
+    monthMap[key].parts += partsAmt;
+    monthMap[key].total += x.fee + partsAmt;
+  });
+  const months = Object.keys(monthMap).sort();
+  const maxCount = Math.max(...months.map(m=>monthMap[m].count), 1);
+  const maxTotal = Math.max(...months.map(m=>monthMap[m].total), 1);
+
+  // 가로 막대 그래프 - 월별 한눈에 비교
+  const monthRows = months.map((m, i) => {
+    const md = monthMap[m];
+    const totalBarW = Math.round(md.total / maxTotal * 100);
+    const countBarW = Math.round(md.count / maxCount * 100);
+    const yr = m.slice(0,4);
+    const mo = String(Number(m.slice(5)));
+    const isLast = i === months.length - 1;
+    const prev = i > 0 ? monthMap[months[i-1]] : null;
+    const diff = prev ? md.total - prev.total : 0;
+    const diffSign = diff > 0 ? '▲' : diff < 0 ? '▼' : '';
+    const diffColor = diff > 0 ? '#f87171' : diff < 0 ? '#34d399' : 'rgba(255,255,255,.4)';
+    return `
+    <div style="display:grid;grid-template-columns:64px 1fr 110px;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,${isLast?'0':'.07'});">
+      <div style="font-size:12px;font-weight:700;opacity:.75;white-space:nowrap;">${yr}.${mo.padStart(2,'0')}</div>
+      <div>
+        <!-- 수리합계 바 -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
+          <div style="flex:1;background:rgba(255,255,255,.12);border-radius:4px;height:8px;">
+            <div style="height:8px;background:linear-gradient(90deg,#60a5fa,#3b82f6);border-radius:4px;width:${totalBarW}%;transition:width .6s;"></div>
+          </div>
+        </div>
+        <!-- 건수 바 -->
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="flex:1;background:rgba(255,255,255,.08);border-radius:4px;height:4px;">
+            <div style="height:4px;background:rgba(255,255,255,.4);border-radius:4px;width:${countBarW}%;"></div>
+          </div>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:15px;font-weight:800;color:#93c5fd;">${md.total>=10000?Math.round(md.total/10000)+'만':'0'}<span style="font-size:10px;font-weight:400;opacity:.7;">원</span>
+          ${diff!==0?`<span style="font-size:10px;color:${diffColor};margin-left:3px;">${diffSign}${Math.abs(Math.round(diff/10000))}만</span>`:''}
+        </div>
+        <div style="font-size:11px;opacity:.5;margin-top:2px;">${md.count}건</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  h += `<div style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 60%,#1a2744 100%);border-radius:16px;padding:22px 24px;margin-bottom:20px;color:#fff;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:600;opacity:.7;letter-spacing:.5px;">📈 월별 추이 <span style="opacity:.4;font-weight:400;">(공임비 + 부품비)</span></div>
+      <div style="display:flex;gap:14px;font-size:10px;opacity:.5;">
+        <span><span style="display:inline-block;width:20px;height:4px;background:linear-gradient(90deg,#60a5fa,#3b82f6);border-radius:2px;vertical-align:middle;margin-right:4px;"></span>수리합계</span>
+        <span><span style="display:inline-block;width:20px;height:4px;background:rgba(255,255,255,.4);border-radius:2px;vertical-align:middle;margin-right:4px;"></span>출고건수</span>
+      </div>
+    </div>
+    ${months.length === 0
+      ? '<div style="text-align:center;opacity:.4;padding:20px;">데이터 없음</div>'
+      : monthRows
+    }
+  </div>`;
+
   h += `
-  <!-- 2행: 절감 효과 하이라이트 -->
+  <!-- 절감 효과 하이라이트 -->
   <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);border-radius:16px;padding:24px;margin-bottom:20px;color:#fff;">
     <div style="font-size:12px;font-weight:600;opacity:.7;margin-bottom:16px;letter-spacing:.5px;">
       💰 새제품 대비 절감 효과 <span style="opacity:.5;">(새제품 단가 ${fmt(NEW_PRODUCT_PRICE)}원 기준)</span>
@@ -1827,72 +1898,13 @@ function renderShipDashboard(list) {
     </div>
   </div>`;
 
-  // ② 월별 추이 차트 - 공임비+부품비 합산
-  const PP2 = window.PARTS_PRICE || {};
-  const monthMap = {};
-  mapped.forEach(x => {
-    const d = parseShipDate(x.shipDate);
-    if(!d) return;
-    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    if(!monthMap[key]) monthMap[key] = { count:0, fee:0, parts:0, total:0 };
-    const modelParts = PP2.modelParts?.[x.model] || {};
-    const partsAmt = x.works.reduce((ws, k) => ws + (modelParts[k]||0), 0);
-    monthMap[key].count++;
-    monthMap[key].fee += x.fee;
-    monthMap[key].parts += partsAmt;
-    monthMap[key].total += x.fee + partsAmt;
-  });
-  const months = Object.keys(monthMap).sort();
-  const maxCount = Math.max(...months.map(m=>monthMap[m].count), 1);
-  const maxTotal = Math.max(...months.map(m=>monthMap[m].total), 1);
-
-  const monthCards = months.map((m, i) => {
-    const md = monthMap[m];
-    const barPct = Math.round(md.total / maxTotal * 100);
-    const countBarPct = Math.round(md.count / maxCount * 100);
-    const yr = m.slice(0,4);
-    const mo = String(Number(m.slice(5)));
-    const colors = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4'];
-    const c = colors[i % colors.length];
-    return `<div style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:14px;padding:18px 16px;min-width:140px;flex:1;">
-      <div style="font-size:12px;font-weight:700;opacity:.7;margin-bottom:12px;letter-spacing:.3px;">${yr}년 ${mo}월</div>
-      <!-- 건수 -->
-      <div style="margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
-          <span style="font-size:11px;opacity:.6;font-weight:600;">출고 건수</span>
-          <span style="font-size:16px;font-weight:800;">${md.count}<span style="font-size:11px;font-weight:400;opacity:.7;">건</span></span>
-        </div>
-        <div style="background:rgba(255,255,255,.15);border-radius:4px;height:5px;">
-          <div style="height:5px;background:rgba(255,255,255,.8);border-radius:4px;width:${countBarPct}%;"></div>
-        </div>
-      </div>
-      <!-- 수리 합계 -->
-      <div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
-          <span style="font-size:11px;opacity:.6;font-weight:600;">수리 합계</span>
-          <span style="font-size:15px;font-weight:800;color:${c};">${md.total >= 10000 ? Math.round(md.total/10000)+'만' : fmt(md.total)}<span style="font-size:10px;font-weight:400;opacity:.8;">원</span></span>
-        </div>
-        <div style="background:rgba(255,255,255,.15);border-radius:4px;height:5px;">
-          <div style="height:5px;background:${c};border-radius:4px;width:${barPct}%;"></div>
-        </div>
-        ${md.parts > 0 ? `<div style="display:flex;justify-content:space-between;margin-top:7px;font-size:10px;opacity:.5;">
-          <span>공임 ${fmt(md.fee)}원</span><span>부품 ${fmt(md.parts)}원</span>
-        </div>` : `<div style="margin-top:7px;font-size:10px;opacity:.5;">공임비 ${fmt(md.fee)}원</div>`}
-      </div>
-    </div>`;
-  }).join('');
-
-  h += `<div style="background:linear-gradient(135deg,#1a2744 0%,#1e3a5f 50%,#0f2647 100%);border-radius:16px;padding:24px;margin-bottom:20px;color:#fff;">
-    <div style="font-size:12px;font-weight:600;opacity:.7;margin-bottom:16px;letter-spacing:.5px;">📈 월별 추이 <span style="opacity:.4;">(수리 합계 = 공임비 + 부품비)</span></div>
-    ${months.length === 0
-      ? '<div style="text-align:center;opacity:.4;padding:20px;">데이터 없음</div>'
-      : `<div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:4px;">${monthCards}</div>`
-    }
-  </div>`;
-
   if(el) el.innerHTML = h;
 }
 
+
+function refreshShipview() {
+  renderShipview();
+}
 
 function renderShipview() {
   const clientMode = isClientMode();
@@ -2001,7 +2013,7 @@ function renderShipview() {
                 <td class="mono">${x.serial}</td>
                 <td>${workTags(works)}</td>
                 <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fee?fmt(fee)+' 원':'-'}</td>
-                <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;">${partsFee ? fmt(partsFee)+' 원' : '<span style=\"color:var(--text3)\">-</span>'}</td>
+                <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:12px;">${partsFee ? fmt(partsFee)+' 원' : '<span style=\"color:var(--text3);font-weight:400\">-</span>'}</td>
                 <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:12px;">${(fee+partsFee) ? fmt(fee+partsFee)+' 원' : '-'}</td>
               </tr>`;
             }).join('')}</tbody>
