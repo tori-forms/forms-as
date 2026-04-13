@@ -2223,25 +2223,6 @@ function renderReportAdmin() { renderReport(); }
 function renderStockAdmin() { renderStock(); }
 
 /* ===== 단가 설정 ===== */
-function loadPriceSettings() {
-  try {
-    const saved = localStorage.getItem('formsPriceSettings');
-    if(!saved) return;
-    const p = JSON.parse(saved);
-    if(p.pcb)    { WORKS.pcb.price    = p.pcb;    const el=document.getElementById('price-pcb');    if(el) el.value=p.pcb; }
-    if(p.panel)  { WORKS.panel.price  = p.panel;  const el=document.getElementById('price-panel');  if(el) el.value=p.panel; }
-    if(p.board)  { WORKS.board.price  = p.board;  const el=document.getElementById('price-board');  if(el) el.value=p.board; }
-    if(p.nonbat) { WORKS.nonbat.price = p.nonbat; const el=document.getElementById('price-nonbat'); if(el) el.value=p.nonbat; }
-    if(p.newProduct) { window.NEW_PRODUCT_PRICE_OVERRIDE = p.newProduct; const el=document.getElementById('price-new-product'); if(el) el.value=p.newProduct; }
-    if(p.ppPcb    !== undefined) { const el=document.getElementById('parts-price-pcb');    if(el) el.value=p.ppPcb; }
-    if(p.ppPanel  !== undefined) { const el=document.getElementById('parts-price-panel');  if(el) el.value=p.ppPanel; }
-    if(p.ppBoard  !== undefined) { const el=document.getElementById('parts-price-board');  if(el) el.value=p.ppBoard; }
-    if(p.ppNonbat !== undefined) { const el=document.getElementById('parts-price-nonbat'); if(el) el.value=p.ppNonbat; }
-    window.PARTS_PRICE = {
-      pcb: p.ppPcb||0, panel: p.ppPanel||0, board: p.ppBoard||0, nonbat: p.ppNonbat||0
-    };
-  } catch {}
-}
 
 function getModelList() {
   // 현재 데이터에서 기종 목록 추출 + 설정에 저장된 기종
