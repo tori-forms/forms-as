@@ -1538,6 +1538,48 @@ function renderShipHistory() {
     </div>`;
   });
   el.innerHTML = h;
+
+  // 도넛 차트 그리기
+  setTimeout(() => {
+    const canvas = document.getElementById('donut-chart');
+    if(!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const chartData = workItems.map(w => ({ count: workCount[w.key], color: w.color }));
+    const total = chartData.reduce((s,d) => s+d.count, 0);
+    if(!total) return;
+    const cx = 90, cy = 90, outerR = 75, innerR = 48;
+    ctx.clearRect(0, 0, 180, 180);
+    let angle = -Math.PI / 2;
+    chartData.forEach(d => {
+      if(!d.count) return;
+      const slice = (d.count / total) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, outerR, angle, angle + slice);
+      ctx.closePath();
+      ctx.fillStyle = d.color;
+      ctx.fill();
+      angle += slice;
+    });
+    // 가운데 구멍
+    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#ffffff';
+    ctx.beginPath();
+    ctx.arc(cx, cy, innerR, 0, Math.PI * 2);
+    ctx.fillStyle = bgColor;
+    ctx.fill();
+    // 구분선
+    angle = -Math.PI / 2;
+    chartData.forEach(d => {
+      if(!d.count) return;
+      ctx.beginPath();
+      ctx.moveTo(cx + innerR * Math.cos(angle), cy + innerR * Math.sin(angle));
+      ctx.lineTo(cx + outerR * Math.cos(angle), cy + outerR * Math.sin(angle));
+      ctx.strokeStyle = bgColor;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      angle += (d.count / total) * Math.PI * 2;
+    });
+  }, 50);
 }
 
 /* ===== 출고 현황 (고객사용) ===== */
@@ -1612,6 +1654,14 @@ function shipDateKey(s) {
   const d = parseShipDate(s);
   if(!d) return '미확인';
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function getPartsFeeForEntry(entry) {
+  if(!entry) return 0;
+  const MP = (window.PARTS_PRICE?.modelParts) || {};
+  const modelPrices = MP[entry.model] || {};
+  const works = parseWorks(entry.works);
+  return works.reduce((s, k) => s + (modelPrices[k] || 0), 0);
 }
 
 function getFilteredShipHistory() {
@@ -1754,43 +1804,61 @@ function renderShipDashboard(list) {
     </div>`}
   </div>`;
 
-  // ③ 수리 항목 분포
+  // ③ 수리 항목 분포 - 파이 차트
   const workCount = { pcb:0, panel:0, board:0, nonbat:0 };
-  mapped.forEach(x => {
-    x.works.forEach(k => { if(workCount[k] !== undefined) workCount[k]++; });
-  });
+  mapped.forEach(x => { x.works.forEach(k => { if(workCount[k]!==undefined) workCount[k]++; }); });
   const totalWorks = Object.values(workCount).reduce((s,v)=>s+v,0)||1;
-  const workItems = [
-    { key:'pcb',    label:'PCB 교체',   color:'#2563eb', bg:'#dbeafe' },
-    { key:'panel',  label:'LCD 교체',   color:'#16a34a', bg:'#dcfce7' },
-    { key:'board',  label:'M/B 수리',   color:'#7c3aed', bg:'#ede9fe' },
-    { key:'nonbat', label:'논배터리',    color:'#ea580c', bg:'#ffedd5' },
-  ];
+  const wItems = [
+    {key:'pcb',    label:'PCB 교체',  color:'#2563eb'},
+    {key:'panel',  label:'LCD 교체',  color:'#16a34a'},
+    {key:'board',  label:'M/B 수리',  color:'#7c3aed'},
+    {key:'nonbat', label:'논배터리',   color:'#ea580c'},
+  ].filter(w => workCount[w.key] > 0);
 
-  h += `<div class="card">
-    <div class="card-title">🔧 수리 항목 분포</div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
-      ${workItems.map(w => {
-        const cnt = workCount[w.key];
-        return `<div style="text-align:center;padding:12px;background:${w.bg};border-radius:12px;">
-          <div style="font-size:11px;font-weight:700;color:${w.color};margin-bottom:6px;">${w.label}</div>
-          <div style="font-size:32px;font-weight:800;color:${w.color};">${cnt}</div>
-          <div style="font-size:12px;color:${w.color};opacity:.8;margin-top:2px;">건</div>
-        </div>`;
-      }).join('')}
-    </div>
-  </div>`;
+  // SVG 파이 차트
+  let slices = '';
+  let ang = -Math.PI / 2;
+  const cx=80, cy=80, ro=70, ri=35;
+  wItems.forEach(w => {
+    const pct = workCount[w.key] / totalWorks;
+    const a2 = ang + pct * Math.PI * 2;
+    const x1o=cx+ro*Math.cos(ang), y1o=cy+ro*Math.sin(ang);
+    const x2o=cx+ro*Math.cos(a2),  y2o=cy+ro*Math.sin(a2);
+    const x1i=cx+ri*Math.cos(a2),  y1i=cy+ri*Math.sin(a2);
+    const x2i=cx+ri*Math.cos(ang), y2i=cy+ri*Math.sin(ang);
+    const lg = pct > 0.5 ? 1 : 0;
+    slices += '<path d="M'+x1o.toFixed(2)+','+y1o.toFixed(2)+
+      ' A'+ro+','+ro+' 0 '+lg+',1 '+x2o.toFixed(2)+','+y2o.toFixed(2)+
+      ' L'+x1i.toFixed(2)+','+y1i.toFixed(2)+
+      ' A'+ri+','+ri+' 0 '+lg+',0 '+x2i.toFixed(2)+','+y2i.toFixed(2)+
+      ' Z" fill="'+w.color+'" stroke="#fff" stroke-width="2"/>';
+    ang = a2;
+  });
 
-  el.innerHTML = h;
+  const legend = wItems.map(w => {
+    const cnt = workCount[w.key];
+    const pct = Math.round(cnt/totalWorks*100);
+    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'+
+      '<div style="width:12px;height:12px;border-radius:3px;background:'+w.color+';flex-shrink:0;"></div>'+
+      '<div style="flex:1;font-size:13px;">'+w.label+'</div>'+
+      '<div style="font-size:14px;font-weight:700;color:'+w.color+';">'+cnt+'건</div>'+
+      '<div style="font-size:11px;color:var(--text3);width:38px;text-align:right;">'+pct+'%</div>'+
+      '</div>';
+  }).join('');
+
+  h += '<div class="card"><div class="card-title">🔧 수리 항목 분포</div>'+
+    '<div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">'+
+    '<svg width="160" height="160" viewBox="0 0 160 160" style="flex-shrink:0;">'+
+    (slices || '<circle cx="80" cy="80" r="70" fill="#f3f4f6"/>') +
+    '<text x="80" y="76" text-anchor="middle" font-size="11" fill="#9ca3af">총</text>'+
+    '<text x="80" y="93" text-anchor="middle" font-size="17" font-weight="bold" fill="#111">'+totalWorks+'</text>'+
+    '</svg>'+
+    '<div style="flex:1;min-width:180px;">'+legend+'</div>'+
+    '</div></div>';
+
+  if(el) el.innerHTML = h;
 }
 
-/* ===== 출고 현황 (고객사용) ===== */
-async function refreshShipview() {
-  notify('새로고침 중...', 'info');
-  await syncData(true);
-  setSvFilter(svFilter || 'all');
-  notify('새로고침 완료!');
-}
 
 function renderShipview() {
   const clientMode = isClientMode();
@@ -1897,16 +1965,16 @@ function renderShipview() {
                 <td class="mono">${x.serial}</td>
                 <td>${workTags(works)}</td>
                 <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fee?fmt(fee)+' 원':'-'}</td>
-                <td style="text-align:right;color:var(--text3);font-size:12px;">-</td>
-                <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:12px;">${fee?fmt(fee)+' 원':'-'}</td>
+                <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;">${partsFee ? fmt(partsFee)+' 원' : '<span style=\"color:var(--text3)\">-</span>'}</td>
+                <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:12px;">${(fee+partsFee) ? fmt(fee+partsFee)+' 원' : '-'}</td>
               </tr>`;
             }).join('')}</tbody>
             <tfoot><tr>
               ${!clientMode ? '<td></td>' : ''}
               <td colspan="4" style="font-weight:700;padding:10px 12px;">합계</td>
               <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;">${fmt(totalFee)} 원</td>
-              <td style="text-align:right;color:var(--text3);">-</td>
-              <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;">${fmt(totalFee)} 원</td>
+              <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;">${(()=>{const tp=gList.reduce((s,x)=>{const e2=entries.find(en=>String(en.serial)===String(x.serial));return s+getPartsFeeForEntry(e2);},0);return tp?fmt(tp)+' 원':'<span style=\"color:var(--text3)\">-</span>';})()}</td>
+              <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;">${(()=>{const tp=gList.reduce((s,x)=>{const e2=entries.find(en=>String(en.serial)===String(x.serial));return s+getPartsFeeForEntry(e2);},0);return fmt(totalFee+tp)+' 원';})()}</td>
             </tr></tfoot>
           </table></div>
         </div>
@@ -2288,7 +2356,10 @@ function loadPriceSettings() {
     if(saved.modelParts) {
       window.PARTS_PRICE = { modelParts: saved.modelParts };
     }
-    renderModelPartsTable();
+    // DOM이 있을 때만 테이블 렌더
+    if(document.getElementById('model-parts-price-table')) {
+      renderModelPartsTable();
+    }
   } catch(e) { console.error(e); }
 }
 
