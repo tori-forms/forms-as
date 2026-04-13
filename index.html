@@ -565,6 +565,7 @@ tr:hover td{background:var(--surface2);}
         </div>
       </div>
     </div>
+  </div>
 
   <!-- 출고 현황 (고객사용) -->
   <div id="tab-shipview" class="section">
@@ -988,11 +989,11 @@ async function syncData(silent=false) {
     // 출고 이력도 같이 로드
     if(data.shipLog) {
       shipHistory = data.shipLog;
-      // 출고현황 탭이 열려있으면 갱신
-      if(document.getElementById('tab-shipview')?.style.display !== 'none') {
-        renderShipview();
-      }
     }
+    // 현재 열린 탭에 따라 자동 렌더
+    const activeTab = document.querySelector('.nav-btn.active')?.getAttribute('onclick');
+    if(activeTab?.includes('shipping')) renderShipping();
+    if(activeTab?.includes('shipview')) renderShipview();
     docs = (data.docs || []).map(d => ({
       ...d,
       title: (d.title||'').replace(/\[CL\]/g,'::').replace(/\[PP\]/g,'||'),
@@ -1214,16 +1215,15 @@ async function refreshShipping() {
 }
 
 function initShipping() {
-  if(!document.getElementById('ship-date').value) {
-    document.getElementById('ship-date').value = todayStr();
+  const shipDateEl = document.getElementById('ship-date');
+  if(shipDateEl && !shipDateEl.value) {
+    shipDateEl.value = todayStr();
   }
-  // 탭 진입시 분류 초기화
   window._shipOk = null;
   window._shipHold = null;
-  loadShipHistory().then(() => {
-    renderShipping();
-    renderShipHistory();
-  });
+  // syncData가 완료된 후 렌더 (shipHistory 보장)
+  renderShipping();
+  renderShipHistory();
 }
 
 function renderShipping() {
@@ -1544,7 +1544,7 @@ function renderShipHistory() {
 let svFilter = 'all';
 
 function setSvFilter(type) {
-  svFilter = type;
+  svFilter = type || 'all';
   // 버튼 활성화
   ['all','month','last','custom'].forEach(t => {
     const btn = document.getElementById('svf-'+t);
