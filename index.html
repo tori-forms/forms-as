@@ -512,113 +512,59 @@ tr:hover td{background:var(--surface2);}
     <!-- 단가 설정 서브탭 -->
     <div id="admin-price" style="display:none;">
       <div class="card">
-        <div class="card-title">💰 단가 설정</div>
-        <div style="font-size:12px;color:var(--text2);margin-bottom:16px;">공임비 및 새제품 기준 단가를 설정합니다. 변경 시 수리 입력 화면과 대시보드에 즉시 반영됩니다.</div>
-        <div style="margin-bottom:20px;">
-          <div style="font-size:13px;font-weight:700;margin-bottom:10px;">수리 항목별 공임비</div>
-          <div style="display:grid;gap:8px;">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+          💰 단가 설정
+          <button class="btn btn-sm btn-primary" onclick="savePriceSettings()">💾 저장</button>
+        </div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:16px;">
+          공임비는 수리항목별 공통 적용, 부품비는 기종별로 다르게 설정할 수 있어요.
+        </div>
+
+        <!-- 공임비 섹션 -->
+        <div style="margin-bottom:24px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text1);">🔧 수리 항목별 공임비 (기종 공통)</div>
+          <div style="display:grid;gap:8px;" id="labor-price-list">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:11px;font-weight:700;background:#dbeafe;color:#2563eb;padding:2px 8px;border-radius:99px;">PCB 교체</span>
-                <span style="font-size:12px;color:var(--text2);">PCB 교체 (+S/N 라이팅)</span>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <input type="number" id="price-pcb" value="15180" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
-                <span style="font-size:12px;color:var(--text2);">원</span>
-              </div>
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#dbeafe;color:#2563eb;padding:2px 8px;border-radius:99px;">PCB 교체</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-pcb" value="15180" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:11px;font-weight:700;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:99px;">LCD 교체</span>
-                <span style="font-size:12px;color:var(--text2);">일체형 패널 교체</span>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <input type="number" id="price-panel" value="10450" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
-                <span style="font-size:12px;color:var(--text2);">원</span>
-              </div>
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:99px;">LCD 교체</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-panel" value="10450" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:11px;font-weight:700;background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:99px;">M/B 수리</span>
-                <span style="font-size:12px;color:var(--text2);">메인보드 부분 수리</span>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <input type="number" id="price-board" value="10450" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
-                <span style="font-size:12px;color:var(--text2);">원</span>
-              </div>
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:99px;">M/B 수리</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-board" value="10450" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:11px;font-weight:700;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;">논배터리</span>
-                <span style="font-size:12px;color:var(--text2);">논배터리 작업</span>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <input type="number" id="price-nonbat" value="18700" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
-                <span style="font-size:12px;color:var(--text2);">원</span>
-              </div>
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;">논배터리</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-nonbat" value="18700" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
             </div>
           </div>
         </div>
-        <div style="margin-bottom:16px;">
-          <div style="font-size:13px;font-weight:700;margin-bottom:10px;">새제품 기준 단가</div>
+
+        <!-- 새제품 단가 -->
+        <div style="margin-bottom:24px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px;">📦 새제품 기준 단가</div>
           <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-            <div style="font-size:12px;color:var(--text2);">📦 새제품 단가 (절감 효과 계산 기준)</div>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <input type="number" id="price-new-product" value="140000" style="width:110px;text-align:right;font-family:'JetBrains Mono',monospace;">
-              <span style="font-size:12px;color:var(--text2);">원</span>
-            </div>
+            <div style="font-size:12px;color:var(--text2);">새제품 단가 (절감 효과 계산 기준)</div>
+            <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-new-product" value="140000" style="width:110px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
           </div>
         </div>
-        <!-- 부품비 섹션 -->
-        <div style="margin-bottom:16px;">
-          <div style="font-size:13px;font-weight:700;margin-bottom:10px;">수리 항목별 부품비 (평균)</div>
-          <div style="display:grid;gap:8px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:11px;font-weight:700;background:#dbeafe;color:#2563eb;padding:2px 8px;border-radius:99px;">PCB 교체</span>
-                <span style="font-size:12px;color:var(--text2);">부품비</span>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <input type="number" id="parts-price-pcb" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
-                <span style="font-size:12px;color:var(--text2);">원</span>
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:11px;font-weight:700;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:99px;">LCD 교체</span>
-                <span style="font-size:12px;color:var(--text2);">부품비</span>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <input type="number" id="parts-price-panel" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
-                <span style="font-size:12px;color:var(--text2);">원</span>
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:11px;font-weight:700;background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:99px;">M/B 수리</span>
-                <span style="font-size:12px;color:var(--text2);">부품비</span>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <input type="number" id="parts-price-board" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
-                <span style="font-size:12px;color:var(--text2);">원</span>
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:11px;font-weight:700;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;">논배터리</span>
-                <span style="font-size:12px;color:var(--text2);">부품비</span>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <input type="number" id="parts-price-nonbat" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
-                <span style="font-size:12px;color:var(--text2);">원</span>
-              </div>
+
+        <!-- 기종별 부품비 -->
+        <div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+            <span>📦 기종별 부품비</span>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="text" id="new-model-input" placeholder="기종명 (예: S3_N)" style="width:130px;height:32px;font-size:12px;">
+              <button class="btn btn-sm btn-primary" onclick="addModelToPrice()">+ 기종 추가</button>
             </div>
           </div>
+          <div id="model-parts-price-table"></div>
         </div>
-        <button class="btn btn-primary" onclick="savePriceSettings()">💾 단가 저장</button>
       </div>
     </div>
-  </div>
 
   <!-- 출고 현황 (고객사용) -->
   <div id="tab-shipview" class="section">
@@ -1729,9 +1675,11 @@ function renderShipDashboard(list) {
 
   const totalCount  = mapped.length;
   const totalFee    = mapped.reduce((s,x) => s+x.fee, 0);
+  // 기종별 부품비 계산
   const PP = window.PARTS_PRICE || {};
   const totalParts = mapped.reduce((s,x) => {
-    return s + x.works.reduce((ws, k) => ws + (PP[k]||0), 0);
+    const modelParts = PP.modelParts?.[x.model] || {};
+    return s + x.works.reduce((ws, k) => ws + (modelParts[k]||0), 0);
   }, 0);
   const totalRepair = totalFee + totalParts;
   const totalNew    = totalCount * NEW_PRODUCT_PRICE;
@@ -2195,7 +2143,10 @@ function switchAdminTab(tab) {
     renderReportInto('report-content2', document.getElementById('report-month2')?.value);
   }
   if(tab === 'stock') renderStockInto('stock-content2');
-  if(tab === 'price') loadPriceSettings();
+  if(tab === 'price') {
+    loadPriceSettings();
+    setTimeout(renderModelPartsTable, 50);
+  }
 }
 
 // Admin 탭은 기존 탭 DOM을 직접 이동해서 렌더
@@ -2292,40 +2243,130 @@ function loadPriceSettings() {
   } catch {}
 }
 
+function getModelList() {
+  // 현재 데이터에서 기종 목록 추출 + 설정에 저장된 기종
+  const fromData = [...new Set(entries.map(e => e.model).filter(Boolean))];
+  const saved = JSON.parse(localStorage.getItem('formsPriceSettings') || '{}');
+  const fromSaved = Object.keys(saved.modelParts || {});
+  return [...new Set([...fromData, ...fromSaved])].sort();
+}
+
+function renderModelPartsTable() {
+  const el = document.getElementById('model-parts-price-table');
+  if(!el) return;
+  const saved = JSON.parse(localStorage.getItem('formsPriceSettings') || '{}');
+  const mp = saved.modelParts || {};
+  const models = getModelList();
+
+  if(!models.length) {
+    el.innerHTML = '<div class="empty" style="padding:20px;">수리 데이터에서 기종을 자동으로 불러오거나 위에서 직접 추가하세요.</div>';
+    return;
+  }
+
+  const workKeys = Object.keys(WORKS);
+  el.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead>
+          <tr style="background:var(--surface2);">
+            <th style="padding:8px 12px;text-align:left;border:1px solid var(--border);font-weight:700;">수리 항목</th>
+            ${models.map(m => `
+              <th style="padding:8px 12px;text-align:center;border:1px solid var(--border);min-width:110px;">
+                <div style="font-size:11px;font-weight:700;background:${m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;display:inline-block;">${m}</div>
+                <button onclick="removeModelFromPrice('${m}')" style="display:block;margin:4px auto 0;font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;">✕ 삭제</button>
+              </th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${workKeys.map(k => `
+            <tr>
+              <td style="padding:8px 12px;border:1px solid var(--border);font-weight:600;">
+                <span style="font-size:11px;font-weight:700;background:${WORKS[k].tagBg};color:${WORKS[k].tagColor};padding:2px 8px;border-radius:99px;">${WORKS[k].tag}</span>
+              </td>
+              ${models.map(m => `
+                <td style="padding:6px 8px;border:1px solid var(--border);text-align:center;">
+                  <div style="display:flex;align-items:center;gap:4px;justify-content:center;">
+                    <input type="number" id="mp-${m}-${k}" value="${(mp[m]&&mp[m][k])||0}"
+                      style="width:80px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;" min="0">
+                    <span style="font-size:11px;color:var(--text3);">원</span>
+                  </div>
+                </td>`).join('')}
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function addModelToPrice() {
+  const input = document.getElementById('new-model-input');
+  const modelName = input?.value.trim().toUpperCase();
+  if(!modelName) { notify('기종명을 입력하세요.', 'error'); return; }
+  const saved = JSON.parse(localStorage.getItem('formsPriceSettings') || '{}');
+  if(!saved.modelParts) saved.modelParts = {};
+  if(!saved.modelParts[modelName]) saved.modelParts[modelName] = {};
+  localStorage.setItem('formsPriceSettings', JSON.stringify(saved));
+  if(input) input.value = '';
+  renderModelPartsTable();
+  notify(`${modelName} 기종 추가됨!`);
+}
+
+function removeModelFromPrice(model) {
+  const saved = JSON.parse(localStorage.getItem('formsPriceSettings') || '{}');
+  if(saved.modelParts) delete saved.modelParts[model];
+  localStorage.setItem('formsPriceSettings', JSON.stringify(saved));
+  renderModelPartsTable();
+  notify(`${model} 삭제됨`);
+}
+
 function savePriceSettings() {
   const pcb    = Number(document.getElementById('price-pcb')?.value)    || WORKS.pcb.price;
   const panel  = Number(document.getElementById('price-panel')?.value)  || WORKS.panel.price;
   const board  = Number(document.getElementById('price-board')?.value)  || WORKS.board.price;
   const nonbat = Number(document.getElementById('price-nonbat')?.value) || WORKS.nonbat.price;
   const np     = Number(document.getElementById('price-new-product')?.value) || 140000;
-  const ppPcb    = Number(document.getElementById('parts-price-pcb')?.value)    || 0;
-  const ppPanel  = Number(document.getElementById('parts-price-panel')?.value)  || 0;
-  const ppBoard  = Number(document.getElementById('parts-price-board')?.value)  || 0;
-  const ppNonbat = Number(document.getElementById('parts-price-nonbat')?.value) || 0;
 
   WORKS.pcb.price    = pcb;
   WORKS.panel.price  = panel;
   WORKS.board.price  = board;
   WORKS.nonbat.price = nonbat;
   window.NEW_PRODUCT_PRICE_OVERRIDE = np;
-  window.PARTS_PRICE = { pcb: ppPcb, panel: ppPanel, board: ppBoard, nonbat: ppNonbat };
 
+  // 기종별 부품비 수집
+  const models = getModelList();
+  const modelParts = {};
+  models.forEach(m => {
+    modelParts[m] = {};
+    Object.keys(WORKS).forEach(k => {
+      const val = Number(document.getElementById(`mp-${m}-${k}`)?.value) || 0;
+      modelParts[m][k] = val;
+    });
+  });
+
+  window.PARTS_PRICE = { modelParts };
+
+  const saved = JSON.parse(localStorage.getItem('formsPriceSettings') || '{}');
   localStorage.setItem('formsPriceSettings', JSON.stringify({
-    pcb, panel, board, nonbat, newProduct: np,
-    ppPcb, ppPanel, ppBoard, ppNonbat
+    ...saved, pcb, panel, board, nonbat, newProduct: np, modelParts
   }));
   buildChecks();
   notify('단가 설정이 저장되었습니다!');
 }
 
-function updateAdminNav() {
-  const adminBtn = document.getElementById('nav-admin');
-  if(adminBtn) {
-    const show = isMaster || currentUser === MASTER_NAME;
-    adminBtn.style.display = show ? 'flex' : 'none';
-    if(show && !isMaster) isMaster = true; // MASTER_NAME 로그인 시 마스터 권한 부여
-  }
+function loadPriceSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('formsPriceSettings') || '{}');
+    if(saved.pcb)    { WORKS.pcb.price    = saved.pcb;    const el=document.getElementById('price-pcb');    if(el) el.value=saved.pcb; }
+    if(saved.panel)  { WORKS.panel.price  = saved.panel;  const el=document.getElementById('price-panel');  if(el) el.value=saved.panel; }
+    if(saved.board)  { WORKS.board.price  = saved.board;  const el=document.getElementById('price-board');  if(el) el.value=saved.board; }
+    if(saved.nonbat) { WORKS.nonbat.price = saved.nonbat; const el=document.getElementById('price-nonbat'); if(el) el.value=saved.nonbat; }
+    if(saved.newProduct) { window.NEW_PRODUCT_PRICE_OVERRIDE = saved.newProduct; const el=document.getElementById('price-new-product'); if(el) el.value=saved.newProduct; }
+    if(saved.modelParts) {
+      window.PARTS_PRICE = { modelParts: saved.modelParts };
+    }
+    renderModelPartsTable();
+  } catch(e) { console.error(e); }
 }
+
 
 /* Init */
 function init() {
