@@ -594,12 +594,12 @@ tr:hover td{background:var(--surface2);}
 
     <!-- 서브탭 -->
     <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px;">
-      <button id="svtab-dash" onclick="switchSvTab('dash')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--accent);">📊 대시보드</button>
+      <button id="svtab-dash" onclick="switchSvTab('dash')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text2);">📊 대시보드</button>
       <button id="svtab-list" onclick="switchSvTab('list')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text2);">📋 출고 목록</button>
     </div>
 
     <div id="shipview-dash"></div>
-    <div id="shipview-content" style="display:none;"></div>
+    <div id="shipview-content"></div>
   </div>
 
   <!-- 출고 관리 -->
@@ -1614,6 +1614,11 @@ function setSvFilter(type) {
     }
   }
   renderShipview();
+  // 대시보드 탭 기본 활성화
+  if(!document.getElementById('shipview-dash')?.style.display ||
+     document.getElementById('shipview-dash')?.style.display === 'none') {
+    switchSvTab('dash');
+  }
 }
 
 function switchSvTab(tab) {
@@ -1621,16 +1626,18 @@ function switchSvTab(tab) {
   const list = document.getElementById('shipview-content');
   const dashBtn = document.getElementById('svtab-dash');
   const listBtn = document.getElementById('svtab-list');
-  if(tab === 'dash') {
-    if(dash) dash.style.display = 'block';
-    if(list) list.style.display = 'none';
-    if(dashBtn) { dashBtn.style.borderBottom='2px solid var(--accent)'; dashBtn.style.color='var(--accent)'; dashBtn.style.marginBottom='-2px'; }
-    if(listBtn) { listBtn.style.borderBottom='none'; listBtn.style.color='var(--text2)'; }
-  } else {
-    if(dash) dash.style.display = 'none';
-    if(list) list.style.display = 'block';
-    if(dashBtn) { dashBtn.style.borderBottom='none'; dashBtn.style.color='var(--text2)'; dashBtn.style.marginBottom='0'; }
-    if(listBtn) { listBtn.style.borderBottom='2px solid var(--accent)'; listBtn.style.color='var(--accent)'; listBtn.style.marginBottom='-2px'; }
+  const isDash = tab === 'dash';
+  if(dash) dash.style.display = isDash ? 'block' : 'none';
+  if(list) list.style.display = isDash ? 'none' : 'block';
+  if(dashBtn) {
+    dashBtn.style.cssText = isDash
+      ? 'padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--accent);'
+      : 'padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text2);';
+  }
+  if(listBtn) {
+    listBtn.style.cssText = !isDash
+      ? 'padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--accent);'
+      : 'padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text2);';
   }
 }
 
@@ -1724,6 +1731,71 @@ function renderShipDashboard(list) {
       <div class="stat-val" style="font-size:20px;color:#6d28d9;">${fmt(totalRepair)}<span style="font-size:12px;font-weight:400;color:var(--text2);">원</span></div>
     </div>
   </div>
+  // ③ 수리 항목 분포 - 파이 차트
+  // 출고 건수 기준 - 각 작업이 몇 건(출고건)에 포함됐는지
+  const totalShipped = mapped.length || 1;
+  const workCount = { pcb:0, panel:0, board:0, nonbat:0 };
+  mapped.forEach(x => {
+    // 한 건당 포함 여부 (중복 카운트 X)
+    const usedKeys = new Set(x.works);
+    usedKeys.forEach(k => { if(workCount[k]!==undefined) workCount[k]++; });
+  });
+  const totalWorks = totalShipped; // 파이 기준 = 출고 총건수
+  const wItems = [
+    {key:'pcb',    label:'PCB 교체',  color:'#2563eb'},
+    {key:'panel',  label:'LCD 교체',  color:'#16a34a'},
+    {key:'board',  label:'M/B 수리',  color:'#7c3aed'},
+    {key:'nonbat', label:'논배터리',   color:'#ea580c'},
+  ].filter(w => workCount[w.key] > 0);
+
+  // SVG 파이 차트
+  let slices = '';
+  let ang = -Math.PI / 2;
+  const cx=80, cy=80, ro=70, ri=35;
+  wItems.forEach(w => {
+    const pct = workCount[w.key] / totalShipped;
+    if(pct <= 0) return;
+    if(pct >= 1) {
+      // 100%: 완전한 도넛 원으로
+      slices += '<circle cx="'+cx+'" cy="'+cy+'" r="'+ro+'" fill="'+w.color+'"/>'+
+                '<circle cx="'+cx+'" cy="'+cy+'" r="'+ri+'" fill="var(--surface)"/>';
+      return;
+    }
+    const a2 = ang + pct * Math.PI * 2;
+    const x1o=cx+ro*Math.cos(ang), y1o=cy+ro*Math.sin(ang);
+    const x2o=cx+ro*Math.cos(a2),  y2o=cy+ro*Math.sin(a2);
+    const x1i=cx+ri*Math.cos(a2),  y1i=cy+ri*Math.sin(a2);
+    const x2i=cx+ri*Math.cos(ang), y2i=cy+ri*Math.sin(ang);
+    const lg = pct > 0.5 ? 1 : 0;
+    slices += '<path d="M'+x1o.toFixed(2)+','+y1o.toFixed(2)+
+      ' A'+ro+','+ro+' 0 '+lg+',1 '+x2o.toFixed(2)+','+y2o.toFixed(2)+
+      ' L'+x1i.toFixed(2)+','+y1i.toFixed(2)+
+      ' A'+ri+','+ri+' 0 '+lg+',0 '+x2i.toFixed(2)+','+y2i.toFixed(2)+
+      ' Z" fill="'+w.color+'" stroke="#fff" stroke-width="2"/>';
+    ang = a2;
+  });
+
+  const legend = wItems.map(w => {
+    const cnt = workCount[w.key];
+    const pct = Math.round(cnt/totalShipped*100);
+    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'+
+      '<div style="width:12px;height:12px;border-radius:3px;background:'+w.color+';flex-shrink:0;"></div>'+
+      '<div style="flex:1;font-size:13px;">'+w.label+'</div>'+
+      '<div style="font-size:13px;font-weight:700;color:'+w.color+';">'+cnt+'건</div>'+
+      '<div style="font-size:12px;font-weight:600;color:'+w.color+';background:'+w.color+'1a;padding:1px 7px;border-radius:99px;margin-left:2px;">'+pct+'%</div>'+
+      '</div>';
+  }).join('');
+
+  h += '<div class="card"><div class="card-title">🔧 수리 항목 분포</div>'+
+    '<div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">'+
+    '<svg width="160" height="160" viewBox="0 0 160 160" style="flex-shrink:0;">'+
+    (slices || '<circle cx="80" cy="80" r="70" fill="#f3f4f6"/>') +
+    '<text x="80" y="76" text-anchor="middle" font-size="11" fill="#9ca3af">출고</text>'+
+    '<text x="80" y="93" text-anchor="middle" font-size="17" font-weight="bold" fill="#111">'+totalShipped+'건</text>'+
+    '</svg>'+
+    '<div style="flex:1;min-width:180px;">'+legend+'</div>'+
+    '</div></div>';
+
   <!-- 2행: 절감 효과 하이라이트 -->
   <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);border-radius:16px;padding:24px;margin-bottom:20px;color:#fff;">
     <div style="font-size:12px;font-weight:600;opacity:.7;margin-bottom:16px;letter-spacing:.5px;">
@@ -1803,64 +1875,6 @@ function renderShipDashboard(list) {
       </div>
     </div>`}
   </div>`;
-
-  // ③ 수리 항목 분포 - 파이 차트
-  // 출고 건수 기준 - 각 작업이 몇 건(출고건)에 포함됐는지
-  const totalShipped = mapped.length || 1;
-  const workCount = { pcb:0, panel:0, board:0, nonbat:0 };
-  mapped.forEach(x => {
-    // 한 건당 포함 여부 (중복 카운트 X)
-    const usedKeys = new Set(x.works);
-    usedKeys.forEach(k => { if(workCount[k]!==undefined) workCount[k]++; });
-  });
-  const totalWorks = totalShipped; // 파이 기준 = 출고 총건수
-  const wItems = [
-    {key:'pcb',    label:'PCB 교체',  color:'#2563eb'},
-    {key:'panel',  label:'LCD 교체',  color:'#16a34a'},
-    {key:'board',  label:'M/B 수리',  color:'#7c3aed'},
-    {key:'nonbat', label:'논배터리',   color:'#ea580c'},
-  ].filter(w => workCount[w.key] > 0);
-
-  // SVG 파이 차트
-  let slices = '';
-  let ang = -Math.PI / 2;
-  const cx=80, cy=80, ro=70, ri=35;
-  wItems.forEach(w => {
-    const pct = workCount[w.key] / totalShipped;
-    const a2 = ang + pct * Math.PI * 2;
-    const x1o=cx+ro*Math.cos(ang), y1o=cy+ro*Math.sin(ang);
-    const x2o=cx+ro*Math.cos(a2),  y2o=cy+ro*Math.sin(a2);
-    const x1i=cx+ri*Math.cos(a2),  y1i=cy+ri*Math.sin(a2);
-    const x2i=cx+ri*Math.cos(ang), y2i=cy+ri*Math.sin(ang);
-    const lg = pct > 0.5 ? 1 : 0;
-    slices += '<path d="M'+x1o.toFixed(2)+','+y1o.toFixed(2)+
-      ' A'+ro+','+ro+' 0 '+lg+',1 '+x2o.toFixed(2)+','+y2o.toFixed(2)+
-      ' L'+x1i.toFixed(2)+','+y1i.toFixed(2)+
-      ' A'+ri+','+ri+' 0 '+lg+',0 '+x2i.toFixed(2)+','+y2i.toFixed(2)+
-      ' Z" fill="'+w.color+'" stroke="#fff" stroke-width="2"/>';
-    ang = a2;
-  });
-
-  const legend = wItems.map(w => {
-    const cnt = workCount[w.key];
-    const pct = Math.round(cnt/totalShipped*100);
-    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'+
-      '<div style="width:12px;height:12px;border-radius:3px;background:'+w.color+';flex-shrink:0;"></div>'+
-      '<div style="flex:1;font-size:13px;">'+w.label+'</div>'+
-      '<div style="font-size:13px;font-weight:700;color:'+w.color+';">'+cnt+'건</div>'+
-      '<div style="font-size:12px;font-weight:600;color:'+w.color+';background:'+w.color+'1a;padding:1px 7px;border-radius:99px;margin-left:2px;">'+pct+'%</div>'+
-      '</div>';
-  }).join('');
-
-  h += '<div class="card"><div class="card-title">🔧 수리 항목 분포</div>'+
-    '<div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">'+
-    '<svg width="160" height="160" viewBox="0 0 160 160" style="flex-shrink:0;">'+
-    (slices || '<circle cx="80" cy="80" r="70" fill="#f3f4f6"/>') +
-    '<text x="80" y="76" text-anchor="middle" font-size="11" fill="#9ca3af">출고</text>'+
-    '<text x="80" y="93" text-anchor="middle" font-size="17" font-weight="bold" fill="#111">'+totalShipped+'건</text>'+
-    '</svg>'+
-    '<div style="flex:1;min-width:180px;">'+legend+'</div>'+
-    '</div></div>';
 
   if(el) el.innerHTML = h;
 }
