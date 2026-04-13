@@ -2369,6 +2369,18 @@ function loadPriceSettings() {
 
 
 /* Init */
+// 전역 변수 선언
+let shipHistory = [];
+
+function updateAdminNav() {
+  const adminBtn = document.getElementById('nav-admin');
+  if(adminBtn) {
+    const show = isMaster || currentUser === MASTER_NAME;
+    adminBtn.style.display = show ? 'flex' : 'none';
+    if(show && !isMaster) isMaster = true;
+  }
+}
+
 function init() {
   const now = new Date();
   document.getElementById('header-date').textContent =
@@ -2385,7 +2397,6 @@ function init() {
   // 출고 날짜 기본값: 오늘
   const shipDateEl = document.getElementById('ship-date');
   if(shipDateEl) shipDateEl.value = todayStr();
-  renderShipping();
 }
 
 /* 탭 */
