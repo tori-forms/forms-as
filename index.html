@@ -1719,7 +1719,7 @@ function renderShipDashboard(list) {
     </div>
     <div class="stat-card" style="border-left:4px solid var(--amber);">
       <div class="stat-label">총 부품비</div>
-      <div class="stat-val" style="font-size:20px;font-weight:700;${totalParts?'':'color:var(--text3);'}">${totalParts?fmt(totalParts)+' 원':'-'}</div>
+      <div class="stat-val" style="font-size:20px !important;font-weight:700 !important;${totalParts?'':'color:var(--text3);'}">${totalParts?fmt(totalParts)+'<span style="font-size:12px;font-weight:400;color:var(--text2);">원</span>':'-'}</div>
       ${totalParts?'':'<div style="font-size:11px;color:var(--text3);margin-top:2px;">단가 설정 후 표시</div>'}
     </div>
     <div class="stat-card" style="border-left:4px solid #6d28d9;">
@@ -1745,17 +1745,18 @@ function renderShipDashboard(list) {
     {key:'nonbat', label:'논배터리',   color:'#ea580c'},
   ].filter(w => workCount[w.key] > 0);
 
-  // SVG 파이 차트
+  // SVG 파이 차트 - 총 작업수 기준으로 비율 계산 (논배터리 100% 문제 해결)
+  const totalWorkSum = wItems.reduce((s, w) => s + workCount[w.key], 0) || 1;
   let slices = '';
   let ang = -Math.PI / 2;
   const cx=80, cy=80, ro=70, ri=35;
   wItems.forEach(w => {
-    const pct = workCount[w.key] / totalShipped;
+    const pct = workCount[w.key] / totalWorkSum;
     if(pct <= 0) return;
     if(pct >= 1) {
       // 100%: 완전한 도넛 원으로
       slices += '<circle cx="'+cx+'" cy="'+cy+'" r="'+ro+'" fill="'+w.color+'"/>'+
-                '<circle cx="'+cx+'" cy="'+cy+'" r="'+ri+'" fill="var(--surface)"/>';
+                '<circle cx="'+cx+'" cy="'+cy+'" r="'+ri+'" fill="white"/>';
       return;
     }
     const a2 = ang + pct * Math.PI * 2;
@@ -1771,15 +1772,16 @@ function renderShipDashboard(list) {
       ' Z" fill="'+w.color+'" stroke="#fff" stroke-width="2"/>';
     ang = a2;
   });
+  // 도넛 구멍 (단일 항목이 100%일 때도 구멍 보장)
+  slices += '<circle cx="'+cx+'" cy="'+cy+'" r="'+ri+'" fill="white"/>';
 
   const legend = wItems.map(w => {
     const cnt = workCount[w.key];
-    const pct = Math.round(cnt/totalShipped*100);
+    const pct = Math.round(cnt/totalWorkSum*100);
     return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'+
       '<div style="width:12px;height:12px;border-radius:3px;background:'+w.color+';flex-shrink:0;"></div>'+
-      '<div style="flex:1;font-size:13px;">'+w.label+'</div>'+
+      '<div style="flex:1;font-size:13px;">'+w.label+' <span style="font-size:12px;font-weight:700;color:'+w.color+';">'+pct+'%</span></div>'+
       '<div style="font-size:13px;font-weight:700;color:'+w.color+';">'+cnt+'건</div>'+
-      '<div style="font-size:12px;font-weight:600;color:'+w.color+';background:'+w.color+'1a;padding:1px 7px;border-radius:99px;margin-left:2px;">'+pct+'%</div>'+
       '</div>';
   }).join('');
 
