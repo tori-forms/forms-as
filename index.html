@@ -1805,9 +1805,15 @@ function renderShipDashboard(list) {
   </div>`;
 
   // ③ 수리 항목 분포 - 파이 차트
+  // 출고 건수 기준 - 각 작업이 몇 건(출고건)에 포함됐는지
+  const totalShipped = mapped.length || 1;
   const workCount = { pcb:0, panel:0, board:0, nonbat:0 };
-  mapped.forEach(x => { x.works.forEach(k => { if(workCount[k]!==undefined) workCount[k]++; }); });
-  const totalWorks = Object.values(workCount).reduce((s,v)=>s+v,0)||1;
+  mapped.forEach(x => {
+    // 한 건당 포함 여부 (중복 카운트 X)
+    const usedKeys = new Set(x.works);
+    usedKeys.forEach(k => { if(workCount[k]!==undefined) workCount[k]++; });
+  });
+  const totalWorks = totalShipped; // 파이 기준 = 출고 총건수
   const wItems = [
     {key:'pcb',    label:'PCB 교체',  color:'#2563eb'},
     {key:'panel',  label:'LCD 교체',  color:'#16a34a'},
@@ -1820,7 +1826,7 @@ function renderShipDashboard(list) {
   let ang = -Math.PI / 2;
   const cx=80, cy=80, ro=70, ri=35;
   wItems.forEach(w => {
-    const pct = workCount[w.key] / totalWorks;
+    const pct = workCount[w.key] / totalShipped;
     const a2 = ang + pct * Math.PI * 2;
     const x1o=cx+ro*Math.cos(ang), y1o=cy+ro*Math.sin(ang);
     const x2o=cx+ro*Math.cos(a2),  y2o=cy+ro*Math.sin(a2);
@@ -1837,12 +1843,12 @@ function renderShipDashboard(list) {
 
   const legend = wItems.map(w => {
     const cnt = workCount[w.key];
-    const pct = Math.round(cnt/totalWorks*100);
+    const pct = Math.round(cnt/totalShipped*100);
     return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'+
       '<div style="width:12px;height:12px;border-radius:3px;background:'+w.color+';flex-shrink:0;"></div>'+
       '<div style="flex:1;font-size:13px;">'+w.label+'</div>'+
-      '<div style="font-size:14px;font-weight:700;color:'+w.color+';">'+cnt+'건</div>'+
-      '<div style="font-size:11px;color:var(--text3);width:38px;text-align:right;">'+pct+'%</div>'+
+      '<div style="font-size:13px;font-weight:700;color:'+w.color+';">'+cnt+'건</div>'+
+      '<div style="font-size:12px;font-weight:600;color:'+w.color+';background:'+w.color+'1a;padding:1px 7px;border-radius:99px;margin-left:2px;">'+pct+'%</div>'+
       '</div>';
   }).join('');
 
@@ -1850,8 +1856,8 @@ function renderShipDashboard(list) {
     '<div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">'+
     '<svg width="160" height="160" viewBox="0 0 160 160" style="flex-shrink:0;">'+
     (slices || '<circle cx="80" cy="80" r="70" fill="#f3f4f6"/>') +
-    '<text x="80" y="76" text-anchor="middle" font-size="11" fill="#9ca3af">총</text>'+
-    '<text x="80" y="93" text-anchor="middle" font-size="17" font-weight="bold" fill="#111">'+totalWorks+'</text>'+
+    '<text x="80" y="76" text-anchor="middle" font-size="11" fill="#9ca3af">출고</text>'+
+    '<text x="80" y="93" text-anchor="middle" font-size="17" font-weight="bold" fill="#111">'+totalShipped+'건</text>'+
     '</svg>'+
     '<div style="flex:1;min-width:180px;">'+legend+'</div>'+
     '</div></div>';
