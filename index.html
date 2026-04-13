@@ -922,7 +922,7 @@ function gasCall(params) {
     s.onerror = ()=>{ cleanup(); reject(new Error('error')); };
     s.src = GAS + '?' + qs;
     document.head.appendChild(s);
-    
+    function cleanup(){ clearTimeout(timer); delete window[cb]; s.remove(); }
   });
 }
 
