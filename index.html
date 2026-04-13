@@ -1715,18 +1715,19 @@ function renderShipDashboard(list) {
     </div>
     <div class="stat-card" style="border-left:4px solid var(--green);">
       <div class="stat-label">총 공임비</div>
-      <div class="stat-val" style="font-size:20px;">${fmt(totalFee)}<span style="font-size:12px;font-weight:400;color:var(--text2);">원</span></div>
+      <div class="stat-val" style="font-size:20px;font-weight:700;">${fmt(totalFee)}<span style="font-size:12px;font-weight:400;color:var(--text2);">원</span></div>
     </div>
     <div class="stat-card" style="border-left:4px solid var(--amber);">
       <div class="stat-label">총 부품비</div>
-      <div class="stat-val" style="font-size:20px;${totalParts?'':'color:var(--text3);'}">${totalParts?fmt(totalParts)+' 원':'-'}</div>
+      <div class="stat-val" style="font-size:20px;font-weight:700;${totalParts?'':'color:var(--text3);'}">${totalParts?fmt(totalParts)+' 원':'-'}</div>
       ${totalParts?'':'<div style="font-size:11px;color:var(--text3);margin-top:2px;">단가 설정 후 표시</div>'}
     </div>
     <div class="stat-card" style="border-left:4px solid #6d28d9;">
       <div class="stat-label">총 수리 합계</div>
-      <div class="stat-val" style="font-size:20px;color:#6d28d9;">${fmt(totalRepair)}<span style="font-size:12px;font-weight:400;color:var(--text2);">원</span></div>
+      <div class="stat-val" style="font-size:20px;font-weight:700;color:#6d28d9;">${fmt(totalRepair)}<span style="font-size:12px;font-weight:400;color:var(--text2);">원</span></div>
     </div>
-  </div>
+  </div>`;
+
   // ③ 수리 항목 분포 - 파이 차트
   // 출고 건수 기준 - 각 작업이 몇 건(출고건)에 포함됐는지
   const totalShipped = mapped.length || 1;
@@ -1792,6 +1793,7 @@ function renderShipDashboard(list) {
     '<div style="flex:1;min-width:180px;">'+legend+'</div>'+
     '</div></div>';
 
+  h += `
   <!-- 2행: 절감 효과 하이라이트 -->
   <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);border-radius:16px;padding:24px;margin-bottom:20px;color:#fff;">
     <div style="font-size:12px;font-weight:600;opacity:.7;margin-bottom:16px;letter-spacing:.5px;">
