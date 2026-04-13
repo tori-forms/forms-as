@@ -1614,11 +1614,7 @@ function setSvFilter(type) {
     }
   }
   renderShipview();
-  // 대시보드 탭 기본 활성화
-  if(!document.getElementById('shipview-dash')?.style.display ||
-     document.getElementById('shipview-dash')?.style.display === 'none') {
-    switchSvTab('dash');
-  }
+  switchSvTab('dash'); // 기본 대시보드 탭 활성화
 }
 
 function switchSvTab(tab) {
@@ -1978,6 +1974,8 @@ function renderShipview() {
               const fee = x.fee ? Number(x.fee) : (e ? Number(e.total) : 0);
               const works = e ? e.works : '[]';
               const svIdx = shipHistory.indexOf(x);
+              // 기종별 부품비 계산
+              const partsFee = getPartsFeeForEntry(e);
               return `<tr>
                 ${!clientMode ? `<td style="text-align:center;"><input type="checkbox" class="sv-check" data-group="${groupId}" data-idx="${svIdx}" style="accent-color:var(--accent);"></td>` : ''}
                 <td style="text-align:center;color:var(--text3);">${i+1}</td>
