@@ -875,7 +875,7 @@ tr:hover td{background:var(--surface2);}
 </div>
 
 <script>
-const GAS = 'https://script.google.com/macros/s/AKfycbw5qzJ-dBW_zJbPA5Xq8h6CfwCUu0YIzvv6WcYNh5UddSsKiIxW3-D7CjxbMcxWoZDfFA/exec';
+const GAS = 'https://script.google.com/macros/s/AKfycbw3Q4S5o1GgS1cKrJ0RAwB1XWLVaVQdqQUGr7323Mgdn7x5pC7XlZ8mHFBbEW8UXbswkA/exec';
 const HOLIDAY_KEY = 'f52c0659526679a86d04083efd86dff68943cae2fa05a623ff8606b79f3f6814';
 const MASTER_NAME = '최민규';
 
@@ -1520,28 +1520,24 @@ function completeShipping() {
     `선택한 ${targets.length}건을 ${shipLabel} 출고 완료 처리할까요?`,
     async () => {
       try {
-        notify(`출고 처리 중... (${targets.length}건)`, 'info');
-        // 청크로 나눠서 처리 (한번에 10건씩)
         const validTargets = targets.filter(x => x.entry);
-        const chunkSize = 10;
-        for(let i = 0; i < validTargets.length; i += chunkSize) {
-          const chunk = validTargets.slice(i, i + chunkSize);
-          await Promise.all(chunk.map(x => gasCall({
-            action: 'addShipLog',
-            serial: x.entry.serial,
-            shipDate: shipDTStr,
-            worker: x.entry.worker || '',
-            model: x.entry.model || '',
-            works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k)),
-            fee: x.entry.total || 0
-          })));
-          if(i + chunkSize < validTargets.length) {
-            notify(`출고 처리 중... ${Math.min(i+chunkSize, validTargets.length)}/${validTargets.length}건`, 'info');
-          }
-        }
+        notify(`출고 처리 중... (${validTargets.length}건)`, 'info');
+        // 전체를 하나의 요청으로 묶어서 전송
+        const shipData = validTargets.map(x => ({
+          serial: x.entry.serial,
+          worker: x.entry.worker || '',
+          model: x.entry.model || '',
+          works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k)),
+          fee: x.entry.total || 0
+        }));
+        await gasCall({
+          action: 'addShipLogBulk',
+          shipDate: shipDTStr,
+          items: JSON.stringify(shipData)
+        });
 
         // 로컬 이력에 추가
-        targets.filter(x => x.entry).forEach(x => {
+        validTargets.forEach(x => {
           shipHistory.push({
             serial: x.entry.serial,
             shipDate: shipDTStr,
@@ -1552,7 +1548,7 @@ function completeShipping() {
         });
 
         // 출고된 항목을 _shipOk에서 제거
-        const doneSerials = new Set(targets.map(x => x.entry?.serial).filter(Boolean));
+        const doneSerials = new Set(validTargets.map(x => x.entry?.serial).filter(Boolean));
         window._shipOk = (window._shipOk || []).filter(x => !doneSerials.has(x.entry?.serial));
 
         notify(`${targets.length}건 출고 완료!`);
