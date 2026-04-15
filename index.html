@@ -595,8 +595,8 @@ tr:hover td{background:var(--surface2);}
     <!-- 서브탭 -->
     <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px;">
       <button id="svtab-dash" onclick="switchSvTab('dash')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text2);">📊 대시보드</button>
-      <button id="svtab-list" onclick="switchSvTab('list')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text2);">📋 출고 목록</button>
       <button id="svtab-analysis" onclick="switchSvTab('analysis')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text2);">🔬 수리 분석</button>
+      <button id="svtab-list" onclick="switchSvTab('list')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text2);">📋 출고 목록</button>
     </div>
 
     <div id="shipview-dash"></div>
@@ -799,6 +799,10 @@ tr:hover td{background:var(--surface2);}
       <textarea id="edit-note" placeholder="특이사항을 입력하세요."></textarea>
     </div>
     <div id="edit-price-preview" style="font-size:13px;color:var(--text2);margin-bottom:16px;"></div>
+    <div id="edit-parts-section" style="margin-bottom:16px;display:none;">
+      <label class="form-label">부품 수량 조정</label>
+      <div id="edit-parts-container" style="margin-top:6px;padding:10px;background:var(--surface);border:1px solid var(--border2);border-radius:8px;"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeEditModal()">취소</button>
       <button class="btn btn-primary" id="edit-ok-btn" onclick="saveEdit()">저장</button>
@@ -1720,14 +1724,23 @@ function renderShipDashboard(list) {
     const usedKeys = new Set(x.works);
     usedKeys.forEach(k => { if(workCount[k]!==undefined) workCount[k]++; });
   });
+  // 도넛차트: 논배터리 제외 (항상 100%라 의미 없음)
   const wItems = [
     {key:'pcb',    label:'PCB 교체',  color:'#60a5fa', dark:'#3b82f6'},
     {key:'panel',  label:'LCD 교체',  color:'#34d399', dark:'#10b981'},
-    {key:'board',  label:'MB수리',  color:'#c084fc', dark:'#a855f7'},
-    // 논배터리는 항상 100%라 도넛에서 제외
+    {key:'board',  label:'MB수리',    color:'#c084fc', dark:'#a855f7'},
+  ].filter(w => workCount[w.key] > 0);
+  // 범례: 논배터리 포함 (수치 표시용)
+  const legendItems = [
+    {key:'nonbat', label:'논배터리',  color:'#fbbf24', dark:'#f59e0b'},
+    {key:'pcb',    label:'PCB 교체',  color:'#60a5fa', dark:'#3b82f6'},
+    {key:'panel',  label:'LCD 교체',  color:'#34d399', dark:'#10b981'},
+    {key:'board',  label:'MB수리',    color:'#c084fc', dark:'#a855f7'},
   ].filter(w => workCount[w.key] > 0);
 
   const totalWorkSum = wItems.reduce((s, w) => s + workCount[w.key], 0) || 1;
+  // 범례의 퍼센트 기준: 논배터리 제외한 합계 (논배터리는 별도 100% 표시)
+  const totalWorkSumForLegend = wItems.reduce((s, w) => s + workCount[w.key], 0) || 1;
 
   // SVG 도넛 차트
   let slices = '';
@@ -1759,21 +1772,25 @@ function renderShipDashboard(list) {
     '<text x="'+cx+'" y="'+(cy+10)+'" text-anchor="middle" font-size="18" font-weight="800" fill="white">'+totalShipped+'</text>'+
     '<text x="'+cx+'" y="'+(cy+24)+'" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.5)">건</text>';
 
-  const legendRows = wItems.map(w => {
+  const legendRows = legendItems.map(w => {
     const cnt = workCount[w.key];
-    const pct = Math.round(cnt/totalWorkSum*100);
+    const isNonbat = w.key === 'nonbat';
+    // 논배터리는 항상 100%, 나머지는 도넛 기준 퍼센트
+    const pct = isNonbat ? 100 : Math.round(cnt/totalWorkSumForLegend*100);
     const barW = pct;
     return `<div style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
         <div style="display:flex;align-items:center;gap:7px;">
           <div style="width:10px;height:10px;border-radius:2px;background:${w.dark};flex-shrink:0;"></div>
           <span style="font-size:12px;font-weight:600;color:rgba(255,255,255,.8);">${w.label}</span>
-          <span style="font-size:12px;font-weight:800;color:${w.color};">${pct}%</span>
+          ${isNonbat
+            ? `<span style="font-size:10px;font-weight:600;color:${w.color};opacity:.7;">기본작업</span>`
+            : `<span style="font-size:12px;font-weight:800;color:${w.color};">${pct}%</span>`}
         </div>
         <span style="font-size:13px;font-weight:700;color:${w.color};">${cnt}건</span>
       </div>
       <div style="background:rgba(255,255,255,.1);border-radius:3px;height:4px;">
-        <div style="height:4px;background:${w.dark};border-radius:3px;width:${barW}%;"></div>
+        <div style="height:4px;background:${w.dark};border-radius:3px;width:${isNonbat?100:barW}%;"></div>
       </div>
     </div>`;
   }).join('');
@@ -1883,34 +1900,56 @@ function renderShipDashboard(list) {
     }
   </div>`;
 
-  // ─── 절감 효과 1: 논배터리 작업비 vs 새제품 ───
+  // ─── 절감 효과 1: 논배터리 공임비+부품비 vs 새제품 ───
+  // 논배터리 공임비 단가
   const NONBAT_PRICE_PER = WORKS.nonbat?.price || 18700;
+  // 논배터리 작업 시 사용되는 부품비 (nonbat 항목의 단가만)
   const PP_NB = window.PARTS_PRICE || {};
-  const totalNonbatRepair = mapped.reduce((s, x) => {
+  const nonbatMapped = mapped.filter(x => x.works.includes('nonbat'));
+  const nonbatCount = nonbatMapped.length;
+  const totalNonbatRepair = nonbatMapped.reduce((s, x) => {
     const modelParts = PP_NB.modelParts?.[x.model] || {};
-    const partsAmt = x.works.reduce((ws, k) => ws + (modelParts[k]||0), 0);
-    return s + NONBAT_PRICE_PER + partsAmt;
+    // 논배터리 항목의 부품비만
+    const nbPartsAmt = modelParts['nonbat'] || 0;
+    return s + NONBAT_PRICE_PER + nbPartsAmt;
   }, 0);
-  const totalNew2 = totalCount * NEW_PRODUCT_PRICE;
+  const totalNew2 = nonbatCount * NEW_PRODUCT_PRICE;
   const saved1 = totalNew2 - totalNonbatRepair;
   const savedPct1 = totalNew2 > 0 ? Math.round(saved1/totalNew2*100) : 0;
 
-  // ─── 절감 효과 2: 폼즈 vs 태클라스트 ───
+  // ─── 절감 효과 2: 폼즈(부품비+공임비) vs 태클라스트 ───
+  // 태클라스트 단가 (VAT포함)
   const TAECLAST = { pcb:72000, panel:65000, board:23000, wash:7000 };
-  const FORMS_PRICES = { pcb:15180, panel:10450, board:10450 };
+  // 폼즈 공임 단가
+  const FORMS_LABOR = { pcb:15180, panel:10450, board:10450, nonbat:NONBAT_PRICE_PER };
+  // 폼즈 기종별 부품단가 (PARTS_PRICE에서)
+  const PP2_ = window.PARTS_PRICE || {};
   let totalTaeclast = 0;
-  let totalForms = 0;
+  let totalForms2 = 0;
   mapped.forEach(x => {
-    let taecCost = TAECLAST.wash;
-    let formsCost = NONBAT_PRICE_PER;
+    const modelParts = PP2_.modelParts?.[x.model] || {};
+    let taecCost = TAECLAST.wash; // 태클라스트는 세척비 무조건 추가
+    let formsCost = 0;
     const ws = new Set(x.works);
-    if(ws.has('pcb'))   { taecCost += TAECLAST.pcb;   formsCost += FORMS_PRICES.pcb; }
-    if(ws.has('panel')) { taecCost += TAECLAST.panel; formsCost += FORMS_PRICES.panel; }
-    if(ws.has('board')) { taecCost += TAECLAST.board; formsCost += FORMS_PRICES.board; }
+    // 논배터리: 폼즈 공임+부품비
+    formsCost += FORMS_LABOR.nonbat + (modelParts['nonbat'] || 0);
+    // 다른 항목들
+    if(ws.has('pcb')) {
+      taecCost  += TAECLAST.pcb;
+      formsCost += FORMS_LABOR.pcb + (modelParts['pcb'] || 0);
+    }
+    if(ws.has('panel')) {
+      taecCost  += TAECLAST.panel;
+      formsCost += FORMS_LABOR.panel + (modelParts['panel'] || 0);
+    }
+    if(ws.has('board')) {
+      taecCost  += TAECLAST.board;
+      formsCost += FORMS_LABOR.board + (modelParts['board'] || 0);
+    }
     totalTaeclast += taecCost;
-    totalForms += formsCost;
+    totalForms2   += formsCost;
   });
-  const saved2 = totalTaeclast - totalForms;
+  const saved2 = totalTaeclast - totalForms2;
   const savedPct2 = totalTaeclast > 0 ? Math.round(saved2/totalTaeclast*100) : 0;
 
   h += `
@@ -1923,12 +1962,12 @@ function renderShipDashboard(list) {
       <div style="background:rgba(255,255,255,.1);border-radius:12px;padding:16px;text-align:center;">
         <div style="font-size:11px;opacity:.7;margin-bottom:6px;font-weight:600;">🔧 논배터리 AS 비용</div>
         <div style="font-size:22px;font-weight:800;">${fmt(totalNonbatRepair)}<span style="font-size:12px;font-weight:400;opacity:.8;">원</span></div>
-        <div style="font-size:11px;opacity:.6;margin-top:4px;">${totalCount}건 수리</div>
+        <div style="font-size:11px;opacity:.6;margin-top:4px;">${nonbatCount}건 수리</div>
       </div>
       <div style="background:rgba(255,255,255,.1);border-radius:12px;padding:16px;text-align:center;">
         <div style="font-size:11px;opacity:.7;margin-bottom:6px;font-weight:600;">📦 새제품 구입 시</div>
         <div style="font-size:22px;font-weight:800;">${fmt(totalNew2)}<span style="font-size:12px;font-weight:400;opacity:.8;">원</span></div>
-        <div style="font-size:11px;opacity:.6;margin-top:4px;">${totalCount}개 × ${fmt(NEW_PRODUCT_PRICE)}원</div>
+        <div style="font-size:11px;opacity:.6;margin-top:4px;">${nonbatCount}개 × ${fmt(NEW_PRODUCT_PRICE)}원</div>
       </div>
       <div style="background:rgba(134,239,172,.15);border:2px solid rgba(134,239,172,.4);border-radius:12px;padding:16px;text-align:center;">
         <div style="font-size:11px;color:#86efac;margin-bottom:6px;font-weight:700;">✨ 절감액</div>
@@ -1957,8 +1996,8 @@ function renderShipDashboard(list) {
       </div>
       <div style="background:rgba(255,255,255,.1);border-radius:12px;padding:16px;text-align:center;">
         <div style="font-size:11px;opacity:.7;margin-bottom:6px;font-weight:600;">🔧 폼즈 공임비</div>
-        <div style="font-size:22px;font-weight:800;">${fmt(totalForms)}<span style="font-size:12px;font-weight:400;opacity:.8;">원</span></div>
-        <div style="font-size:11px;opacity:.6;margin-top:4px;">${totalCount}건 처리</div>
+        <div style="font-size:22px;font-weight:800;">${fmt(totalForms2)}<span style="font-size:12px;font-weight:400;opacity:.8;">원</span></div>
+        <div style="font-size:11px;opacity:.6;margin-top:4px;">부품비+공임비 합산</div>
       </div>
       <div style="background:rgba(134,239,172,.15);border:2px solid rgba(134,239,172,.4);border-radius:12px;padding:16px;text-align:center;">
         <div style="font-size:11px;color:#86efac;margin-bottom:6px;font-weight:700;">✨ 고객사 절감액</div>
@@ -2465,7 +2504,7 @@ function initClientMode() {
 
   // 헤더 타이틀 변경
   const title = document.querySelector('.header-title');
-  if(title) title.textContent = 'AS 출고 현황';
+  if(title) title.textContent = 'AS 현황';
 
   // 네비 전체 숨기고 출고현황만 표시
   document.querySelector('nav')?.style && (document.querySelector('nav').style.display = 'none');
@@ -3046,6 +3085,8 @@ function openEditModal(id) {
   const e = entries.find(x=>String(x.id)===String(id)); if(!e) return;
   if(!canDelete(e)){ notify('수정 권한이 없습니다.','error'); return; }
   editTargetId = id;
+  // 부품 수량 초기화 (수리 입력 화면과 공유하는 전역 partQtys 리셋)
+  initPartQtys();
   document.getElementById('edit-serial-label').textContent = `시리얼: ${e.serial}  |  엔지니어: ${e.worker}`;
   const ws = parseWorks(e.works);
   document.getElementById('edit-work-checks').innerHTML = Object.entries(WORKS).map(([k,v])=>`
@@ -3054,13 +3095,44 @@ function openEditModal(id) {
       <div><div class="work-check-name">${v.label}</div><div class="work-check-price">${fmt(v.price)}원</div></div>
     </label>`).join('');
   document.getElementById('edit-note').value = e.note || '';
+  renderEditParts(ws);
   updateEditPP();
   document.getElementById('edit-modal').classList.add('open');
 }
 function closeEditModal() { document.getElementById('edit-modal').classList.remove('open'); editTargetId = null; }
+function renderEditParts(ws) {
+  const model = typeof getModel === 'function' ? getModel() : '';
+  let html = '';
+  ws.forEach(k => {
+    const v = WORKS[k];
+    if(!v || !v.parts || !v.parts.length) return;
+    const visibleParts = v.parts.filter(p => !p.modelOnly || p.modelOnly === model);
+    if(!visibleParts.length) return;
+    html += `<div style="margin-bottom:10px;">`;
+    html += `<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;">${v.tag}</div>`;
+    visibleParts.forEach(p => {
+      const cur = partQtys[k]?.[p.name] ?? p.qty;
+      const safeKey = (k+'-'+p.name).replace(/[^a-zA-Z0-9]/g,'_');
+      html += `<div class="part-qty-row">
+        <span style="color:var(--text2);font-size:12px;">${p.name}</span>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button class="qty-btn" type="button" onclick="changeQty('${k}','${p.name}',-1);document.getElementById('eqty-${safeKey}').textContent=partQtys['${k}']['${p.name}']">−</button>
+          <span class="qty-num" id="eqty-${safeKey}">${cur}</span>
+          <button class="qty-btn" type="button" onclick="changeQty('${k}','${p.name}',1);document.getElementById('eqty-${safeKey}').textContent=partQtys['${k}']['${p.name}']">+</button>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  });
+  const section = document.getElementById('edit-parts-section');
+  const container = document.getElementById('edit-parts-container');
+  if(html) { container.innerHTML = html; section.style.display = 'block'; }
+  else { section.style.display = 'none'; }
+}
 function updateEditPP() {
   const cs = [...document.querySelectorAll('#edit-work-checks input:checked')].map(c=>c.value);
   document.getElementById('edit-price-preview').textContent = cs.length ? `공임비 합계: ${fmt(cs.reduce((s,k)=>s+WORKS[k].price,0))}원` : '';
+  renderEditParts(cs);
 }
 async function saveEdit() {
   const works = [...document.querySelectorAll('#edit-work-checks input:checked')].map(c=>c.value);
