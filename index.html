@@ -4317,6 +4317,90 @@ function renderPPM() {
     h += `</tbody></table></div></div>`;
   });
 
+  // ─── 엔지니어별 집계 ───────────────────────────────
+  const engStats = {};
+  allEntries.forEach(entry => {
+    const eng = entry.worker || '(미지정)';
+    if(!engStats[eng]) engStats[eng] = { total: 0, defect: 0, cases: [] };
+    engStats[eng].total += 1;
+    const works2 = parseWorks(entry.works || '');
+    let hasDefect = false;
+    const defectDetails = [];
+    works2.forEach(wk => {
+      const workDef = WORKS[wk];
+      if(!workDef || !workDef.parts || !workDef.parts.length) return;
+      workDef.parts.forEach(pd => {
+        const pn = pd.name;
+        const normalQ = Number(pd.qty) || 1;
+        let actualQ = normalQ;
+        if(entry.parts && entry.parts[pn] !== undefined) actualQ = Number(entry.parts[pn]);
+        const ex = actualQ - normalQ;
+        if(ex > 0) { hasDefect = true; defectDetails.push(`${pn} +${ex}`); }
+      });
+    });
+    if(hasDefect) {
+      engStats[eng].defect += 1;
+      engStats[eng].cases.push({ entry, dt: entry.repairTime || entry.shippedAt || '', defectDetails });
+    }
+  });
+
+  const engNames = Object.keys(engStats).sort((a,b) => engStats[b].defect - engStats[a].defect);
+  const maxDefect = Math.max(...engNames.map(n => engStats[n].defect), 1);
+
+  h += `<div style="font-size:14px;font-weight:700;color:var(--text);margin:28px 0 16px;">👷 엔지니어별 불량 발생 현황</div>`;
+  h += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin-bottom:20px;box-shadow:var(--shadow);">`;
+  engNames.forEach(eng => {
+    const es = engStats[eng];
+    const rate = es.total > 0 ? (es.defect / es.total * 100).toFixed(1) : '0.0';
+    const barW = es.defect > 0 ? Math.max(Math.round(es.defect / maxDefect * 100), 4) : 0;
+    const bc = es.defect === 0 ? 'var(--green)' : Number(rate) > 30 ? '#fca5a5' : Number(rate) > 15 ? '#fbbf24' : '#86efac';
+    h += `<div style="margin-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;">
+        <span style="font-size:13px;font-weight:600;min-width:80px;">${eng}</span>
+        <span style="font-size:12px;color:var(--text2);">총 ${es.total}건</span>
+        <span style="font-size:12px;margin-left:auto;"><strong style="color:${bc};">${es.defect}건 초과</strong> <span style="color:var(--text2);">(${rate}%)</span></span>
+      </div>
+      <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;">
+        <div style="width:${barW}%;height:100%;background:${bc};border-radius:4px;"></div>
+      </div>
+    </div>`;
+  });
+  h += `</div>`;
+
+  const defectEngs = engNames.filter(n => engStats[n].defect > 0);
+  if(defectEngs.length) {
+    h += `<div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:12px;">📋 초과 발생 수리 상세</div>`;
+    defectEngs.forEach(eng => {
+      const es = engStats[eng];
+      const rate = (es.defect / es.total * 100).toFixed(1);
+      h += `<details style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;box-shadow:var(--shadow);">
+        <summary style="padding:14px 18px;cursor:pointer;font-size:13px;font-weight:700;display:flex;align-items:center;gap:10px;list-style:none;">
+          <span>${eng}</span>
+          <span style="background:#fca5a530;color:#fca5a5;font-size:12px;padding:2px 10px;border-radius:12px;">${es.defect}건 초과 발생</span>
+          <span style="color:var(--text2);font-size:12px;font-weight:400;">/ 전체 ${es.total}건 (${rate}%)</span>
+          <span style="margin-left:auto;color:var(--text2);">▼</span>
+        </summary>
+        <div style="padding:0 18px 16px;overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:10px;">
+            <thead><tr style="border-bottom:1px solid var(--border);background:var(--surface2);">
+              <th style="padding:8px 12px;text-align:left;color:var(--text2);">시리얼</th>
+              <th style="padding:8px 12px;text-align:left;color:var(--text2);">기종</th>
+              <th style="padding:8px 12px;text-align:left;color:var(--text2);">초과 부품</th>
+              <th style="padding:8px 12px;text-align:left;color:var(--text2);">일시</th>
+            </tr></thead>
+            <tbody>`;
+      es.cases.forEach((c, i) => {
+        h += `<tr style="border-bottom:1px solid var(--border);${i%2===0?'background:var(--surface);':''}">
+          <td style="padding:8px 12px;font-family:monospace;font-size:11px;">${c.entry.serial || '-'}</td>
+          <td style="padding:8px 12px;">${c.entry.model || '-'}</td>
+          <td style="padding:8px 12px;color:#fca5a5;">${c.defectDetails.join(', ')}</td>
+          <td style="padding:8px 12px;font-size:11px;color:var(--text2);">${fmtDT(c.dt)}</td>
+        </tr>`;
+      });
+      h += `</tbody></table></div></details>`;
+    });
+  }
+
   el.innerHTML = h;
 }
 
@@ -4526,118 +4610,6 @@ function renderDocs() {
     </div>`;
   });
   h += '</div>';
-  // ─── 엔지니어별 집계 ───────────────────────────────────────────
-  // engStats[엔지니어명] = { total: 총수리건수, defect: 초과발생건수, cases: [...] }
-  const engStats = {};
-
-  allEntries.forEach(entry => {
-    const eng = entry.worker || '(미지정)';
-    if(!engStats[eng]) engStats[eng] = { total: 0, defect: 0, cases: [] };
-    engStats[eng].total += 1;
-
-    // 이 수리에서 초과 사용 부품이 있는지 확인
-    const works = parseWorks(entry.works || '');
-    let hasDefect = false;
-    const defectDetails = [];
-
-    works.forEach(wk => {
-      const workDef = WORKS[wk];
-      if(!workDef || !workDef.parts || !workDef.parts.length) return;
-      workDef.parts.forEach(pd => {
-        const partName = pd.name;
-        const normalQty = Number(pd.qty) || 1;
-        let actualQty = normalQty;
-        if(entry.parts && entry.parts[partName] !== undefined) {
-          actualQty = Number(entry.parts[partName]);
-        }
-        const extra = actualQty - normalQty;
-        if(extra > 0) {
-          hasDefect = true;
-          defectDetails.push(`${partName} +${extra}`);
-        }
-      });
-    });
-
-    if(hasDefect) {
-      engStats[eng].defect += 1;
-      engStats[eng].cases.push({
-        entry,
-        dt: entry.repairTime || entry.shippedAt || '',
-        defectDetails
-      });
-    }
-  });
-
-  const engNames = Object.keys(engStats).sort((a,b) => {
-    // 불량 발생 건수 많은 순
-    return engStats[b].defect - engStats[a].defect;
-  });
-
-  h += `<div style="font-size:14px;font-weight:700;color:var(--text);margin:28px 0 16px;">👷 엔지니어별 불량 발생 현황</div>`;
-
-  // 엔지니어별 요약 바 차트
-  const maxDefect = Math.max(...engNames.map(n => engStats[n].defect), 1);
-  h += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin-bottom:20px;box-shadow:var(--shadow);">`;
-  engNames.forEach(eng => {
-    const es = engStats[eng];
-    const rate = es.total > 0 ? (es.defect / es.total * 100).toFixed(1) : '0.0';
-    const barW = es.defect > 0 ? Math.max(Math.round(es.defect / maxDefect * 100), 4) : 0;
-    const barColor = es.defect === 0 ? 'var(--green)' : Number(rate) > 30 ? '#fca5a5' : Number(rate) > 15 ? '#fbbf24' : '#86efac';
-    h += `<div style="margin-bottom:14px;">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;">
-        <span style="font-size:13px;font-weight:600;min-width:80px;">${eng}</span>
-        <span style="font-size:12px;color:var(--text2);">총 ${es.total}건 수리</span>
-        <span style="font-size:12px;margin-left:auto;">
-          <strong style="color:${barColor};">${es.defect}건</strong>
-          <span style="color:var(--text2);"> 초과 발생 (${rate}%)</span>
-        </span>
-      </div>
-      <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;">
-        <div style="width:${barW}%;height:100%;background:${barColor};border-radius:4px;transition:width .4s;"></div>
-      </div>
-    </div>`;
-  });
-  h += `</div>`;
-
-  // 엔지니어별 상세 (불량 발생 있는 엔지니어만)
-  const defectEngs = engNames.filter(n => engStats[n].defect > 0);
-  if(defectEngs.length) {
-    h += `<div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:12px;">📋 초과 발생 수리 상세</div>`;
-    defectEngs.forEach(eng => {
-      const es = engStats[eng];
-      const rate = (es.defect / es.total * 100).toFixed(1);
-      h += `<details style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;box-shadow:var(--shadow);">
-        <summary style="padding:14px 18px;cursor:pointer;font-size:13px;font-weight:700;display:flex;align-items:center;gap:10px;list-style:none;-webkit-appearance:none;">
-          <span>${eng}</span>
-          <span style="background:#fca5a530;color:#fca5a5;font-size:12px;padding:2px 10px;border-radius:12px;">${es.defect}건 초과 발생</span>
-          <span style="color:var(--text2);font-size:12px;font-weight:400;">/ 전체 ${es.total}건 (${rate}%)</span>
-          <span style="margin-left:auto;color:var(--text2);font-size:12px;">▼</span>
-        </summary>
-        <div style="padding:0 18px 16px;overflow-x:auto;">
-          <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:10px;">
-            <thead>
-              <tr style="border-bottom:1px solid var(--border);background:var(--surface2);">
-                <th style="padding:8px 12px;text-align:left;font-weight:600;color:var(--text2);">시리얼</th>
-                <th style="padding:8px 12px;text-align:left;font-weight:600;color:var(--text2);">기종</th>
-                <th style="padding:8px 12px;text-align:left;font-weight:600;color:var(--text2);">초과 부품</th>
-                <th style="padding:8px 12px;text-align:left;font-weight:600;color:var(--text2);">일시</th>
-              </tr>
-            </thead>
-            <tbody>`;
-
-      es.cases.forEach((c, i) => {
-        h += `<tr style="border-bottom:1px solid var(--border);${i%2===0?'background:var(--surface);':''}">
-          <td style="padding:8px 12px;font-family:monospace;font-size:11px;">${c.entry.serial || '-'}</td>
-          <td style="padding:8px 12px;">${c.entry.model || '-'}</td>
-          <td style="padding:8px 12px;color:#fca5a5;">${c.defectDetails.join(', ')}</td>
-          <td style="padding:8px 12px;font-size:11px;color:var(--text2);">${fmtDT(c.dt)}</td>
-        </tr>`;
-      });
-
-      h += `</tbody></table></div></details>`;
-    });
-  }
-
   el.innerHTML = h;
 }
 function openAddDocModal() {
