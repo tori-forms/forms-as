@@ -2555,14 +2555,18 @@ async function cancelSelectedShip(groupId) {
       const idxs = checked.map(cb => parseInt(cb.dataset.idx)).sort((a,b) => b-a);
       const items = idxs.map(i => shipHistory[i]).filter(Boolean);
 
-      // 40건씩 자동 배치 처리
+      // 50건씩 배치 처리 (URL 한계 안전)
       const payload = items.map(it => ({ serial: it.serial, shipDate: it.shipDate }));
-      const DEL_BATCH = 50; // URL 한계: 50건×103자=5450자 (안전)
+      const DEL_BATCH = 50;
+      const delTotalBatches = Math.ceil(payload.length / DEL_BATCH);
       for (let b = 0; b < payload.length; b += DEL_BATCH) {
         const delDone = Math.min(b + DEL_BATCH, payload.length);
-        const delTotal = Math.ceil(payload.length / DEL_BATCH);
-        notify(`취소 처리 중... ${delDone}/${payload.length}건 (배치 ${Math.floor(b/DEL_BATCH)+1}/${delTotal})`, 'info');
-        await gasCall({ action: 'bulkDeleteShipLog', items: JSON.stringify(payload.slice(b, b + DEL_BATCH)) });
+        notify(`취소 처리 중... ${delDone}/${payload.length}건 (배치 ${Math.floor(b/DEL_BATCH)+1}/${delTotalBatches})`, 'info');
+        const res = await gasCall({ action: 'bulkDeleteShipLog', items: JSON.stringify(payload.slice(b, b + DEL_BATCH)) });
+        // bulkDeleteShipLog 미배포 시 감지: ok 필드 없으면 Code.gs 재배포 필요
+        if (!res || res.ok !== true) {
+          throw new Error('Code.gs에 bulkDeleteShipLog 액션이 없습니다. Apps Script를 새 버전으로 재배포해주세요.');
+        }
       }
 
       // 로컬에서 제거
