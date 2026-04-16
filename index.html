@@ -192,6 +192,7 @@ tr:hover td{background:var(--surface2);}
     </div>
     <span class="header-date" id="header-date"></span>
     <span class="current-user-badge" id="current-user-badge" style="display:none;"></span>
+    <button onclick="syncData()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:#fff;border-radius:6px;padding:5px 12px;font-size:13px;font-family:'Noto Sans KR',sans-serif;cursor:pointer;transition:background .15s;" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">🔄 새로고침</button>
   </div>
 </div>
 
@@ -1185,7 +1186,7 @@ function buildLoginGrid() {
     grid.innerHTML = '<div style="grid-column:1/-1;color:var(--text3);font-size:13px;">등록된 엔지니어가 없습니다.</div>';
     return;
   }
-  grid.innerHTML = workers.map(w =>
+  grid.innerHTML = workers.filter(w => w !== MASTER_NAME).map(w =>
     `<button class="login-btn" onclick="loginAs('${w}')">${w}${tierBadge(tierMap[w]||'')}</button>`
   ).join('');
 }
