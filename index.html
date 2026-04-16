@@ -1328,7 +1328,16 @@ function renderShipping() {
   </div>`;
 
   // 출고 가능 테이블
-  h += `<div class="card" style="padding:0;margin-bottom:12px;">
+  h += `<div class="card" style="padding:16px 18px;margin-bottom:12px;">
+    <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px;">🔍 시리얼 번호 조회 — 엑셀에서 복사해서 붙여넣기</div>
+    <div style="display:flex;gap:8px;align-items:flex-start;">
+      <textarea id="serial-search-input" placeholder="시리얼 번호를 붙여넣으세요 (여러 개 가능, 줄바꿈·쉼표·공백 구분)" style="flex:1;height:72px;padding:8px 12px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:12px;font-family:'JetBrains Mono',monospace;resize:vertical;"></textarea>
+      <button class="btn btn-sm btn-primary" onclick="checkSerials()" style="height:36px;white-space:nowrap;">조회</button>
+      <button class="btn btn-sm" onclick="clearSerialSearch()" style="height:36px;">초기화</button>
+    </div>
+    <div id="serial-search-result" style="margin-top:10px;"></div>
+  </div>
+  <div class="card" style="padding:0;margin-bottom:12px;">
     <div style="padding:12px 18px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);">
       <span style="font-size:13px;font-weight:700;color:var(--green);">✅ 출고 가능 (${ok.length}건)</span>
       <button class="btn btn-sm btn-danger" id="exclude-selected-btn" style="display:none;" onclick="excludeSelected()">출고 제외</button>
@@ -1397,6 +1406,68 @@ function renderShipping() {
   if(resultEl) resultEl.innerHTML = h;
 }
 
+
+function checkSerials() {
+  const raw = document.getElementById('serial-search-input')?.value || '';
+  // 줄바꿈, 쉼표, 탭, 공백 등으로 구분
+  const inputSerials = raw.split(/[\n\r,\t\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+  if (!inputSerials.length) { notify('시리얼 번호를 입력해주세요.', 'error'); return; }
+
+  const ok = window._shipOk || [];
+  const hold = window._shipHold || [];
+  const allOk = new Set(ok.map(x => String(x.entry.serial).toUpperCase()));
+  const allHold = new Set(hold.map(x => String(x.entry.serial).toUpperCase()));
+
+  const found = [], notInOk = [], notExist = [];
+  inputSerials.forEach(s => {
+    if (allOk.has(s)) found.push(s);
+    else if (allHold.has(s)) notInOk.push({ serial: s, reason: '보류(에이징 진행 중)' });
+    else {
+      // 전체 entries에서 확인
+      const inEntries = entries.find(e => String(e.serial).toUpperCase() === s);
+      if (inEntries) notInOk.push({ serial: s, reason: '수리 기록 있음 (출고 기준 미충족)' });
+      else notExist.push(s);
+    }
+  });
+
+  const resEl = document.getElementById('serial-search-result');
+  if (!resEl) return;
+
+  let html = '';
+  if (found.length) {
+    html += `<div style="margin-bottom:8px;">
+      <div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:6px;">✅ 출고 가능 (${found.length}건)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;">
+        ${found.map(s => `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;background:#dcfce7;color:#15803d;padding:3px 8px;border-radius:6px;">${s}</span>`).join('')}
+      </div>
+    </div>`;
+  }
+  if (notInOk.length) {
+    html += `<div style="margin-bottom:8px;">
+      <div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:6px;">⚠️ 출고 불가 (${notInOk.length}건)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;">
+        ${notInOk.map(x => `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;background:#fef9c3;color:#92400e;padding:3px 8px;border-radius:6px;" title="${x.reason}">${x.serial} <span style="opacity:.7;">(${x.reason})</span></span>`).join('')}
+      </div>
+    </div>`;
+  }
+  if (notExist.length) {
+    html += `<div>
+      <div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:6px;">❌ 목록에 없음 (${notExist.length}건)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;">
+        ${notExist.map(s => `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;background:#fee2e2;color:#b91c1c;padding:3px 8px;border-radius:6px;">${s}</span>`).join('')}
+      </div>
+    </div>`;
+  }
+  if (!html) html = '<div style="font-size:12px;color:var(--text3);">결과 없음</div>';
+  resEl.innerHTML = html;
+}
+
+function clearSerialSearch() {
+  const input = document.getElementById('serial-search-input');
+  const result = document.getElementById('serial-search-result');
+  if (input) input.value = '';
+  if (result) result.innerHTML = '';
+}
 
 function toggleAllShip(checked) {
   document.querySelectorAll('.ship-row-check').forEach(cb => { cb.checked = checked; });
