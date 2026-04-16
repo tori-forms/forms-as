@@ -3214,7 +3214,7 @@ async function saveEdit() {
       });
     });
     const partsJson = JSON.stringify(editPartsResult);
-    await gasPost({action:'edit', id:editTargetId, works:JSON.stringify(works), total, note, parts:partsJson});
+    await gasCall({action:'edit', id:String(editTargetId), works:JSON.stringify(works), total, note, parts:partsJson});
     const idx = entries.findIndex(x=>String(x.id)===String(editTargetId));
     if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; entries[idx].parts=editPartsResult; }
     closeEditModal();
