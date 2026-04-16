@@ -1477,10 +1477,10 @@ function completeShipping() {
           works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k)),
           fee: x.entry.total || 0
         }));
-        await gasCall({
+        await gasPost({
           action: 'addShipLogBulk',
           shipDate: shipDTStr,
-          items: JSON.stringify(shipData)
+          items: shipData
         });
 
         // 로컬 이력에 추가
@@ -2549,7 +2549,7 @@ async function cancelSelectedShip(groupId) {
 
       // 서버에 한 번만 요청 (대량 처리)
       const payload = items.map(it => ({ serial: it.serial, shipDate: it.shipDate }));
-      await gasCall({ action: 'bulkDeleteShipLog', items: JSON.stringify(payload) });
+      await gasPost({ action: 'bulkDeleteShipLog', items: payload });
 
       // 로컬에서 제거
       const removeKeys = new Set(items.map(it => it.serial + '||' + it.shipDate));
