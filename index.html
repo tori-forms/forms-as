@@ -1583,7 +1583,7 @@ function renderShipHistory() {
           <th style="width:40px;">No</th>
           <th>기종</th>
           <th>시리얼번호</th>
-          <th>수리항목(원본)</th>
+          <th>수리항목</th>
           <th style="text-align:right;">공임비</th>
           <th style="text-align:right;">부품비</th>
           <th style="text-align:right;">합계</th>
@@ -2447,10 +2447,20 @@ function renderShipview() {
             </label>
             <button class="btn btn-sm btn-danger" onclick="cancelSelectedShip('${groupId}')">선택 출고 취소</button>
           </div>` : ''}
-          <div style="overflow-x:auto;"><table style="min-width:1200px;width:100%;">
+          <div style="overflow-x:auto;"><table style="width:100%;table-layout:fixed;">
+            <colgroup>
+              ${!clientMode ? '<col style="width:36px">' : ''}
+              <col style="width:4%"><col style="width:8%"><col style="width:12%"><col style="width:13%">
+              <col style="width:8%"><col style="width:8%"><col style="width:8%">
+              <col style="width:7%"><col style="width:6%"><col style="width:5%"><col style="width:5%">
+              <col style="width:9%"><col style="width:6%"><col style="width:7%">
+            </colgroup>
             <thead><tr>
-              ${!clientMode ? '<th style="width:32px;text-align:center;">　</th>' : ''}
-              <th style="text-align:center;">#</th><th style="text-align:center;">기종</th><th style="text-align:center;">시리얼 번호</th><th style="text-align:center;">수리항목(원본)</th>
+              ${!clientMode ? '<th style="text-align:center;">　</th>' : ''}
+              <th style="text-align:center;">#</th>
+              <th style="text-align:center;">기종</th>
+              <th style="text-align:center;">시리얼 번호</th>
+              <th style="text-align:center;">수리항목</th>
               <th style="text-align:center;">공임비</th>
               <th style="text-align:center;">부품비</th>
               <th style="text-align:center;">합계</th>
@@ -2587,7 +2597,7 @@ function exportShipviewXlsx() {
 
   Object.keys(groups).sort((a,b) => b.localeCompare(a)).forEach(date => {
     const list = groups[date];
-    const rows = [['No','기종','시리얼번호','수리항목(원본)','공임비(원)','부품비(원)','합계(원)','제조년월코드','제조년도','제조월','제조분기','제조년월','수리항목수','수리유형']];
+    const rows = [['No','기종','시리얼번호','수리항목','공임비(원)','부품비(원)','합계(원)','제조년월코드','제조년도','제조월','제조분기','제조년월','수리항목수','수리유형']];
     let totalFee = 0, totalParts = 0;
     list.forEach((x, i) => {
       const e = entries.find(en => String(en.serial) === String(x.serial));
