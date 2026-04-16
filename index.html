@@ -1747,6 +1747,9 @@ function switchSvTab(tab) {
   if(analysisBtn) analysisBtn.style.display = canSeeAll ? '' : 'none';
 
   if(tab === 'analysis') renderShipAnalysis();
+  // 출고 목록일 때 main 너비 제한 해제
+  const mainEl = document.querySelector('.main');
+  if(mainEl) mainEl.style.maxWidth = tab === 'list' ? 'none' : '';
 }
 
 function parseShipDate(s) {
@@ -2447,7 +2450,7 @@ function renderShipview() {
             </label>
             <button class="btn btn-sm btn-danger" onclick="cancelSelectedShip('${groupId}')">선택 출고 취소</button>
           </div>` : ''}
-          <div style="overflow-x:auto;"><table style="min-width:1400px;width:100%;font-size:12px;">
+          <div style="overflow-x:auto;"><table style="width:100%;font-size:12px;">
             <thead><tr style="white-space:nowrap;">
               ${!clientMode ? '<th style="text-align:center;width:36px;">　</th>' : ''}
               <th style="text-align:center;width:40px;">#</th>
@@ -2956,6 +2959,9 @@ function init() {
 
 /* 탭 */
 function switchTab(name, btn) {
+  // 다른 탭으로 이동 시 main 너비 복원
+  const mainEl = document.querySelector('.main');
+  if(mainEl) mainEl.style.maxWidth = '';
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
