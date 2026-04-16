@@ -1474,11 +1474,11 @@ function completeShipping() {
           serial: x.entry.serial,
           worker: x.entry.worker || '',
           model: x.entry.model || '',
-          works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k)),
+          works: parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k).join('|'),
           fee: x.entry.total || 0
         }));
         // 40건씩 자동 배치 처리 (버튼 한 번 → 전체 자동 처리)
-        const SHIP_BATCH = 15; // URL 한계: 15건×341자=5415자 (안전)
+        const SHIP_BATCH = 25; // compact works 사용으로 25건 안전
         const totalBatches = Math.ceil(shipData.length / SHIP_BATCH);
         const startTime = Date.now();
         for (let b = 0; b < shipData.length; b += SHIP_BATCH) {
@@ -1827,7 +1827,8 @@ function renderShipDashboard(list) {
 
   // ① 요약 + 수리항목분포 통합 다크 카드
   // 수리 항목 분포 계산 (먼저)
-  const totalShipped = mapped.length || 1;
+  const totalShipped = mapped.length; // 실제 건수 (0이면 0)
+  const totalShippedCalc = mapped.length || 1; // 나누기용 (division by zero 방지)
   const workCount = { pcb:0, panel:0, board:0, nonbat:0 };
   mapped.forEach(x => {
     const usedKeys = new Set(x.works);
