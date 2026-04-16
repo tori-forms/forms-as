@@ -3891,26 +3891,20 @@ async function saveKPI() {
   const kpiVal = Number(document.getElementById('kpi-value').value);
   if(!monthVal){ notify('년월을 선택하세요.','error'); return; }
   if(!kpiVal || kpiVal <= 0){ notify('목표 수량을 입력하세요.','error'); return; }
-  // 저장 전 최신 서버 데이터 한 번 더 불러오기
-  try {
-    const latest = await gasCall({action:'load'});
-    const raw = latest.kpiMap || {};
-    kpiMap = {};
-    Object.entries(raw).forEach(([k,v])=>{
-      if(/^\d{4}-\d{2}$/.test(k)){ kpiMap[k]=v; return; }
-      const m2 = String(k).match(/(\d{4})-(\d{2})/);
-      if(m2) kpiMap[`${m2[1]}-${m2[2]}`]=v;
-    });
-  } catch {}
+  // 로컬 kpiMap에 즉시 반영
   kpiMap[monthVal] = kpiVal;
+  // 현재 kpiMap 전체를 서버에 저장
   const kpiData = Object.entries(kpiMap).map(([k,v])=>`${k}:${v}`).join('||');
   try {
     await gasCall({action:'saveKPI', kpiData});
     document.getElementById('kpi-value').value = '';
-    // 로컬 kpiMap은 이미 위에서 업데이트 완료 → 즉시 렌더
     renderKPIList();
     notify(`${monthVal} KPI ${fmt(kpiVal)}대 저장 완료!`);
-  } catch { notify('저장 실패. 다시 시도해주세요.','error'); }
+  } catch(e) {
+    // 실패 시 롤백
+    delete kpiMap[monthVal];
+    notify('저장 실패. 다시 시도해주세요.','error');
+  }
 }
 
 function deleteKPI(key) {
@@ -4336,7 +4330,17 @@ function renderPPM() {
     }
   });
 
-  const engNames = Object.keys(engStats).sort((a,b) => engStats[b].defect - engStats[a].defect);
+  // workers에 등록된 현재 엔지니어만 (퇴사자 제외), 없으면 전체
+  const activeWorkers = (workers || []).filter(w => w !== MASTER_NAME);
+  const engNames = Object.keys(engStats)
+    .filter(n => activeWorkers.length === 0 || activeWorkers.includes(n))
+    .sort((a,b) => engStats[b].defect - engStats[a].defect);
+  if(!engNames.length) {
+    h += `<div style="font-size:14px;font-weight:700;color:var(--text);margin:28px 0 16px;">👷 엔지니어별 불량 발생 현황</div>
+    <div class="empty" style="margin-top:8px;"><div class="empty-icon">✅</div>등록된 엔지니어의 초과 사용 내역이 없습니다.</div>`;
+    el.innerHTML = h;
+    return;
+  }
   const maxDefect = Math.max(...engNames.map(n => engStats[n].defect), 1);
 
   h += `<div style="font-size:14px;font-weight:700;color:var(--text);margin:28px 0 16px;">👷 엔지니어별 불량 발생 현황</div>`;
