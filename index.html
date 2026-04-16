@@ -3845,8 +3845,8 @@ async function renderKPI() {
   renderKPIList();
 }
 
-function renderKPIList() {
-  const el = document.getElementById('kpi-list');
+function renderKPIList(listId = 'kpi-list') {
+  const el = document.getElementById(listId);
   const keys = Object.keys(kpiMap).sort((a,b)=>b.localeCompare(a));
   if(!keys.length){ el.innerHTML='<div class="empty" style="padding:20px;">저장된 KPI가 없습니다.</div>'; return; }
   el.innerHTML = keys.map(k=>{
