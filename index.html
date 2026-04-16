@@ -4196,10 +4196,10 @@ function renderPPM() {
         const partName = pd.name;
         const normalQty = Number(pd.qty) || 1;
 
-        // 실제 사용 수량
+        // 실제 사용 수량 (entry.parts = {부품명: 수량} flat 구조)
         let actualQty = normalQty;
-        if(entry.partQtys && entry.partQtys[wk] && entry.partQtys[wk][partName] !== undefined) {
-          actualQty = Number(entry.partQtys[wk][partName]);
+        if(entry.parts && entry.parts[partName] !== undefined) {
+          actualQty = Number(entry.parts[partName]);
         }
 
         if(!partStats[partName]) partStats[partName] = { normal: 0, extra: 0, cases: [] };
@@ -4547,8 +4547,8 @@ function renderDocs() {
         const partName = pd.name;
         const normalQty = Number(pd.qty) || 1;
         let actualQty = normalQty;
-        if(entry.partQtys && entry.partQtys[wk] && entry.partQtys[wk][partName] !== undefined) {
-          actualQty = Number(entry.partQtys[wk][partName]);
+        if(entry.parts && entry.parts[partName] !== undefined) {
+          actualQty = Number(entry.parts[partName]);
         }
         const extra = actualQty - normalQty;
         if(extra > 0) {
