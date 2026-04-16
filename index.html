@@ -204,7 +204,7 @@ tr:hover td{background:var(--surface2);}
   <button class="nav-btn" onclick="switchTab('shipping',this)">출고 관리</button>
   <button class="nav-btn client-only-tab" onclick="switchTab('shipview',this)">출고 현황</button>
   <button class="nav-btn" id="nav-stock" onclick="switchTab('stock',this)" style="display:none;">📦 재고 관리</button>
-  <button class="nav-btn admin-only-tab" id="nav-admin" onclick="switchTab('admin',this)" style="display:none;margin-left:auto;border-left:1px solid var(--border);">⚙️ 관리자</button>
+  <button class="nav-btn admin-only-tab" id="nav-admin" onclick="switchTab('admin',this)" style="display:none;border-left:1px solid var(--border);">⚙️ 관리자</button>
 </nav>
 
 <div class="main">
@@ -2011,9 +2011,6 @@ function renderShipDashboard(list) {
         <div style="font-size:13px;color:#86efac;margin-top:4px;font-weight:600;">${savedPct1}% 절감</div>
       </div>
     </div>
-    <div style="background:rgba(255,255,255,.15);border-radius:4px;height:8px;">
-      <div style="height:8px;background:linear-gradient(90deg,#86efac,#34d399);border-radius:4px;width:${savedPct1}%;transition:width .8s;"></div>
-    </div>
   </div>
 
   <!-- 절감 효과 2: 업체별 수리비 비교 -->
@@ -2041,9 +2038,6 @@ function renderShipDashboard(list) {
         <div style="font-size:13px;color:#86efac;margin-top:4px;font-weight:600;">${savedPct2}% 저렴</div>
         <div style="font-size:11px;color:#86efac;opacity:.7;margin-top:4px;">건당 ${fmt(Math.round(saved2/Math.max(compCount,1)))}원 절감</div>
       </div>
-    </div>
-    <div style="background:rgba(255,255,255,.15);border-radius:4px;height:8px;">
-      <div style="height:8px;background:linear-gradient(90deg,#34d399,#10b981);border-radius:4px;width:${savedPct2}%;transition:width .8s;"></div>
     </div>
     <div style="margin-top:14px;font-size:10px;opacity:.35;line-height:1.6;">
       * 태클라스트 기준: PCB 72,000 / LCD패널 65,000 / 충전단자 23,000 / 세척 7,000원 (VAT포함, 부품비 포함 가격)<br>* 논배터리는 타사에서 불가한 작업으로 양쪽 모두 제외
@@ -2277,10 +2271,6 @@ function renderShipAnalysis() {
         <div style="font-size:13px;font-weight:600;opacity:.7;margin-top:4px;">${multiPct}%</div>
         <div style="font-size:12px;opacity:.5;margin-top:6px;">${fmt(multiFee)}원</div>
       </div>
-    </div>
-    <!-- 복합수리 비율 바 -->
-    <div style="background:rgba(255,255,255,.1);border-radius:4px;height:8px;">
-      <div style="height:8px;background:linear-gradient(90deg,#34d399 0%,#34d399 ${singlePct}%,#60a5fa ${singlePct}%,#60a5fa 100%);border-radius:4px;transition:width .6s;"></div>
     </div>
   </div>
 
@@ -3190,9 +3180,26 @@ async function saveEdit() {
     const total = origTotal
       + added.reduce((s,k) => s + (WORKS[k]?.price||0), 0)
       - removed.reduce((s,k) => s + (WORKS[k]?.price||0), 0);
-    await gasCall({action:'edit', id:editTargetId, works:JSON.stringify(works), total, note});
+    // 수정된 부품 수량 계산
+    const model = origEntry?.model || '';
+    const editPartsResult = {};
+    works.forEach(k => {
+      (WORKS[k].parts||[]).forEach(p => {
+        if(p.modelOnly && p.modelOnly !== model) return;
+        const qty = partQtys[k]?.[p.name] ?? p.qty;
+        if(qty > 0) editPartsResult[p.name] = (editPartsResult[p.name]||0) + qty;
+      });
+      Object.entries(partQtys[k]||{}).forEach(([key, val]) => {
+        if(!key.startsWith('__extra_')) return;
+        const name = typeof val==='object' ? val.name : '';
+        const qty = typeof val==='object' ? val.qty : val;
+        if(name && qty > 0) editPartsResult[name] = (editPartsResult[name]||0) + qty;
+      });
+    });
+    const partsJson = JSON.stringify(editPartsResult);
+    await gasCall({action:'edit', id:editTargetId, works:JSON.stringify(works), total, note, parts:partsJson});
     const idx = entries.findIndex(x=>String(x.id)===String(editTargetId));
-    if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; }
+    if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; entries[idx].parts=editPartsResult; }
     closeEditModal();
     renderToday(); renderAll();
     notify('수정되었습니다!');
