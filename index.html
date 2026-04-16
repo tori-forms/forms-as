@@ -1348,7 +1348,7 @@ function renderShipping() {
         <th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>특이사항</th>
       </tr></thead>
       <tbody>${ok.map((x,i) => `<tr>
-        <td style="text-align:center;"><input type="checkbox" class="ship-row-check" data-idx="${i}" style="accent-color:var(--accent);" onchange="onShipCheckChange()"></td>
+        <td style="text-align:center;"><input type="checkbox" class="ship-row-check" data-idx="${i}" data-serial="${x.entry.serial}" style="accent-color:var(--accent);" onchange="onShipCheckChange()"></td>
         <td><span style="font-size:11px;font-weight:700;background:${x.entry.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.entry.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.entry.model||'-'}</span></td>
         <td class="mono">${x.entry.serial}</td>
         <td>${x.entry.worker}</td>
@@ -1460,6 +1460,19 @@ function checkSerials() {
   }
   if (!html) html = '<div style="font-size:12px;color:var(--text3);">결과 없음</div>';
   resEl.innerHTML = html;
+
+  // 출고 가능 시리얼 자동 선택
+  if (found.length) {
+    const foundSet = new Set(found);
+    document.querySelectorAll('.ship-row-check').forEach(cb => {
+      const serial = (cb.dataset.serial || '').toUpperCase();
+      if (foundSet.has(serial)) {
+        cb.checked = true;
+      }
+    });
+    onShipCheckChange(); // 버튼 텍스트 업데이트
+    notify(`${found.length}건 자동 선택되었습니다.`);
+  }
 }
 
 function clearSerialSearch() {
