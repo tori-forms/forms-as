@@ -3111,8 +3111,20 @@ function openEditModal(id) {
   const e = entries.find(x=>String(x.id)===String(id)); if(!e) return;
   if(!canDelete(e)){ notify('수정 권한이 없습니다.','error'); return; }
   editTargetId = id;
-  // 부품 수량 초기화 (수리 입력 화면과 공유하는 전역 partQtys 리셋)
+  // 부품 수량 초기화 후 기존 저장된 수량으로 복원
   initPartQtys();
+  // e.parts = { 부품명: 수량 } 형태 - 기존 저장 수량을 partQtys에 복원
+  if(e.parts && typeof e.parts === 'object') {
+    const ws0 = parseWorks(e.works);
+    ws0.forEach(k => {
+      (WORKS[k]&&WORKS[k].parts||[]).forEach(p => {
+        if(e.parts[p.name] !== undefined) {
+          if(!partQtys[k]) partQtys[k] = {};
+          partQtys[k][p.name] = Number(e.parts[p.name]);
+        }
+      });
+    });
+  }
   document.getElementById('edit-serial-label').textContent = `시리얼: ${e.serial}  |  엔지니어: ${e.worker}`;
   const ws = parseWorks(e.works);
   document.getElementById('edit-work-checks').innerHTML = Object.entries(WORKS).map(([k,v])=>`
