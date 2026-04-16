@@ -2809,13 +2809,13 @@ function updateAdminNav() {
   const adminBtn = document.getElementById('nav-admin');
   if(adminBtn) {
     const show = isMaster || currentUser === MASTER_NAME;
-    adminBtn.style.display = show ? 'flex' : 'none';
+    adminBtn.style.display = show ? 'inline-block' : 'none';
     if(show && !isMaster) isMaster = true;
   }
   // 재고 관리는 모든 로그인 엔지니어에게 표시
   const stockBtn = document.getElementById('nav-stock');
   if(stockBtn && currentUser) {
-    stockBtn.style.display = 'flex';
+    stockBtn.style.display = 'inline-block';
   }
 }
 
