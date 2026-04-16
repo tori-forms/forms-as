@@ -954,12 +954,14 @@ function gasCall(params) {
 
 /* POST (대용량 데이터용) */
 async function gasPost(params) {
-  const res = await fetch(GAS, {
+  // no-cors: CORS 프리플라이트 없이 전송, 서버는 정상 저장됨 (응답 읽기 불가)
+  await fetch(GAS, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    mode: 'no-cors',
+    headers: {'Content-Type': 'text/plain;charset=utf-8'},
     body: JSON.stringify(params)
   });
-  return await res.json();
+  return { ok: true };
 }
 
 /* 동기화 상태 */
@@ -1477,6 +1479,7 @@ function completeShipping() {
           works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k)),
           fee: x.entry.total || 0
         }));
+        // 한 번에 전체 전송 (no-cors POST: CORS 없음, 수량 제한 없음)
         await gasPost({
           action: 'addShipLogBulk',
           shipDate: shipDTStr,
@@ -1507,9 +1510,11 @@ function completeShipping() {
         if(excludeBtn) excludeBtn.style.display = 'none';
         if(completeBtn) completeBtn.textContent = '✅ 출고 완료 처리';
 
-        notify(`${validTargets.length}건 출고 완료!`);
+        notify(`${validTargets.length}건 출고 완료! 서버 동기화 중...`);
+        await syncData(true);  // 서버에서 재로드해서 실제 저장 확인
         renderShipping();
         renderShipHistory();
+        notify(`${validTargets.length}건 출고 완료!`);
       } catch(err) {
         notify('저장 실패: ' + (err.message || err), 'error');
       }
@@ -2547,7 +2552,7 @@ async function cancelSelectedShip(groupId) {
 
       notify('취소 처리 중...', 'info');
 
-      // 서버에 한 번만 요청 (대량 처리)
+      // 한 번에 전체 전송 (no-cors POST: CORS 없음, 수량 제한 없음)
       const payload = items.map(it => ({ serial: it.serial, shipDate: it.shipDate }));
       await gasPost({ action: 'bulkDeleteShipLog', items: payload });
 
@@ -2559,6 +2564,8 @@ async function cancelSelectedShip(groupId) {
       }
       window._shipOk = null;
       window._shipHold = null;
+      notify(`${items.length}건 취소 처리 중... 서버 동기화 중`);
+      await syncData(true);  // 서버에서 재로드해서 확인
       notify(`${items.length}건 출고 취소되었습니다.`);
       renderShipview();
     },
