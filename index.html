@@ -214,7 +214,6 @@ tr:hover td{background:var(--surface2);}
   <div id="tab-input" class="section active">
     <div class="section-header">
       <span class="section-title">수리 입력</span>
-      <button class="btn btn-sm" onclick="syncData()">🔄 새로고침</button>
     </div>
     <div class="card">
       <div class="card-title">수리 정보 입력</div>
@@ -260,7 +259,6 @@ tr:hover td{background:var(--surface2);}
   <div id="tab-summary" class="section">
     <div class="section-header">
       <span class="section-title">일일 현황</span>
-      <button class="btn btn-sm" onclick="syncData()">🔄 새로고침</button>
     </div>
     <div class="date-bar">
       <span class="date-bar-label">마감 날짜</span>
@@ -455,7 +453,6 @@ tr:hover td{background:var(--surface2);}
       <span class="section-title">📦 재고 관리</span>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-sm btn-primary" onclick="openAddPartModal()" id="add-part-btn" style="display:none;">+ 부품 추가</button>
-        <button class="btn btn-sm" onclick="syncData(true);renderStock();">🔄 새로고침</button>
       </div>
     </div>
     <!-- 서브 탭 -->
@@ -590,7 +587,6 @@ tr:hover td{background:var(--surface2);}
     <div class="section-header">
       <span class="section-title">📦 출고 현황</span>
       <div style="display:flex;gap:8px;">
-        <button class="btn btn-sm" onclick="refreshShipview()">🔄 새로고침</button>
         <button class="btn btn-sm btn-primary" onclick="exportShipviewXlsx()">엑셀 내보내기</button>
       </div>
     </div>
@@ -627,7 +623,6 @@ tr:hover td{background:var(--surface2);}
     <div class="section-header">
       <span class="section-title">📦 출고 관리</span>
       <div style="display:flex;gap:8px;">
-        <button class="btn btn-sm" onclick="refreshShipping()">🔄 새로고침</button>
         <button class="btn btn-sm" onclick="exportShippingXlsx()" id="shipping-export-btn" style="display:none;">엑셀 내보내기</button>
         <button class="btn btn-sm btn-primary" onclick="completeShipping()" id="shipping-complete-btn" style="display:none;">✅ 출고 완료 처리</button>
       </div>
@@ -661,7 +656,6 @@ tr:hover td{background:var(--surface2);}
     <div style="margin-top:24px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
         <span style="font-size:16px;font-weight:700;">📋 출고 이력</span>
-        <button class="btn btn-sm" onclick="renderShipHistory()">🔄 새로고침</button>
       </div>
       <div id="ship-history-content">
         <div class="empty" style="padding:20px;">출고 완료 후 이력이 표시됩니다.</div>
