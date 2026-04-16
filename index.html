@@ -2545,13 +2545,13 @@ async function cancelSelectedShip(groupId) {
       const idxs = checked.map(cb => parseInt(cb.dataset.idx)).sort((a,b) => b-a);
       const items = idxs.map(i => shipHistory[i]).filter(Boolean);
 
-      // 한번에 병렬 처리
       notify('취소 처리 중...', 'info');
-      await Promise.all(items.map(item =>
-        gasCall({ action: 'deleteShipLog', serial: item.serial, shipDate: item.shipDate })
-      ));
 
-      // 로컬에서 serial+shipDate 기준으로 제거 (인덱스 방식 버그 수정)
+      // 서버에 한 번만 요청 (대량 처리)
+      const payload = items.map(it => ({ serial: it.serial, shipDate: it.shipDate }));
+      await gasCall({ action: 'bulkDeleteShipLog', items: JSON.stringify(payload) });
+
+      // 로컬에서 제거
       const removeKeys = new Set(items.map(it => it.serial + '||' + it.shipDate));
       for(let i = shipHistory.length - 1; i >= 0; i--) {
         const key = shipHistory[i].serial + '||' + shipHistory[i].shipDate;
