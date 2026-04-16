@@ -2383,6 +2383,13 @@ function renderShipview() {
   const el = document.getElementById('shipview-content');
   if(!el) return;
 
+  // 렌더링 전 현재 열려있는 그룹 ID 저장 (30초 자동갱신 시 접힘 방지)
+  const openGroups = new Set(
+    [...el.querySelectorAll('[id^="svg-"]')]
+      .filter(g => g.style.display !== 'none')
+      .map(g => g.id)
+  );
+
   if(!list.length) {
     el.innerHTML = '<div class="empty" style="padding:40px;">해당 기간에 출고 이력이 없습니다.</div>';
     return;
@@ -2529,6 +2536,14 @@ function renderShipview() {
   });
 
   el.innerHTML = html2;
+
+  // 렌더링 후 열려있던 그룹 복원
+  openGroups.forEach(id => {
+    const groupEl = document.getElementById(id);
+    const arrow = document.getElementById(id + '-arrow');
+    if(groupEl) { groupEl.style.display = 'block'; }
+    if(arrow) arrow.textContent = '▲';
+  });
 }
 
 
