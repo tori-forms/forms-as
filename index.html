@@ -2447,30 +2447,23 @@ function renderShipview() {
             </label>
             <button class="btn btn-sm btn-danger" onclick="cancelSelectedShip('${groupId}')">선택 출고 취소</button>
           </div>` : ''}
-          <div style="overflow-x:auto;"><table style="width:100%;table-layout:fixed;">
-            <colgroup>
-              ${!clientMode ? '<col style="width:36px">' : ''}
-              <col style="width:4%"><col style="width:8%"><col style="width:12%"><col style="width:13%">
-              <col style="width:8%"><col style="width:8%"><col style="width:8%">
-              <col style="width:7%"><col style="width:6%"><col style="width:5%"><col style="width:5%">
-              <col style="width:9%"><col style="width:6%"><col style="width:7%">
-            </colgroup>
-            <thead><tr>
-              ${!clientMode ? '<th style="text-align:center;">　</th>' : ''}
-              <th style="text-align:center;">#</th>
-              <th style="text-align:center;">기종</th>
-              <th style="text-align:center;">시리얼 번호</th>
+          <div style="overflow-x:auto;"><table style="min-width:1400px;width:100%;font-size:12px;">
+            <thead><tr style="white-space:nowrap;">
+              ${!clientMode ? '<th style="text-align:center;width:36px;">　</th>' : ''}
+              <th style="text-align:center;width:40px;">#</th>
+              <th style="text-align:center;width:90px;">기종</th>
+              <th style="text-align:center;width:130px;">시리얼 번호</th>
               <th style="text-align:center;">수리항목</th>
-              <th style="text-align:center;">공임비</th>
-              <th style="text-align:center;">부품비</th>
-              <th style="text-align:center;">합계</th>
-              <th style="text-align:center;">제조년월코드</th>
-              <th style="text-align:center;">제조년도</th>
-              <th style="text-align:center;">제조월</th>
-              <th style="text-align:center;">제조분기</th>
-              <th style="text-align:center;">제조년월</th>
-              <th style="text-align:center;">수리항목수</th>
-              <th style="text-align:center;">수리유형</th>
+              <th style="text-align:center;width:90px;">공임비</th>
+              <th style="text-align:center;width:90px;">부품비</th>
+              <th style="text-align:center;width:90px;">합계</th>
+              <th style="text-align:center;width:80px;">제조년월코드</th>
+              <th style="text-align:center;width:70px;">제조년도</th>
+              <th style="text-align:center;width:55px;">제조월</th>
+              <th style="text-align:center;width:60px;">제조분기</th>
+              <th style="text-align:center;width:100px;">제조년월</th>
+              <th style="text-align:center;width:70px;">수리항목수</th>
+              <th style="text-align:center;width:75px;">수리유형</th>
             </tr></thead>
             <tbody>${gList.map((x,i) => {
               const e = entries.find(en => String(en.serial) === String(x.serial));
@@ -2498,18 +2491,18 @@ function renderShipview() {
                 ${!clientMode ? `<td style="text-align:center;"><input type="checkbox" class="sv-check" data-group="${groupId}" data-idx="${svIdx}" style="accent-color:var(--accent);"></td>` : ''}
                 <td style="text-align:center;color:var(--text3);">${i+1}</td>
                 <td><span style="font-size:11px;font-weight:700;background:${x.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.model||'-'}</span></td>
-                <td class="mono" style="font-size:11px;">${x.serial}</td>
+                <td class="mono" style="font-size:11px;white-space:nowrap;">${x.serial}</td>
                 <td style="font-size:12px;">${worksText||'-'}</td>
-                <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fee?fmt(fee)+' 원':'-'}</td>
-                <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:12px;">${partsFee ? fmt(partsFee)+' 원' : '<span style=\"color:var(--text3);font-weight:400\">-</span>'}</td>
-                <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:12px;">${(fee+partsFee) ? fmt(fee+partsFee)+' 원' : '-'}</td>
+                <td style="text-align:center;font-weight:600;font-size:12px;white-space:nowrap;">${fee?fmt(fee)+' 원':'-'}</td>
+                <td style="text-align:center;font-weight:600;font-size:12px;white-space:nowrap;">${partsFee ? fmt(partsFee)+' 원' : '-'}</td>
+                <td style="text-align:center;font-weight:700;font-size:12px;white-space:nowrap;">${(fee+partsFee) ? fmt(fee+partsFee)+' 원' : '-'}</td>
                 <td style="text-align:center;font-size:12px;">${mfgCode}</td>
                 <td style="text-align:center;font-size:12px;">${mfgYear}</td>
                 <td style="text-align:center;font-size:12px;">${mfgMonth}</td>
                 <td style="text-align:center;font-size:12px;">${mfgQ}</td>
-                <td style="font-size:12px;white-space:nowrap;">${mfgLabel}</td>
+                <td style="text-align:center;font-size:12px;white-space:nowrap;">${mfgLabel}</td>
                 <td style="text-align:center;font-size:12px;">${wCount}</td>
-                <td style="text-align:center;"><span style="font-size:11px;padding:2px 8px;border-radius:99px;background:${wType==='복합수리'?'#fef9c3':'#f0fdf4'};color:${wType==='복합수리'?'#854d0e':'#166534'};">${wType}</span></td>
+                <td style="text-align:center;white-space:nowrap;"><span style="font-size:11px;padding:2px 8px;border-radius:99px;background:${wType==='복합수리'?'#fef9c3':'#f0fdf4'};color:${wType==='복합수리'?'#854d0e':'#166534'};">${wType}</span></td>
               </tr>`;
             }).join('')}</tbody>
             <tfoot><tr>
