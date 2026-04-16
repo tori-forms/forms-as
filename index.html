@@ -1478,7 +1478,7 @@ function completeShipping() {
           fee: x.entry.total || 0
         }));
         // 40건씩 자동 배치 처리 (버튼 한 번 → 전체 자동 처리)
-        const SHIP_BATCH = 25; // compact works 사용으로 25건 안전
+        const SHIP_BATCH = 20; // 20건×269자=5680자 (안전)
         const totalBatches = Math.ceil(shipData.length / SHIP_BATCH);
         const startTime = Date.now();
         for (let b = 0; b < shipData.length; b += SHIP_BATCH) {
