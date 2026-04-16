@@ -3213,8 +3213,10 @@ async function saveEdit() {
         if(name && qty > 0) editPartsResult[name] = (editPartsResult[name]||0) + qty;
       });
     });
-    const partsJson = JSON.stringify(editPartsResult);
-    await gasCall({action:'edit', id:String(editTargetId), works:JSON.stringify(works), total, note, parts:partsJson});
+    // parts를 안전한 형식으로 인코딩 (JSON 특수문자 URL 인코딩 오류 방지)
+    // 형식: "부품명=수량|부품명=수량" → GAS에서 동일 형식으로 파싱
+    const partsSafe = Object.entries(editPartsResult).map(([k,v])=>encodeURIComponent(k)+'='+v).join('|');
+    await gasCall({action:'edit', id:String(editTargetId), works:JSON.stringify(works), total, note, parts:partsSafe});
     const idx = entries.findIndex(x=>String(x.id)===String(editTargetId));
     if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; entries[idx].parts=editPartsResult; }
     closeEditModal();
