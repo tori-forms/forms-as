@@ -1470,8 +1470,6 @@ function completeShipping() {
     async () => {
       try {
         const validTargets = targets.filter(x => x.entry);
-        notify(`출고 처리 중... (${validTargets.length}건)`, 'info');
-        // 전체를 하나의 요청으로 묶어서 전송
         const shipData = validTargets.map(x => ({
           serial: x.entry.serial,
           worker: x.entry.worker || '',
@@ -1479,12 +1477,20 @@ function completeShipping() {
           works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k)),
           fee: x.entry.total || 0
         }));
-        // 한 번에 전체 전송 (no-cors POST: CORS 없음, 수량 제한 없음)
-        await gasPost({
-          action: 'addShipLogBulk',
-          shipDate: shipDTStr,
-          items: shipData
-        });
+        // 40건씩 자동 배치 처리 (버튼 한 번 → 전체 자동 처리)
+        const SHIP_BATCH = 15; // URL 한계: 15건×341자=5415자 (안전)
+        const totalBatches = Math.ceil(shipData.length / SHIP_BATCH);
+        const startTime = Date.now();
+        for (let b = 0; b < shipData.length; b += SHIP_BATCH) {
+          const batchNum = Math.floor(b / SHIP_BATCH) + 1;
+          const done = Math.min(b + SHIP_BATCH, shipData.length);
+          notify(`출고 처리 중... ${done}/${shipData.length}건 (배치 ${Math.floor(b/SHIP_BATCH)+1}/${totalBatches})`, 'info');
+          await gasCall({
+            action: 'addShipLogBulk',
+            shipDate: shipDTStr,
+            items: JSON.stringify(shipData.slice(b, b + SHIP_BATCH))
+          });
+        }
 
         // 로컬 이력에 추가
         validTargets.forEach(x => {
@@ -1510,8 +1516,7 @@ function completeShipping() {
         if(excludeBtn) excludeBtn.style.display = 'none';
         if(completeBtn) completeBtn.textContent = '✅ 출고 완료 처리';
 
-        notify(`${validTargets.length}건 출고 완료! 서버 동기화 중...`);
-        await syncData(true);  // 서버에서 재로드해서 실제 저장 확인
+        await syncData(true);
         renderShipping();
         renderShipHistory();
         notify(`${validTargets.length}건 출고 완료!`);
@@ -2550,11 +2555,15 @@ async function cancelSelectedShip(groupId) {
       const idxs = checked.map(cb => parseInt(cb.dataset.idx)).sort((a,b) => b-a);
       const items = idxs.map(i => shipHistory[i]).filter(Boolean);
 
-      notify('취소 처리 중...', 'info');
-
-      // 한 번에 전체 전송 (no-cors POST: CORS 없음, 수량 제한 없음)
+      // 40건씩 자동 배치 처리
       const payload = items.map(it => ({ serial: it.serial, shipDate: it.shipDate }));
-      await gasPost({ action: 'bulkDeleteShipLog', items: payload });
+      const DEL_BATCH = 50; // URL 한계: 50건×103자=5450자 (안전)
+      for (let b = 0; b < payload.length; b += DEL_BATCH) {
+        const delDone = Math.min(b + DEL_BATCH, payload.length);
+        const delTotal = Math.ceil(payload.length / DEL_BATCH);
+        notify(`취소 처리 중... ${delDone}/${payload.length}건 (배치 ${Math.floor(b/DEL_BATCH)+1}/${delTotal})`, 'info');
+        await gasCall({ action: 'bulkDeleteShipLog', items: JSON.stringify(payload.slice(b, b + DEL_BATCH)) });
+      }
 
       // 로컬에서 제거
       const removeKeys = new Set(items.map(it => it.serial + '||' + it.shipDate));
@@ -2564,8 +2573,7 @@ async function cancelSelectedShip(groupId) {
       }
       window._shipOk = null;
       window._shipHold = null;
-      notify(`${items.length}건 취소 처리 중... 서버 동기화 중`);
-      await syncData(true);  // 서버에서 재로드해서 확인
+      await syncData(true);
       notify(`${items.length}건 출고 취소되었습니다.`);
       renderShipview();
     },
