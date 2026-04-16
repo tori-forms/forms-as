@@ -3907,15 +3907,7 @@ async function saveKPI() {
   try {
     await gasCall({action:'saveKPI', kpiData});
     document.getElementById('kpi-value').value = '';
-    // 저장 완료 후 서버에서 다시 불러와서 확인
-    const verify = await gasCall({action:'load'});
-    const raw2 = verify.kpiMap || {};
-    kpiMap = {};
-    Object.entries(raw2).forEach(([k,v])=>{
-      if(/^\d{4}-\d{2}$/.test(k)){ kpiMap[k]=v; return; }
-      const m2 = String(k).match(/(\d{4})-(\d{2})/);
-      if(m2) kpiMap[`${m2[1]}-${m2[2]}`]=v;
-    });
+    // 로컬 kpiMap은 이미 위에서 업데이트 완료 → 즉시 렌더
     renderKPIList();
     notify(`${monthVal} KPI ${fmt(kpiVal)}대 저장 완료!`);
   } catch { notify('저장 실패. 다시 시도해주세요.','error'); }
@@ -4169,7 +4161,7 @@ function renderPPM() {
   const el = document.getElementById('ppm-content');
   if(!el) return;
 
-  const allEntries = [...(repairs || []), ...(shipped || [])];
+  const allEntries = entries || [];
   if(!allEntries.length) {
     el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div>수리 이력이 없습니다.</div>';
     return;
