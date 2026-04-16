@@ -981,6 +981,11 @@ async function syncData(silent=false) {
     entries = (data.entries || []).map(e => {
       let parts = {};
       if(e.parts) { try { parts = typeof e.parts==='string' ? JSON.parse(e.parts) : e.parts; } catch{} }
+      // 서버에 parts가 없으면 로컬 캐시 유지 (GAS가 parts 미저장 시 덮어쓰기 방지)
+      if(!e.parts || Object.keys(parts).length === 0) {
+        const local = entries.find(x => String(x.id) === String(e.id));
+        if(local && local.parts && Object.keys(local.parts).length > 0) parts = local.parts;
+      }
       // 구버전 기종명 자동 변환
       let model = e.model || detectModel(String(e.serial));
       if(model === 'S2') model = 'S2_N';
@@ -3209,7 +3214,7 @@ async function saveEdit() {
       });
     });
     const partsJson = JSON.stringify(editPartsResult);
-    await gasCall({action:'edit', id:editTargetId, works:JSON.stringify(works), total, note, parts:partsJson});
+    await gasPost({action:'edit', id:editTargetId, works:JSON.stringify(works), total, note, parts:partsJson});
     const idx = entries.findIndex(x=>String(x.id)===String(editTargetId));
     if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; entries[idx].parts=editPartsResult; }
     closeEditModal();
