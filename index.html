@@ -847,7 +847,7 @@ tr:hover td{background:var(--surface2);}
 </div>
 
 <script>
-const GAS = 'https://script.google.com/macros/s/AKfycbw3Q4S5o1GgS1cKrJ0RAwB1XWLVaVQdqQUGr7323Mgdn7x5pC7XlZ8mHFBbEW8UXbswkA/exec';
+const GAS = 'https://script.google.com/macros/s/AKfycbzZIoWU70TKdaLAKHs9PSTO9ppROSx4y5bZJwOxVwO3Ko0nIBSSh_nSEyMdo4kdrcPXgA/exec';
 const HOLIDAY_KEY = 'f52c0659526679a86d04083efd86dff68943cae2fa05a623ff8606b79f3f6814';
 const MASTER_NAME = '최민규';
 
@@ -2555,17 +2555,32 @@ async function cancelSelectedShip(groupId) {
       const idxs = checked.map(cb => parseInt(cb.dataset.idx)).sort((a,b) => b-a);
       const items = idxs.map(i => shipHistory[i]).filter(Boolean);
 
-      // 50건씩 배치 처리 (URL 한계 안전)
       const payload = items.map(it => ({ serial: it.serial, shipDate: it.shipDate }));
+
+      // 1차 시도: bulkDeleteShipLog (Code.gs 신버전 필요)
       const DEL_BATCH = 50;
       const delTotalBatches = Math.ceil(payload.length / DEL_BATCH);
-      for (let b = 0; b < payload.length; b += DEL_BATCH) {
-        const delDone = Math.min(b + DEL_BATCH, payload.length);
-        notify(`취소 처리 중... ${delDone}/${payload.length}건 (배치 ${Math.floor(b/DEL_BATCH)+1}/${delTotalBatches})`, 'info');
-        const res = await gasCall({ action: 'bulkDeleteShipLog', items: JSON.stringify(payload.slice(b, b + DEL_BATCH)) });
-        // bulkDeleteShipLog 미배포 시 감지: ok 필드 없으면 Code.gs 재배포 필요
-        if (!res || res.ok !== true) {
-          throw new Error('Code.gs에 bulkDeleteShipLog 액션이 없습니다. Apps Script를 새 버전으로 재배포해주세요.');
+      let useBulk = true;
+
+      // bulkDeleteShipLog 사용 가능 여부 먼저 테스트
+      try {
+        const testRes = await gasCall({ action: 'bulkDeleteShipLog', items: JSON.stringify([]) });
+        useBulk = !!(testRes && testRes.ok === true);
+      } catch(e) { useBulk = false; }
+
+      if (useBulk) {
+        // 신버전: 50건씩 배치
+        for (let b = 0; b < payload.length; b += DEL_BATCH) {
+          const delDone = Math.min(b + DEL_BATCH, payload.length);
+          notify(`취소 처리 중... ${delDone}/${payload.length}건 (배치 ${Math.floor(b/DEL_BATCH)+1}/${delTotalBatches})`, 'info');
+          await gasCall({ action: 'bulkDeleteShipLog', items: JSON.stringify(payload.slice(b, b + DEL_BATCH)) });
+        }
+      } else {
+        // 폴백: 기존 deleteShipLog 1건씩 (Code.gs 재배포 전까지)
+        notify(`취소 처리 중... (구버전 방식, ${payload.length}건 순차처리)`, 'info');
+        for (let i = 0; i < payload.length; i++) {
+          if (i % 10 === 0) notify(`취소 처리 중... ${i+1}/${payload.length}건`, 'info');
+          await gasCall({ action: 'deleteShipLog', serial: payload[i].serial, shipDate: payload[i].shipDate });
         }
       }
 
