@@ -1533,6 +1533,22 @@ function renderShipHistory() {
     return;
   }
 
+  // 시리얼 → entries 매핑 (공임비/부품비 조회용)
+  const entryMap = {};
+  (entries||[]).forEach(e => { entryMap[String(e.serial)] = e; });
+
+  // 시리얼에서 제조년월 파싱: TO2310FB3309 → 2310 → 2023년 10월
+  function parseMfg(serial) {
+    const m = String(serial).match(/[A-Z]{2}(\d{2})(\d{2})[A-Z]/);
+    if(!m) return null;
+    const yy = parseInt(m[1]), mm = parseInt(m[2]);
+    const year = 2000 + yy, month = mm;
+    const quarter = Math.ceil(month/3);
+    const qStr = ['01','02','03','04'][quarter-1];
+    return { code: m[1]+m[2], year, month, quarter, qStr,
+      label: `${year}년 ${String(month).padStart(2,'0')}월` };
+  }
+
   // 출고일별 그룹핑
   const groups = {};
   shipHistory.forEach(h => {
@@ -1542,31 +1558,77 @@ function renderShipHistory() {
   });
 
   const fmt2 = n => String(n).padStart(2,'0');
-  const fmtDT2 = s => {
-    if(!s) return '-';
-    const d = new Date(s);
-    if(isNaN(d)) return s;
-    return `${d.getFullYear()}.${fmt2(d.getMonth()+1)}.${fmt2(d.getDate())} ${fmt2(d.getHours())}:${fmt2(d.getMinutes())}`;
-  };
 
   let h = '';
-  Object.keys(groups).sort((a,b)=>b.localeCompare(a)).forEach(date => {
+  let no = 0;
+  // 날짜 오름차순 정렬 후 No 부여
+  const allSorted = [];
+  Object.keys(groups).sort((a,b)=>a.localeCompare(b)).forEach(date => {
+    groups[date].forEach(x => allSorted.push({...x, _date: date}));
+  });
+
+  // 날짜 내림차순으로 그룹 표시, No는 전체 순번
+  const groupDates = Object.keys(groups).sort((a,b)=>b.localeCompare(a));
+  let rowNo = allSorted.length;
+
+  groupDates.forEach(date => {
     const list = groups[date];
     h += `<div class="date-group-header">
       <span class="date-group-title">${formatShipDate(date)}</span>
       <span class="date-group-meta">${list.length}건 출고</span>
     </div>
-    <div class="card" style="padding:0;margin-bottom:8px;">
-      <div class="table-wrap"><table>
-        <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>출고 시간</th></tr></thead>
+    <div class="card" style="padding:0;margin-bottom:8px;overflow-x:auto;">
+      <div class="table-wrap"><table style="min-width:1100px;font-size:12px;">
+        <thead><tr>
+          <th style="width:40px;">No</th>
+          <th>기종</th>
+          <th>시리얼번호</th>
+          <th>수리항목(원본)</th>
+          <th style="text-align:right;">공임비</th>
+          <th style="text-align:right;">부품비</th>
+          <th style="text-align:right;">합계</th>
+          <th>제조년월코드</th>
+          <th>제조년도</th>
+          <th>제조월</th>
+          <th>제조분기</th>
+          <th>제조년월</th>
+          <th>수리항목수</th>
+          <th>수리유형</th>
+        </tr></thead>
         <tbody>${list.map(x => {
-          const works = typeof x.works === 'string' ? JSON.parse(x.works||'[]') : (x.works||[]);
+          const works = typeof x.works === 'string' ? (()=>{try{return JSON.parse(x.works);}catch{return [];}})() : (x.works||[]);
+          const entry = entryMap[String(x.serial)];
+          // 공임비: works 기준 합산
+          const labor = works.reduce((s,k) => s + (WORKS[k]?.price||0), 0);
+          // 부품비: entry.parts 기준 (없으면 0)
+          let partsCost = 0;
+          if(entry && entry.parts) {
+            Object.values(entry.parts).forEach(q => { partsCost += 0; }); // 단가정보 없으므로 0
+          }
+          const total = entry ? Number(entry.total) : labor;
+          // 수리항목 텍스트
+          const worksText = works.map(k => WORKS[k]?.tag||k).join(' / ');
+          // 제조년월
+          const mfg = parseMfg(x.serial);
+          // 수리항목수/유형
+          const wCount = works.length;
+          const wType = wCount >= 2 ? '복합수리' : '단일수리';
+          const curNo = rowNo--;
           return `<tr>
+            <td style="text-align:center;color:var(--text2);">${curNo}</td>
             <td><span style="font-size:11px;font-weight:700;background:${x.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.model||'-'}</span></td>
-            <td class="mono">${x.serial}</td>
-            <td>${x.worker||'-'}</td>
-            <td>${works.map(k=>workTag(k)).join('')}</td>
-            <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.shipDate)}</td>
+            <td class="mono" style="font-size:11px;">${x.serial}</td>
+            <td style="color:var(--text);">${worksText||'-'}</td>
+            <td style="text-align:right;">${labor?fmt(labor):'0'}원</td>
+            <td style="text-align:right;">0원</td>
+            <td style="text-align:right;font-weight:600;">${fmt(total)}원</td>
+            <td style="text-align:center;">${mfg?mfg.code:'-'}</td>
+            <td style="text-align:center;">${mfg?mfg.year:'-'}</td>
+            <td style="text-align:center;">${mfg?mfg.month:'-'}</td>
+            <td style="text-align:center;">${mfg?mfg.qStr:'-'}</td>
+            <td style="white-space:nowrap;">${mfg?mfg.label:'-'}</td>
+            <td style="text-align:center;">${wCount}</td>
+            <td><span style="font-size:11px;padding:2px 8px;border-radius:99px;background:${wType==='복합수리'?'#fef9c3':'#f0fdf4'};color:${wType==='복합수리'?'#854d0e':'#166534'};">${wType}</span></td>
           </tr>`;
         }).join('')}</tbody>
       </table></div>
