@@ -2585,20 +2585,37 @@ function exportShipviewXlsx() {
 
   Object.keys(groups).sort((a,b) => b.localeCompare(a)).forEach(date => {
     const list = groups[date];
-    const rows = [['#','기종','시리얼번호','수리항목','공임비(원)','부품비(원)','합계(원)']];
-    let totalFee = 0;
+    const rows = [['No','기종','시리얼번호','수리항목(원본)','공임비(원)','부품비(원)','합계(원)','제조년월코드','제조년도','제조월','제조분기','제조년월','수리항목수','수리유형']];
+    let totalFee = 0, totalParts = 0;
     list.forEach((x, i) => {
       const e = entries.find(en => String(en.serial) === String(x.serial));
       const fee = e ? Number(e.total) : 0;
-      const ws2 = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k).join(' / ') : '-';
+      const partsFee = getPartsFeeForEntry(e);
+      const worksArr = e ? parseWorks(e.works) : [];
+      const worksText = worksArr.map(k => WORKS[k]?.tag||k).join(' / ');
       totalFee += fee;
-      rows.push([i+1, x.model||'-', x.serial, ws2, fee, '', fee]);
+      totalParts += partsFee;
+      // 제조년월 파싱
+      const mfgM = String(x.serial).match(/[A-Z]{2}(\d{2})(\d{2})[A-Z]/);
+      let mfgCode='-', mfgYear='-', mfgMonth='-', mfgQ='-', mfgLabel='-';
+      if(mfgM) {
+        const yy=parseInt(mfgM[1]), mm=parseInt(mfgM[2]);
+        mfgCode = mfgM[1]+mfgM[2];
+        mfgYear = 2000+yy;
+        mfgMonth = mm;
+        mfgQ = String(Math.ceil(mm/3)).padStart(2,'0');
+        mfgLabel = mfgYear+'년 '+String(mm).padStart(2,'0')+'월';
+      }
+      const wCount = worksArr.length;
+      const wType = wCount>=2 ? '복합수리' : '단일수리';
+      rows.push([i+1, x.model||'-', x.serial, worksText||'-', fee, partsFee||0, fee+(partsFee||0),
+        mfgCode, mfgYear, mfgMonth, mfgQ, mfgLabel, wCount, wType]);
     });
-    rows.push(['합계','','','',totalFee,'',totalFee]);
+    rows.push(['합계','','','',totalFee,totalParts,totalFee+totalParts,'','','','','','','']);
 
     const ws3 = XLSX.utils.aoa_to_sheet(rows);
-    ws3['!cols'] = [5,10,18,35,12,12,12].map(w=>({wch:w}));
-    const sheetName = date.replace(/-/g,'').slice(2); // 260411
+    ws3['!cols'] = [5,10,18,30,12,12,12,12,10,8,8,14,10,10].map(w=>({wch:w}));
+    const sheetName = date.replace(/-/g,'').slice(2);
     XLSX.utils.book_append_sheet(wb, ws3, sheetName);
   });
 
