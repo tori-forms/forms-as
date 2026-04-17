@@ -2279,16 +2279,15 @@ function renderShipAnalysis() {
     </div>`;
   }).join('');
 
-  // 하단 합계 행
-  const sumCount = WORK_KEYS.reduce((s,k)=>s+workCount[k], 0);
+  // 하단 합계 행 (건수 합계는 중복 포함으로 혼동 우려라 표기 제외)
   const sumFee   = WORK_KEYS.reduce((s,k)=>s+workFee[k], 0);
   const sumParts = WORK_KEYS.reduce((s,k)=>s+workParts[k], 0);
   const sumTotal = sumFee + sumParts;
   const workTotalRow = `<div style="display:grid;grid-template-columns:100px 1fr 52px 52px 90px 90px 95px 62px;align-items:center;gap:10px;padding:12px 0 2px;border-top:2px solid rgba(255,255,255,.25);margin-top:4px;">
       <div style="font-size:12px;font-weight:800;color:rgba(255,255,255,.95);letter-spacing:.5px;">합계</div>
       <div></div>
-      <div style="font-size:13px;font-weight:800;color:#fff;text-align:right;">${sumCount}건</div>
-      <div style="font-size:11px;opacity:.5;text-align:right;">100%</div>
+      <div></div>
+      <div></div>
       <div style="font-size:12px;font-weight:800;color:#fff;text-align:right;">${fmt(sumFee)}원</div>
       <div style="font-size:12px;font-weight:800;color:#fff;text-align:right;">${fmt(sumParts)}원</div>
       <div style="font-size:13px;font-weight:800;color:#fbbf24;text-align:right;">${fmt(sumTotal)}원</div>
@@ -2306,10 +2305,10 @@ function renderShipAnalysis() {
     comboMap[key].fee += x.fee;
   });
   const combos = Object.entries(comboMap).sort((a,b) => {
-    // 논배터리 포함 조합을 최상단으로 고정, 그 안에서는 건수 내림차순
-    const aHasNonbat = a[1].works.includes('nonbat') ? 1 : 0;
-    const bHasNonbat = b[1].works.includes('nonbat') ? 1 : 0;
-    if(aHasNonbat !== bHasNonbat) return bHasNonbat - aHasNonbat;
+    // '논배터리 단일 작업' 조합만 최상단 고정, 나머지는 건수 내림차순
+    const aIsNonbatOnly = a[1].works.length === 1 && a[1].works[0] === 'nonbat' ? 1 : 0;
+    const bIsNonbatOnly = b[1].works.length === 1 && b[1].works[0] === 'nonbat' ? 1 : 0;
+    if(aIsNonbatOnly !== bIsNonbatOnly) return bIsNonbatOnly - aIsNonbatOnly;
     return b[1].count - a[1].count;
   });
   const maxCombo = Math.max(...combos.map(c=>c[1].count), 1);
@@ -2368,6 +2367,8 @@ function renderShipAnalysis() {
   const simpleProg = totalCount ? (simpleNonbat/totalCount*100) : 0;
   const repairProg = totalCount ? (repairNonbat/totalCount*100) : 0;
   const totalProg  = totalCount ? (totalNonbat/totalCount*100) : 0;
+  // 100%는 '100%', 나머지는 소수 1자리까지
+  const fmtProg = n => (n >= 99.95 ? '100%' : n.toFixed(1) + '%');
 
   // 파이차트 SVG (2-slice 도넛)
   const nbCx=70, nbCy=70, nbRo=62, nbRi=32;
@@ -2390,7 +2391,7 @@ function renderShipAnalysis() {
     // 도넛 중앙 홀 + 진행율 표시
     nbSlices += `<circle cx="${nbCx}" cy="${nbCy}" r="${nbRi}" fill="rgba(15,23,42,.85)"/>
       <text x="${nbCx}" y="${nbCy-6}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,.5)">진행율</text>
-      <text x="${nbCx}" y="${nbCy+10}" text-anchor="middle" font-size="16" font-weight="800" fill="#fff">${totalProg.toFixed(1)}%</text>
+      <text x="${nbCx}" y="${nbCy+10}" text-anchor="middle" font-size="16" font-weight="800" fill="#fff">${fmtProg(totalProg)}</text>
       <text x="${nbCx}" y="${nbCy+23}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,.5)">${totalNonbat}/${totalCount}건</text>`;
   }
 
@@ -2521,7 +2522,7 @@ function renderShipAnalysis() {
   ${totalNonbat > 0 ? `
   <div style="background:linear-gradient(135deg,#0f172a 0%,#1f2d44 60%,#141c2e 100%);border-radius:16px;padding:22px 24px;margin-bottom:16px;color:#fff;">
     <div style="font-size:12px;font-weight:600;opacity:.55;letter-spacing:.5px;margin-bottom:6px;">🔋 논배터리화 유형별 분포</div>
-    <div style="font-size:11px;opacity:.35;margin-bottom:16px;">전체 출고 ${totalCount}건 중 논배터리화 ${totalNonbat}건 (진행율 ${totalProg.toFixed(1)}%)</div>
+    <div style="font-size:11px;opacity:.35;margin-bottom:16px;">전체 출고 ${totalCount}건 중 논배터리화 ${totalNonbat}건 (진행율 ${fmtProg(totalProg)})</div>
     <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">
       <svg width="140" height="140" viewBox="0 0 140 140" style="flex-shrink:0;">
         ${nbSlices}
@@ -2541,7 +2542,7 @@ function renderShipAnalysis() {
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:10px;opacity:.75;">
             <div>내부 구성비 <span style="color:#93c5fd;font-weight:700;font-size:12px;">${simpleShare}%</span></div>
-            <div style="text-align:right;">전체 대비 진행율 <span style="color:#93c5fd;font-weight:700;font-size:12px;">${simpleProg.toFixed(1)}%</span></div>
+            <div style="text-align:right;">전체 대비 진행율 <span style="color:#93c5fd;font-weight:700;font-size:12px;">${fmtProg(simpleProg)}</span></div>
           </div>
         </div>
         <!-- AS후 논배터리화 -->
@@ -2558,7 +2559,7 @@ function renderShipAnalysis() {
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:10px;opacity:.75;">
             <div>내부 구성비 <span style="color:#fdba74;font-weight:700;font-size:12px;">${repairShare}%</span></div>
-            <div style="text-align:right;">전체 대비 진행율 <span style="color:#fdba74;font-weight:700;font-size:12px;">${repairProg.toFixed(1)}%</span></div>
+            <div style="text-align:right;">전체 대비 진행율 <span style="color:#fdba74;font-weight:700;font-size:12px;">${fmtProg(repairProg)}</span></div>
           </div>
         </div>
       </div>
