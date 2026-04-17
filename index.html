@@ -3572,6 +3572,8 @@ async function renderSummary() {
   const workdays = monthKPI ? await getWorkdays(y, m) : 0;
 
   const totalTarget = dailyTarget > 0 ? activeWorkers.length * dailyTarget : 0;
+  const progressColor = totalTarget > 0 ? (list.length >= totalTarget ? 'var(--green)' : 'var(--red)') : 'var(--text2)';
+  
   // 부품비 계산 (PARTS_PRICE 활용)
   const PP = window.PARTS_PRICE || {};
   const modelParts = PP.modelParts || {};
