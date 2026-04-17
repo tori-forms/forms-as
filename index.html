@@ -294,6 +294,31 @@ tr:hover td{background:var(--surface2);}
         <option value="">전체</option>
       </select>
     </div>
+    <div class="range-bar" style="margin-top:-8px;">
+      <span class="range-bar-label">기종 필터</span>
+      <select id="history-model-filter" onchange="renderHistory()" style="width:160px;">
+        <option value="">전체</option>
+      </select>
+    </div>
+    <div class="range-bar" style="margin-top:-8px;flex-wrap:wrap;row-gap:6px;">
+      <span class="range-bar-label">수리항목</span>
+      <div id="history-work-filter" style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="hist-chip" data-key="nonbat" onclick="toggleHistChip(this)" style="padding:4px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1.5px solid #f97316;background:transparent;color:var(--text1);cursor:pointer;">논배터리</button>
+        <button class="hist-chip" data-key="pcb"    onclick="toggleHistChip(this)" style="padding:4px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1.5px solid #3b82f6;background:transparent;color:var(--text1);cursor:pointer;">PCB 교체</button>
+        <button class="hist-chip" data-key="panel"  onclick="toggleHistChip(this)" style="padding:4px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1.5px solid #10b981;background:transparent;color:var(--text1);cursor:pointer;">LCD 교체</button>
+        <button class="hist-chip" data-key="board"  onclick="toggleHistChip(this)" style="padding:4px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1.5px solid #a855f7;background:transparent;color:var(--text1);cursor:pointer;">MB수리</button>
+      </div>
+    </div>
+    <div class="range-bar" style="margin-top:-8px;gap:16px;flex-wrap:wrap;">
+      <span class="range-bar-label">시리얼 검색</span>
+      <input type="text" id="history-serial-filter" placeholder="시리얼 일부 입력" oninput="renderHistory()" style="width:200px;" autocomplete="off">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;user-select:none;">
+        <input type="checkbox" id="history-note-filter" onchange="renderHistory()" style="accent-color:var(--accent);">
+        특이사항 있는 건만
+      </label>
+      <button onclick="resetHistFilters()" style="padding:4px 14px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;">↺ 필터 초기화</button>
+      <span id="history-filter-count" style="font-size:12px;color:var(--text2);"></span>
+    </div>
 
     <div id="history-stats"></div>
     <div id="history-content"></div>
@@ -1083,14 +1108,27 @@ function setRangeAll() {
   renderHistory();
 }
 function getRangeEntries() {
-  const from = document.getElementById('date-from').value;
-  const to = document.getElementById('date-to').value;
+  const from   = document.getElementById('date-from').value;
+  const to     = document.getElementById('date-to').value;
   const worker = document.getElementById('history-worker-filter').value;
+  const model  = document.getElementById('history-model-filter')?.value || '';
+  const serial = (document.getElementById('history-serial-filter')?.value || '').trim().toUpperCase();
+  const noteOnly = document.getElementById('history-note-filter')?.checked || false;
+  // 수리항목 칩 — 활성화된 것들
+  const activeChips = [...(document.querySelectorAll('.hist-chip.active') || [])].map(c => c.dataset.key);
+
   return entries.filter(e => {
     const ds = String(e.date).slice(0,10);
     if(from && ds < from) return false;
-    if(to && ds > to) return false;
+    if(to   && ds > to)   return false;
     if(worker && e.worker !== worker) return false;
+    if(model  && e.model  !== model)  return false;
+    if(serial && !String(e.serial).toUpperCase().includes(serial)) return false;
+    if(noteOnly && !e.note) return false;
+    if(activeChips.length > 0) {
+      const works = parseWorks(e.works);
+      if(!activeChips.every(k => works.includes(k))) return false;
+    }
     return true;
   });
 }
@@ -3797,6 +3835,35 @@ function toggleWorkerBlock(id) {
   if(arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
 }
 
+/* 수리항목 칩 토글 */
+const CHIP_COLORS = { nonbat:'#f97316', pcb:'#3b82f6', panel:'#10b981', board:'#a855f7' };
+function toggleHistChip(el) {
+  el.classList.toggle('active');
+  const key = el.dataset.key;
+  if(el.classList.contains('active')) {
+    el.style.background = CHIP_COLORS[key] || 'var(--accent)';
+    el.style.color = '#fff';
+  } else {
+    el.style.background = 'transparent';
+    el.style.color = 'var(--text1)';
+  }
+  renderHistory();
+}
+function resetHistFilters() {
+  document.getElementById('date-from').value = '';
+  document.getElementById('date-to').value = '';
+  document.getElementById('history-worker-filter').value = '';
+  document.getElementById('history-model-filter').value = '';
+  document.getElementById('history-serial-filter').value = '';
+  document.getElementById('history-note-filter').checked = false;
+  document.querySelectorAll('.hist-chip.active').forEach(c => {
+    c.classList.remove('active');
+    c.style.background = 'transparent';
+    c.style.color = 'var(--text1)';
+  });
+  renderHistory();
+}
+
 /* 전체 기록 (기간 조회) */
 async function renderHistory() {
   // 엔지니어 필터 셀렉트 업데이트
@@ -3805,7 +3872,22 @@ async function renderHistory() {
   sel.innerHTML = '<option value="">전체</option>' + workers.map(w=>`<option value="${w}">${w}</option>`).join('');
   if(workers.includes(curVal)) sel.value = curVal;
 
+  // 기종 필터 셀렉트 업데이트
+  const modelSel = document.getElementById('history-model-filter');
+  if(modelSel) {
+    const curModel = modelSel.value;
+    const models = [...new Set(entries.map(e=>e.model||'').filter(Boolean))].sort();
+    modelSel.innerHTML = '<option value="">전체</option>' + models.map(m=>`<option value="${m}">${m}</option>`).join('');
+    if(models.includes(curModel)) modelSel.value = curModel;
+  }
+
   const rangeList = getRangeEntries();
+  // 필터 적용 건수 표시
+  const countEl = document.getElementById('history-filter-count');
+  if(countEl) {
+    const total = entries.length;
+    countEl.textContent = rangeList.length < total ? `${rangeList.length} / ${total}건 표시 중` : '';
+  }
   const from = document.getElementById('date-from').value;
   const to = document.getElementById('date-to').value;
   const totalRev = rangeList.reduce((s,e)=>s+Number(e.total),0);
