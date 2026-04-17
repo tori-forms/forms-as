@@ -2235,25 +2235,34 @@ function renderShipAnalysis() {
   const WORK_KEYS   = ['nonbat','pcb','panel','board'];
 
   // ① 수리항목별 발생 현황
-  const workCount = {}; const workFee = {};
-  WORK_KEYS.forEach(k => { workCount[k]=0; workFee[k]=0; });
+  const workCount = {}; const workFee = {}; const workParts = {};
+  WORK_KEYS.forEach(k => { workCount[k]=0; workFee[k]=0; workParts[k]=0; });
+  // 기종별 부품비 조회용
+  const PP_WORK = window.PARTS_PRICE || {};
   mapped.forEach(x => {
     const usedKeys = new Set(x.works);
+    const modelParts = PP_WORK.modelParts?.[x.model] || {};
     usedKeys.forEach(k => {
       if(workCount[k]!==undefined) {
         workCount[k]++;
-        // 해당 항목 단가
+        // 해당 항목 공임비 단가
         const UNIT = { pcb:15180, panel:10450, board:10450, nonbat:18700 };
         workFee[k] += UNIT[k]||0;
+        // 해당 항목 부품비 (기종별)
+        workParts[k] += modelParts[k] || 0;
       }
     });
   });
   const totalWorkSum = WORK_KEYS.reduce((s,k) => s+workCount[k], 0) || 1;
   const totalCount = mapped.length;
+  // 전체 비용 총액 (금액비중 계산용)
+  const grandTotalCost = WORK_KEYS.reduce((s,k) => s + workFee[k] + workParts[k], 0) || 1;
 
   const workRows = WORK_KEYS.filter(k=>workCount[k]>0).map(k => {
     const pct = Math.round(workCount[k]/totalWorkSum*100);
-    return `<div style="display:grid;grid-template-columns:110px 1fr 60px 80px 80px;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.07);">
+    const itemTotal = workFee[k] + workParts[k];
+    const costPct = Math.round(itemTotal/grandTotalCost*100);
+    return `<div style="display:grid;grid-template-columns:100px 1fr 52px 52px 90px 90px 95px 62px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.07);">
       <div style="display:flex;align-items:center;gap:7px;">
         <div style="width:9px;height:9px;border-radius:2px;background:${WORK_DARK[k]};"></div>
         <span style="font-size:12px;font-weight:600;color:rgba(255,255,255,.85);">${WORK_LABELS[k]}</span>
@@ -2264,8 +2273,27 @@ function renderShipAnalysis() {
       <div style="font-size:13px;font-weight:700;color:${WORK_COLORS[k]};text-align:right;">${workCount[k]}건</div>
       <div style="font-size:11px;opacity:.5;text-align:right;">${pct}%</div>
       <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.6);text-align:right;">${fmt(workFee[k])}원</div>
+      <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.6);text-align:right;">${fmt(workParts[k])}원</div>
+      <div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.85);text-align:right;">${fmt(itemTotal)}원</div>
+      <div style="font-size:11px;font-weight:600;color:${WORK_COLORS[k]};text-align:right;">${costPct}%</div>
     </div>`;
   }).join('');
+
+  // 하단 합계 행
+  const sumCount = WORK_KEYS.reduce((s,k)=>s+workCount[k], 0);
+  const sumFee   = WORK_KEYS.reduce((s,k)=>s+workFee[k], 0);
+  const sumParts = WORK_KEYS.reduce((s,k)=>s+workParts[k], 0);
+  const sumTotal = sumFee + sumParts;
+  const workTotalRow = `<div style="display:grid;grid-template-columns:100px 1fr 52px 52px 90px 90px 95px 62px;align-items:center;gap:10px;padding:12px 0 2px;border-top:2px solid rgba(255,255,255,.25);margin-top:4px;">
+      <div style="font-size:12px;font-weight:800;color:rgba(255,255,255,.95);letter-spacing:.5px;">합계</div>
+      <div></div>
+      <div style="font-size:13px;font-weight:800;color:#fff;text-align:right;">${sumCount}건</div>
+      <div style="font-size:11px;opacity:.5;text-align:right;">100%</div>
+      <div style="font-size:12px;font-weight:800;color:#fff;text-align:right;">${fmt(sumFee)}원</div>
+      <div style="font-size:12px;font-weight:800;color:#fff;text-align:right;">${fmt(sumParts)}원</div>
+      <div style="font-size:13px;font-weight:800;color:#fbbf24;text-align:right;">${fmt(sumTotal)}원</div>
+      <div style="font-size:11px;font-weight:800;color:#fbbf24;text-align:right;">100%</div>
+    </div>`;
 
   // ② 수리조합별 현황
   const comboMap = {};
@@ -2277,7 +2305,13 @@ function renderShipAnalysis() {
     comboMap[key].count++;
     comboMap[key].fee += x.fee;
   });
-  const combos = Object.entries(comboMap).sort((a,b) => b[1].count - a[1].count);
+  const combos = Object.entries(comboMap).sort((a,b) => {
+    // 논배터리 포함 조합을 최상단으로 고정, 그 안에서는 건수 내림차순
+    const aHasNonbat = a[1].works.includes('nonbat') ? 1 : 0;
+    const bHasNonbat = b[1].works.includes('nonbat') ? 1 : 0;
+    if(aHasNonbat !== bHasNonbat) return bHasNonbat - aHasNonbat;
+    return b[1].count - a[1].count;
+  });
   const maxCombo = Math.max(...combos.map(c=>c[1].count), 1);
 
   const comboRows = combos.map(([key, d]) => {
@@ -2315,6 +2349,50 @@ function renderShipAnalysis() {
   const totalFeeAll = singleFee + multiFee;
   const singlePct = totalCount ? Math.round(singleCount/totalCount*100) : 0;
   const multiPct  = totalCount ? Math.round(multiCount/totalCount*100) : 0;
+
+  // ③-B 논배터리화 유형별 분포 + 진행율
+  // 단순 논배터리화: works가 ['nonbat'] 하나뿐
+  // AS후 논배터리화: works에 nonbat 포함 + 다른 수리항목(pcb/panel/board)도 있음
+  let simpleNonbat = 0, repairNonbat = 0;
+  mapped.forEach(x => {
+    const ws = x.works || [];
+    if(!ws.includes('nonbat')) return;
+    const hasOther = ws.some(k => k !== 'nonbat');
+    if(hasOther) repairNonbat++; else simpleNonbat++;
+  });
+  const totalNonbat = simpleNonbat + repairNonbat;
+  // 논배터리화 '내부' 구성비 (파이차트용)
+  const simpleShare = totalNonbat ? Math.round(simpleNonbat/totalNonbat*100) : 0;
+  const repairShare = totalNonbat ? Math.round(repairNonbat/totalNonbat*100) : 0;
+  // 전체 출고 대비 진행율
+  const simpleProg = totalCount ? (simpleNonbat/totalCount*100) : 0;
+  const repairProg = totalCount ? (repairNonbat/totalCount*100) : 0;
+  const totalProg  = totalCount ? (totalNonbat/totalCount*100) : 0;
+
+  // 파이차트 SVG (2-slice 도넛)
+  const nbCx=70, nbCy=70, nbRo=62, nbRi=32;
+  let nbSlices = '';
+  if(totalNonbat > 0) {
+    if(simpleNonbat === totalNonbat) {
+      nbSlices = `<circle cx="${nbCx}" cy="${nbCy}" r="${nbRo}" fill="#60a5fa"/>`;
+    } else if(repairNonbat === totalNonbat) {
+      nbSlices = `<circle cx="${nbCx}" cy="${nbCy}" r="${nbRo}" fill="#fb923c"/>`;
+    } else {
+      const p1 = simpleNonbat/totalNonbat;
+      const a1 = -Math.PI/2, a2 = a1 + p1*Math.PI*2;
+      const x1=nbCx+nbRo*Math.cos(a1), y1=nbCy+nbRo*Math.sin(a1);
+      const x2=nbCx+nbRo*Math.cos(a2), y2=nbCy+nbRo*Math.sin(a2);
+      const lg1 = p1 > 0.5 ? 1 : 0;
+      const lg2 = (1-p1) > 0.5 ? 1 : 0;
+      nbSlices = `<path d="M${nbCx},${nbCy} L${x1.toFixed(2)},${y1.toFixed(2)} A${nbRo},${nbRo} 0 ${lg1},1 ${x2.toFixed(2)},${y2.toFixed(2)} Z" fill="#60a5fa"/>
+        <path d="M${nbCx},${nbCy} L${x2.toFixed(2)},${y2.toFixed(2)} A${nbRo},${nbRo} 0 ${lg2},1 ${x1.toFixed(2)},${y1.toFixed(2)} Z" fill="#fb923c"/>`;
+    }
+    // 도넛 중앙 홀 + 진행율 표시
+    nbSlices += `<circle cx="${nbCx}" cy="${nbCy}" r="${nbRi}" fill="rgba(15,23,42,.85)"/>
+      <text x="${nbCx}" y="${nbCy-6}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,.5)">진행율</text>
+      <text x="${nbCx}" y="${nbCy+10}" text-anchor="middle" font-size="16" font-weight="800" fill="#fff">${totalProg.toFixed(1)}%</text>
+      <text x="${nbCx}" y="${nbCy+23}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,.5)">${totalNonbat}/${totalCount}건</text>`;
+  }
 
   // ④ 제조년월 × 수리항목 교차분석 - 시리얼에서 제조년월 추출
   const mfgMap = {};
@@ -2396,14 +2474,18 @@ function renderShipAnalysis() {
   <!-- ① 수리항목별 발생 현황 -->
   <div style="background:linear-gradient(135deg,#0f172a 0%,#1e2d4a 40%,#162035 100%);border-radius:16px;padding:22px 24px;margin-bottom:16px;color:#fff;">
     <div style="font-size:12px;font-weight:600;opacity:.55;letter-spacing:.5px;margin-bottom:14px;">🔧 수리항목별 발생 현황</div>
-    <div style="display:grid;grid-template-columns:110px 1fr 60px 80px 80px;gap:12px;padding:0 0 8px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:4px;">
+    <div style="display:grid;grid-template-columns:100px 1fr 52px 52px 90px 90px 95px 62px;gap:10px;padding:0 0 8px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:4px;">
       <div style="font-size:10px;opacity:.4;font-weight:600;">항목</div>
       <div style="font-size:10px;opacity:.4;font-weight:600;">비율</div>
       <div style="font-size:10px;opacity:.4;font-weight:600;text-align:right;">건수</div>
       <div style="font-size:10px;opacity:.4;font-weight:600;text-align:right;">점유율</div>
       <div style="font-size:10px;opacity:.4;font-weight:600;text-align:right;">공임비 합계</div>
+      <div style="font-size:10px;opacity:.4;font-weight:600;text-align:right;">부품비 합계</div>
+      <div style="font-size:10px;opacity:.4;font-weight:600;text-align:right;">비용 총액</div>
+      <div style="font-size:10px;opacity:.4;font-weight:600;text-align:right;">금액비중</div>
     </div>
     ${workRows}
+    ${workTotalRow}
     <div style="display:flex;justify-content:flex-end;margin-top:10px;">
       <span style="font-size:11px;opacity:.4;">총 항목 발생 ${totalWorkSum}건 (중복 포함) / 출고 ${totalCount}건</span>
     </div>
@@ -2434,6 +2516,58 @@ function renderShipAnalysis() {
       </div>
     </div>
   </div>
+
+  <!-- ③-B 논배터리화 유형별 분포 + 진행율 -->
+  ${totalNonbat > 0 ? `
+  <div style="background:linear-gradient(135deg,#0f172a 0%,#1f2d44 60%,#141c2e 100%);border-radius:16px;padding:22px 24px;margin-bottom:16px;color:#fff;">
+    <div style="font-size:12px;font-weight:600;opacity:.55;letter-spacing:.5px;margin-bottom:6px;">🔋 논배터리화 유형별 분포</div>
+    <div style="font-size:11px;opacity:.35;margin-bottom:16px;">전체 출고 ${totalCount}건 중 논배터리화 ${totalNonbat}건 (진행율 ${totalProg.toFixed(1)}%)</div>
+    <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">
+      <svg width="140" height="140" viewBox="0 0 140 140" style="flex-shrink:0;">
+        ${nbSlices}
+      </svg>
+      <div style="flex:1;min-width:220px;">
+        <!-- 단순 논배터리화 -->
+        <div style="background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.2);border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="width:10px;height:10px;border-radius:2px;background:#60a5fa;"></div>
+              <span style="font-size:12px;font-weight:700;color:#93c5fd;">단순 논배터리화</span>
+            </div>
+            <div style="text-align:right;">
+              <span style="font-size:18px;font-weight:800;color:#60a5fa;">${simpleNonbat}</span>
+              <span style="font-size:11px;opacity:.7;margin-left:2px;">건</span>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:10px;opacity:.75;">
+            <div>내부 구성비 <span style="color:#93c5fd;font-weight:700;font-size:12px;">${simpleShare}%</span></div>
+            <div style="text-align:right;">전체 대비 진행율 <span style="color:#93c5fd;font-weight:700;font-size:12px;">${simpleProg.toFixed(1)}%</span></div>
+          </div>
+        </div>
+        <!-- AS후 논배터리화 -->
+        <div style="background:rgba(251,146,60,.08);border:1px solid rgba(251,146,60,.2);border-radius:10px;padding:12px 14px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="width:10px;height:10px;border-radius:2px;background:#fb923c;"></div>
+              <span style="font-size:12px;font-weight:700;color:#fdba74;">AS후 논배터리화</span>
+            </div>
+            <div style="text-align:right;">
+              <span style="font-size:18px;font-weight:800;color:#fb923c;">${repairNonbat}</span>
+              <span style="font-size:11px;opacity:.7;margin-left:2px;">건</span>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:10px;opacity:.75;">
+            <div>내부 구성비 <span style="color:#fdba74;font-weight:700;font-size:12px;">${repairShare}%</span></div>
+            <div style="text-align:right;">전체 대비 진행율 <span style="color:#fdba74;font-weight:700;font-size:12px;">${repairProg.toFixed(1)}%</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07);font-size:10px;opacity:.4;line-height:1.5;">
+      * 단순 논배터리화 = 논배터리 작업만 단독 수행 / AS후 논배터리화 = PCB·LCD·MB 수리와 함께 논배터리 작업 수행<br>
+      * 진행율 = 해당 유형 건수 ÷ 전체 출고건수
+    </div>
+  </div>` : ''}
 
   <!-- ④ 제조년월 × 수리항목 교차분석 -->
   ${mfgKeys.length > 0 ? `
