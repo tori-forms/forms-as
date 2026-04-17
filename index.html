@@ -2023,6 +2023,65 @@ function renderShipDashboard(list) {
     </div>
   </div>`;
 
+  // ⊕ 배터리 작업 유형별 진행율 카드 추가
+  const noBatteryCount = workCount.nonbat || 0;
+  const asAfterBatteryCount = (workCount.pcb || 0) + (workCount.panel || 0) + (workCount.board || 0);
+  const noBatteryRate = totalShipped > 0 ? (noBatteryCount / totalShipped * 100).toFixed(1) : 0;
+  const asAfterBatteryRate = totalShipped > 0 ? (asAfterBatteryCount / totalShipped * 100).toFixed(1) : 0;
+
+  h += `<div style="background:linear-gradient(135deg,#1e293b 0%,#334155 60%,#475569 100%);border:2px solid #ea580c;border-radius:16px;padding:24px;margin-bottom:20px;color:#fff;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+      <div style="font-size:24px;">🔋</div>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#fbbf24;">배터리 작업 유형별 진행율</div>
+        <div style="font-size:11px;opacity:.6;margin-top:2px;">출고 완료된 기기의 배터리 작업 분류</div>
+      </div>
+    </div>
+    
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;">
+      <!-- 노배터리화 -->
+      <div style="text-align:center;">
+        <div style="font-size:36px;font-weight:900;color:#ea580c;margin-bottom:8px;">${noBatteryRate}%</div>
+        <div style="font-size:14px;font-weight:700;color:#fbbf24;margin-bottom:12px;">논배터리화</div>
+        <div style="background:rgba(234,88,12,0.2);border-radius:12px;height:12px;margin-bottom:8px;">
+          <div style="background:linear-gradient(90deg,#ea580c,#dc2626);height:12px;border-radius:12px;width:${noBatteryRate}%;transition:width 1s ease-out;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;opacity:.7;">
+          <span>${noBatteryCount}건</span>
+          <span>전체 ${totalShipped}건 중</span>
+        </div>
+      </div>
+
+      <!-- AS후 변배터리화 -->
+      <div style="text-align:center;">
+        <div style="font-size:36px;font-weight:900;color:#7c3aed;margin-bottom:8px;">${asAfterBatteryRate}%</div>
+        <div style="font-size:14px;font-weight:700;color:#c084fc;margin-bottom:12px;">AS후 변배터리화</div>
+        <div style="background:rgba(124,58,237,0.2);border-radius:12px;height:12px;margin-bottom:8px;">
+          <div style="background:linear-gradient(90deg,#7c3aed,#6d28d9);height:12px;border-radius:12px;width:${asAfterBatteryRate}%;transition:width 1s ease-out;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;opacity:.7;">
+          <span>${asAfterBatteryCount}건</span>
+          <span>PCB·LCD·MB수리</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 요약 정보 -->
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.15);">
+      <div style="display:flex;justify-content:center;gap:24px;font-size:12px;">
+        <div style="text-align:center;">
+          <div style="font-weight:600;color:#fbbf24;">배터리 재사용률</div>
+          <div style="font-size:18px;font-weight:800;color:#ea580c;">${noBatteryRate}%</div>
+        </div>
+        <div style="width:1px;background:rgba(255,255,255,.2);"></div>
+        <div style="text-align:center;">
+          <div style="font-weight:600;color:#c084fc;">배터리 교체율</div>
+          <div style="font-size:18px;font-weight:800;color:#7c3aed;">${asAfterBatteryRate}%</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
   // ② 월별 추이 차트 - 공임비+부품비 합산 (절감효과 위에 표시)
   const PP2 = window.PARTS_PRICE || {};
   const monthMap = {};
