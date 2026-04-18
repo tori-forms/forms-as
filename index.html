@@ -1107,7 +1107,8 @@ async function syncData(silent=false) {
     });
     stock = data.stock || [];
     stockLog = data.stockLog || [];
-    exchangeList = data.exchange || [];
+    // exchange: Code.gs 미업데이트 시 로컬 데이터 유지 (덮어쓰기 방지)
+    if(data.exchange !== undefined) exchangeList = data.exchange;
     // 출고 이력도 같이 로드
     if(data.shipLog) {
       shipHistory = data.shipLog;
@@ -3348,7 +3349,7 @@ function switchTab(name, btn) {
   if(name==='docs') renderDocs();
   if(name==='shipping') { initShipping(); }
   if(name==='shipview') { setSvFilter('all'); }
-  if(name==='exchange') { renderWorkerSel(); excUpdatePreview(); renderExchangeList(); }
+  if(name==='exchange') { renderWorkerSel(); renderExchangeList(); setTimeout(excUpdatePreview, 0); }
   if(name==='admin') { switchAdminTab('workers'); }
 }
 
