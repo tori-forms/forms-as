@@ -1190,6 +1190,8 @@ async function syncData(silent=false) {
       if(ps.board)  WORKS.board.price  = ps.board;
       if(ps.nonbat) WORKS.nonbat.price = ps.nonbat;
     }
+    // 서버에 없으면 localStorage 폴백 (관리자 기기에서 설정된 값)
+    if(!window.PARTS_PRICE) loadPriceSettings();
     // 출고 이력도 같이 로드
     if(data.shipLog) {
       shipHistory = data.shipLog;
@@ -2218,6 +2220,8 @@ function renderShipDashboard(list) {
         .sv-cmp-grid{grid-template-columns:1fr 1fr!important;gap:8px!important;}
         .sv-cmp-grid .sv-cmp-saved{grid-column:1/-1!important;}
         .sv-dark-card{padding:16px!important;border-radius:12px!important;}
+        .sv-nb-grid{grid-template-columns:1fr 1fr!important;gap:8px!important;}
+        .sv-nb-grid .sv-nb-saved{grid-column:1/-1!important;}
       }
     `;
     document.head.appendChild(st);
@@ -2385,25 +2389,25 @@ function renderShipDashboard(list) {
 
   h += `
   <!-- 절감 효과 1: 논배터리 작업비 vs 새제품 -->
-  <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);border-radius:16px;padding:24px;margin-bottom:16px;color:#fff;">
+  <div class="sv-dark-card" style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);border-radius:16px;padding:24px;margin-bottom:16px;color:#fff;">
     <div style="font-size:12px;font-weight:600;opacity:.7;margin-bottom:16px;letter-spacing:.5px;">
       💰 논배터리 AS 비용 vs 새제품 <span style="opacity:.5;">(새제품 단가 ${fmt(NEW_PRODUCT_PRICE)}원 기준)</span>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+    <div class="sv-nb-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
       <div style="background:rgba(255,255,255,.1);border-radius:12px;padding:16px;text-align:center;">
         <div style="font-size:11px;opacity:.7;margin-bottom:6px;font-weight:600;">🔧 논배터리 AS 비용</div>
-        <div style="font-size:22px;font-weight:800;">${fmt(totalNonbatRepair)}<span style="font-size:12px;font-weight:400;opacity:.8;">원</span></div>
+        <div style="font-size:20px;font-weight:800;">${fmt(totalNonbatRepair)}<span style="font-size:12px;font-weight:400;opacity:.8;">원</span></div>
         <div style="font-size:11px;opacity:.6;margin-top:4px;">${nonbatCount}건 수리</div>
         <div style="font-size:11px;opacity:.7;margin-top:4px;font-weight:600;">1건당 ${fmt(Math.round(totalNonbatRepair/Math.max(nonbatCount,1)))}원</div>
       </div>
       <div style="background:rgba(255,255,255,.1);border-radius:12px;padding:16px;text-align:center;">
         <div style="font-size:11px;opacity:.7;margin-bottom:6px;font-weight:600;">📦 새제품 구입 시</div>
-        <div style="font-size:22px;font-weight:800;">${fmt(totalNew2)}<span style="font-size:12px;font-weight:400;opacity:.8;">원</span></div>
+        <div style="font-size:20px;font-weight:800;">${fmt(totalNew2)}<span style="font-size:12px;font-weight:400;opacity:.8;">원</span></div>
         <div style="font-size:11px;opacity:.6;margin-top:4px;">${nonbatCount}개 × ${fmt(NEW_PRODUCT_PRICE)}원</div>
       </div>
-      <div style="background:rgba(134,239,172,.15);border:2px solid rgba(134,239,172,.4);border-radius:12px;padding:16px;text-align:center;">
+      <div class="sv-nb-saved" style="background:rgba(134,239,172,.15);border:2px solid rgba(134,239,172,.4);border-radius:12px;padding:16px;text-align:center;">
         <div style="font-size:11px;color:#86efac;margin-bottom:6px;font-weight:700;">✨ 절감액</div>
-        <div style="font-size:24px;font-weight:800;color:#86efac;">${fmt(saved1)}<span style="font-size:12px;font-weight:400;opacity:.9;">원</span></div>
+        <div style="font-size:22px;font-weight:800;color:#86efac;">${fmt(saved1)}<span style="font-size:12px;font-weight:400;opacity:.9;">원</span></div>
         <div style="font-size:13px;color:#86efac;margin-top:4px;font-weight:600;">${savedPct1}% 절감</div>
       </div>
     </div>
