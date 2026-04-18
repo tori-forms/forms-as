@@ -205,6 +205,20 @@ tr:hover td{background:var(--surface2);}
   .btn{height:36px;padding:0 14px;}
   .section-header{flex-wrap:wrap;gap:8px;}
   .section-title{font-size:15px;}
+
+  /* 고객사 다크 대시보드 카드 */
+  .sv-dark-card{padding:14px!important;}
+  .sv-stat-grid{grid-template-columns:repeat(2,1fr)!important;gap:8px!important;}
+  .sv-stat-card{padding:12px!important;}
+  .sv-stat-val{font-size:16px!important;}
+  .sv-stat-main{font-size:22px!important;}
+  .sv-donut-wrap{flex-wrap:wrap!important;gap:12px!important;}
+  .sv-donut-wrap svg{width:100px!important;height:100px!important;margin:0 auto!important;}
+  .sv-month-grid{grid-template-columns:44px 1fr 76px!important;gap:8px!important;}
+  .sv-cmp-grid{grid-template-columns:1fr 1fr!important;gap:8px!important;}
+  .sv-cmp-grid .sv-cmp-saved{grid-column:1/-1!important;}
+  .sv-nb-grid{grid-template-columns:1fr 1fr!important;gap:8px!important;}
+  .sv-nb-grid .sv-nb-saved{grid-column:1/-1!important;}
 }
 
 /* ── 고객사 모바일 전용 하단 탭바 ── */
@@ -2203,29 +2217,7 @@ function renderShipDashboard(list) {
     </div>`;
   }).join('');
 
-  // 반응형 스타일 주입 (inline style은 @media로 못 덮어쓰므로 직접 주입)
-  const existStyle = document.getElementById('dash-mobile-style');
-  if(!existStyle) {
-    const st = document.createElement('style');
-    st.id = 'dash-mobile-style';
-    st.textContent = `
-      @media(max-width:640px){
-        .sv-stat-grid{grid-template-columns:repeat(2,1fr)!important;gap:8px!important;}
-        .sv-stat-card{padding:12px!important;}
-        .sv-stat-val{font-size:16px!important;}
-        .sv-stat-main{font-size:22px!important;}
-        .sv-donut-wrap{flex-wrap:wrap!important;}
-        .sv-donut-wrap svg{width:100px!important;height:100px!important;margin:0 auto;}
-        .sv-month-grid{grid-template-columns:48px 1fr 80px!important;gap:8px!important;}
-        .sv-cmp-grid{grid-template-columns:1fr 1fr!important;gap:8px!important;}
-        .sv-cmp-grid .sv-cmp-saved{grid-column:1/-1!important;}
-        .sv-dark-card{padding:16px!important;border-radius:12px!important;}
-        .sv-nb-grid{grid-template-columns:1fr 1fr!important;gap:8px!important;}
-        .sv-nb-grid .sv-nb-saved{grid-column:1/-1!important;}
-      }
-    `;
-    document.head.appendChild(st);
-  }
+  // 반응형은 <style> 블록에서 처리 (동적 주입 제거)
   const isMob = window.innerWidth <= 640;
 
   let h = `
