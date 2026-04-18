@@ -204,7 +204,7 @@ tr:hover td{background:var(--surface2);}
 
 <nav class="nav">
   <button class="nav-btn active" onclick="switchTab('input',this)">🔧 수리 등록</button>
-  <button class="nav-btn" onclick="switchTab('exchange',this)"><svg width="14" height="14" viewBox="0 0 14 14" style="vertical-align:-2px;margin-right:4px;" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="0.7" y="0.7" width="12.6" height="12.6" rx="2.1" stroke="currentColor" stroke-width="1.3"/><circle cx="7" cy="11" r="0.8" fill="currentColor"/><rect x="3.5" y="2.5" width="7" height="5.5" rx="0.8" fill="currentColor" opacity=".4"/></svg>교품 처리</button>
+  <button class="nav-btn" onclick="switchTab('exchange',this)">🔄 교품 처리</button>
   <button class="nav-btn" onclick="switchTab('summary',this)">📊 일일 현황</button>
   <button class="nav-btn" onclick="switchTab('history',this)">📋 전체 기록</button>
   <button class="nav-btn" onclick="switchTab('search',this)">🔍 시리얼 조회</button>
@@ -597,7 +597,7 @@ tr:hover td{background:var(--surface2);}
   <!-- 교품 처리 -->
   <div id="tab-exchange" class="section">
     <div class="section-header">
-      <span class="section-title"><svg width="18" height="18" viewBox="0 0 18 18" style="vertical-align:-3px;margin-right:4px;" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1.5" y="1.5" width="15" height="15" rx="2.5" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="13.5" r="1" fill="currentColor"/><rect x="4.5" y="4" width="9" height="6" rx="1" fill="currentColor" opacity=".35"/></svg>교품 처리</span>
+      <span class="section-title">🔄 교품 처리</span>
     </div>
 
     <!-- 교품 처리 등록 폼 -->
@@ -3948,14 +3948,24 @@ function getExcWorks() {
 }
 function excUpdatePreview() {
   const works = getExcWorks();
-  const total = works.reduce((s, k) => s + (WORKS[k]?.price || 0), 0);
+  const model = getExcModel();
+  const PP = window.PARTS_PRICE || {};
+  const modelParts = PP.modelParts?.[model] || {};
+  const labor = works.reduce((s, k) => s + (WORKS[k]?.price || 0), 0);
+  const parts = works.reduce((s, k) => s + (modelParts[k] || 0), 0);
+  const total = labor + parts;
   // 체크된 항목 시각 강조
   document.querySelectorAll('.exc-wc').forEach(lbl => {
     const cb = lbl.querySelector('input[type=checkbox]');
     lbl.classList.toggle('checked', cb?.checked);
   });
   const el = document.getElementById('exc-price-preview');
-  if(el) el.textContent = works.length ? `예상 수리비: ${fmt(total)}원` : '';
+  if(el) {
+    if(!works.length) { el.textContent = ''; return; }
+    el.textContent = parts > 0
+      ? `예상 수리비: ${fmt(total)}원 (공임비 ${fmt(labor)}원 + 부품비 ${fmt(parts)}원)`
+      : `예상 수리비: ${fmt(total)}원 (공임비 기준, 부품비 미설정)`;
+  }
 }
 // 폼 초기화
 function resetExcForm() {
@@ -3998,7 +4008,11 @@ async function registerExchange() {
 
   const works = getExcWorks();
   const model = getExcModel() || detectModel(serial);
-  const estimatedCost = works.reduce((s, k) => s + (WORKS[k]?.price || 0), 0);
+  const PP = window.PARTS_PRICE || {};
+  const modelParts = PP.modelParts?.[model] || {};
+  const labor = works.reduce((s, k) => s + (WORKS[k]?.price || 0), 0);
+  const partsAmt = works.reduce((s, k) => s + (modelParts[k] || 0), 0);
+  const estimatedCost = labor + partsAmt;
   const id = Date.now();
   const date = new Date().toISOString();
 
@@ -4390,13 +4404,51 @@ async function renderHistory() {
 
 /* 시리얼 조회 */
 function doSearch() {
-  const q = document.getElementById('inp-search').value.trim();
+  const q = document.getElementById('inp-search').value.trim().toUpperCase();
   const el = document.getElementById('search-result');
   if(!q){ el.innerHTML='<div class="empty">시리얼 번호를 입력하세요.</div>'; return; }
-  const found = entries.filter(e=>String(e.serial).includes(q)).sort((a,b)=>new Date(b.date)-new Date(a.date));
-  if(!found.length){ el.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div>"${q}"에 해당하는 수리 내역이 없습니다.</div>`; return; }
-  el.innerHTML = `<div style="font-size:12px;color:var(--text2);margin-bottom:8px;">${found.length}건 검색됨</div>`
-    + found.map(e=>{const ws=parseWorks(e.works);return`
+
+  const found = entries.filter(e=>String(e.serial).toUpperCase().includes(q)).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const foundExc = (exchangeList||[]).filter(x=>String(x.serial).toUpperCase().includes(q)).sort((a,b)=>new Date(b.date)-new Date(a.date));
+
+  if(!found.length && !foundExc.length){
+    el.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div>"${q}"에 해당하는 내역이 없습니다.</div>`; return;
+  }
+
+  const total = found.length + foundExc.length;
+  let html = `<div style="font-size:12px;color:var(--text2);margin-bottom:8px;">${total}건 검색됨</div>`;
+
+  // 교품 처리 건 먼저 표시
+  if(foundExc.length) {
+    html += foundExc.map(x => {
+      const worksArr = Array.isArray(x.works) ? x.works : (()=>{try{return JSON.parse(x.works||'[]');}catch{return[];}})();
+      const REASON_LABEL = { '비용초과':'비용 초과', '기타':'기타' };
+      const canAct = isMaster || (currentUser && x.worker === currentUser);
+      return `<div class="search-result-item" style="border-left:3px solid #f59e0b;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+          <div>
+            <div class="search-serial">${x.serial}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px;font-family:'JetBrains Mono',monospace;">${fmtDT(x.date)}</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="search-worker">${x.worker}</div>
+            <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#fef3c7;color:#92400e;">📦 교품 처리 · ${REASON_LABEL[x.reason]||x.reason}</span>
+          </div>
+        </div>
+        <div style="margin-bottom:6px;">${x.model?`<span style="font-size:11px;font-weight:700;background:${x.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;margin-right:4px;">${x.model}</span>`:''}</div>
+        <div style="margin-bottom:8px;">${worksArr.map(k=>workTag(k)).join('')}</div>
+        ${x.note?`<div style="font-size:12px;color:var(--amber-text);background:var(--amber-bg);padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:8px;">📝 ${x.note}</div>`:''}
+        ${x.estimatedCost?`<div style="font-size:12px;color:var(--text2);margin-bottom:8px;">예상 수리비: ${fmt(x.estimatedCost)}원</div>`:''}
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm" onclick="revertExchange('${x.id}')"
+            ${canAct?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>↩ 원복</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // 수리 등록 건
+  html += found.map(e=>`
     <div class="search-result-item">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
         <div><div class="search-serial">${e.serial}</div>
@@ -4413,7 +4465,9 @@ function doSearch() {
         <button class="btn btn-sm" onclick="openEditModal(${e.id});lastSearch='${document.getElementById('inp-search').value.trim()}'" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>수정</button>
         <button class="btn btn-sm btn-danger" onclick="delSearch(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>삭제</button>
       </div>
-    </div>`;}).join('');
+    </div>`).join('');
+
+  el.innerHTML = html;
 }
 document.getElementById('inp-search').addEventListener('keydown', e=>{if(e.key==='Enter')doSearch();});
 document.addEventListener('DOMContentLoaded', ()=>{
