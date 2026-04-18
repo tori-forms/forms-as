@@ -1883,7 +1883,6 @@ let svFilter = 'all';
 
 function setSvFilter(type) {
   svFilter = type || 'all';
-  // 버튼 활성화
   ['all','month','last','custom'].forEach(t => {
     const btn = document.getElementById('svf-'+t);
     if(btn) btn.className = 'btn btn-sm' + (t===type ? ' btn-primary' : '');
@@ -1909,14 +1908,27 @@ function setSvFilter(type) {
       const ti = document.getElementById('sv-to');   if(ti) ti.value = '';
     }
   }
-  renderShipview();
-  // 엔지니어는 출고 목록만, 마스터/고객사는 대시보드 기본
+
+  // 현재 활성 탭 파악 (display:block인 것) — 없으면 기본값
   const canSeeAll = isMaster || isClientMode();
   const analysisEl = document.getElementById('shipview-analysis');
-  const isAnalysisVisible = analysisEl && analysisEl.style.display !== 'none';
-  if(!canSeeAll) switchSvTab('list');
-  else if(isAnalysisVisible) renderShipAnalysis();
-  else switchSvTab('dash');
+  const listEl = document.getElementById('shipview-content');
+  const dashViewEl = document.getElementById('shipview-dash');
+  let currentTab;
+  if(!canSeeAll) {
+    currentTab = 'list';
+  } else if(analysisEl && analysisEl.style.display === 'block') {
+    currentTab = 'analysis';
+  } else if(listEl && listEl.style.display === 'block') {
+    currentTab = 'list';
+  } else {
+    currentTab = 'dash'; // 기본값 (최초 진입 포함)
+  }
+
+  // 렌더 전에 탭 visibility 먼저 확정
+  switchSvTab(currentTab);
+  renderShipview();
+  if(currentTab === 'analysis') renderShipAnalysis();
 }
 
 function switchSvTab(tab) {
