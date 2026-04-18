@@ -1329,11 +1329,9 @@ function getModel() {
   const manual = document.getElementById('inp-model').value.trim();
   return auto || manual;
 }
-// 비밀번호 SHA-256 해시 (평문 노출 방지)
-// 마스터 PW: 1231 → 해시
-const MASTER_PW_HASH = 'a4f04f9a9ba40791ef4d7b42f6fe55d0cae44ad8b9f5bc7fc625b96f3d16d8f5';
-// 클라이언트 접근코드: forms25 → 해시
-const CLIENT_ACCESS_HASH = 'a7d44c2a6a61ad2c2d13d04d9c1ed8a9c4b42ee4da1b43bbf45c3e1db6b42cc3';
+// 비밀번호 SHA-256 해시
+// 마스터 PW: 1231
+const MASTER_PW_HASH = '52a6eb687cd22e80d3342eac6fcc7f2e19209e8f83eb9b82e81c6f3e6f30743b';
 
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
@@ -3131,14 +3129,6 @@ function clientSvTab(tab, btn) {
 
 function initClientMode() {
   if(!isClientMode()) return;
-
-  // 접근코드 체크 — 세션에 인증 기록 없으면 게이트 표시
-  if(!sessionStorage.getItem('client_auth')) {
-    document.getElementById('client-gate').style.display = 'flex';
-    document.getElementById('login-overlay').style.display = 'none';
-    // 게이트 통과 후 _startClientMode 실행
-    return;
-  }
   _startClientMode();
 }
 
