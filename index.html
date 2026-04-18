@@ -178,6 +178,12 @@ tr:hover td{background:var(--surface2);}
 .qty-btn{width:24px;height:24px;border:1px solid var(--border2);border-radius:4px;background:var(--surface);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:background .15s;flex-shrink:0;}
 .qty-btn:hover{background:var(--surface2);}
 .qty-num{min-width:20px;text-align:center;font-weight:600;font-size:13px;}
+/* 헤더 필터 드롭다운 */
+.hdr-filter { user-select:none; }
+.hdr-filter:hover { background:var(--surface2); }
+.hdr-arrow { font-size:10px; margin-left:2px; }
+.hist-dd-item:hover { background:var(--surface2); }
+.hist-dd-active { color:var(--accent); }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
@@ -276,49 +282,28 @@ tr:hover td{background:var(--surface2);}
   <div id="tab-history" class="section">
     <div class="section-header">
       <span class="section-title">전체 기록</span>
-      <button class="btn btn-sm" onclick="exportCSV('range')">기간 엑셀 내보내기</button>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span id="history-filter-count" style="font-size:12px;color:var(--text2);"></span>
+        <button onclick="resetHistFilters()" id="hist-reset-btn" style="display:none;padding:4px 12px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;">↺ 초기화</button>
+        <button class="btn btn-sm" onclick="exportCSV('range')">기간 엑셀 내보내기</button>
+      </div>
     </div>
 
-    <!-- 기간 조회 -->
+    <!-- 기간 조회 (날짜만 유지) -->
     <div class="range-bar">
-      <span class="range-bar-label">기간 조회</span>
+      <span class="range-bar-label">기간</span>
       <input type="date" id="date-from" onchange="renderHistory()" style="width:148px;">
       <span class="range-sep">~</span>
       <input type="date" id="date-to" onchange="renderHistory()" style="width:148px;">
       <button class="today-btn" onclick="setRangeMonth()">이번 달</button>
       <button class="today-btn" onclick="setRangeAll()">전체</button>
     </div>
-    <div class="range-bar" style="margin-top:-8px;">
-      <span class="range-bar-label">엔지니어 필터</span>
-      <select id="history-worker-filter" onchange="renderHistory()" style="width:160px;">
-        <option value="">전체</option>
-      </select>
-    </div>
-    <div class="range-bar" style="margin-top:-8px;">
-      <span class="range-bar-label">기종 필터</span>
-      <select id="history-model-filter" onchange="renderHistory()" style="width:160px;">
-        <option value="">전체</option>
-      </select>
-    </div>
-    <div class="range-bar" style="margin-top:-8px;flex-wrap:wrap;row-gap:6px;">
-      <span class="range-bar-label">수리항목</span>
-      <div id="history-work-filter" style="display:flex;gap:6px;flex-wrap:wrap;">
-        <button class="hist-chip" data-key="nonbat" onclick="toggleHistChip(this)" style="padding:4px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1.5px solid #f97316;background:transparent;color:var(--text1);cursor:pointer;">논배터리</button>
-        <button class="hist-chip" data-key="pcb"    onclick="toggleHistChip(this)" style="padding:4px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1.5px solid #3b82f6;background:transparent;color:var(--text1);cursor:pointer;">PCB 교체</button>
-        <button class="hist-chip" data-key="panel"  onclick="toggleHistChip(this)" style="padding:4px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1.5px solid #10b981;background:transparent;color:var(--text1);cursor:pointer;">LCD 교체</button>
-        <button class="hist-chip" data-key="board"  onclick="toggleHistChip(this)" style="padding:4px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1.5px solid #a855f7;background:transparent;color:var(--text1);cursor:pointer;">MB수리</button>
-      </div>
-    </div>
-    <div class="range-bar" style="margin-top:-8px;gap:16px;flex-wrap:wrap;">
-      <span class="range-bar-label">시리얼 검색</span>
-      <input type="text" id="history-serial-filter" placeholder="시리얼 일부 입력" oninput="renderHistory()" style="width:200px;" autocomplete="off">
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;user-select:none;">
-        <input type="checkbox" id="history-note-filter" onchange="renderHistory()" style="accent-color:var(--accent);">
-        특이사항 있는 건만
-      </label>
-      <button onclick="resetHistFilters()" style="padding:4px 14px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;">↺ 필터 초기화</button>
-      <span id="history-filter-count" style="font-size:12px;color:var(--text2);"></span>
-    </div>
+
+    <!-- 숨겨진 필터 상태 저장용 (헤더 드롭다운이 읽음) -->
+    <select id="history-worker-filter" onchange="renderHistory()" style="display:none;"><option value="">전체</option></select>
+    <select id="history-model-filter"  onchange="renderHistory()" style="display:none;"><option value="">전체</option></select>
+    <input type="text" id="history-serial-filter" style="display:none;">
+    <input type="checkbox" id="history-note-filter" onchange="renderHistory()" style="display:none;">
 
     <div id="history-stats"></div>
     <div id="history-content"></div>
@@ -1110,24 +1095,17 @@ function setRangeAll() {
 function getRangeEntries() {
   const from   = document.getElementById('date-from').value;
   const to     = document.getElementById('date-to').value;
-  const worker = document.getElementById('history-worker-filter').value;
-  const model  = document.getElementById('history-model-filter')?.value || '';
-  const serial = (document.getElementById('history-serial-filter')?.value || '').trim().toUpperCase();
-  const noteOnly = document.getElementById('history-note-filter')?.checked || false;
-  // 수리항목 칩 — 활성화된 것들
-  const activeChips = [...(document.querySelectorAll('.hist-chip.active') || [])].map(c => c.dataset.key);
-
   return entries.filter(e => {
     const ds = String(e.date).slice(0,10);
     if(from && ds < from) return false;
     if(to   && ds > to)   return false;
-    if(worker && e.worker !== worker) return false;
-    if(model  && e.model  !== model)  return false;
-    if(serial && !String(e.serial).toUpperCase().includes(serial)) return false;
-    if(noteOnly && !e.note) return false;
-    if(activeChips.length > 0) {
+    if(histFilter.worker && e.worker !== histFilter.worker) return false;
+    if(histFilter.model  && e.model  !== histFilter.model)  return false;
+    if(histFilter.serial && !String(e.serial).toUpperCase().includes(histFilter.serial)) return false;
+    if(histFilter.noteOnly && !e.note) return false;
+    if(histFilter.works.length > 0) {
       const works = parseWorks(e.works);
-      if(!activeChips.every(k => works.includes(k))) return false;
+      if(!histFilter.works.every(k => works.includes(k))) return false;
     }
     return true;
   });
@@ -3835,33 +3813,150 @@ function toggleWorkerBlock(id) {
   if(arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
 }
 
-/* 수리항목 칩 토글 */
-const CHIP_COLORS = { nonbat:'#f97316', pcb:'#3b82f6', panel:'#10b981', board:'#a855f7' };
-function toggleHistChip(el) {
-  el.classList.toggle('active');
-  const key = el.dataset.key;
-  if(el.classList.contains('active')) {
-    el.style.background = CHIP_COLORS[key] || 'var(--accent)';
-    el.style.color = '#fff';
-  } else {
-    el.style.background = 'transparent';
-    el.style.color = 'var(--text1)';
+/* ===== 전체 기록 — 헤더 드롭다운 필터 (엑셀 스타일) ===== */
+
+// 헤더 필터 상태
+const histFilter = { worker:'', model:'', serial:'', noteOnly:false, works:[] };
+
+// 드롭다운 열기
+function openHistDropdown(type, thEl) {
+  // 이미 열려있으면 닫기
+  closeHistDropdown();
+  const existing = document.getElementById('hist-dd');
+  if(existing && existing.dataset.type === type) return;
+
+  const dd = document.createElement('div');
+  dd.id = 'hist-dd';
+  dd.dataset.type = type;
+  dd.style.cssText = `position:fixed;z-index:9999;background:var(--surface);border:1px solid var(--border2);
+    border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);min-width:200px;padding:8px 0;font-size:13px;`;
+
+  const WORK_META = [
+    {key:'nonbat',label:'논배터리',color:'#f97316'},
+    {key:'pcb',   label:'PCB 교체',color:'#3b82f6'},
+    {key:'panel', label:'LCD 교체',color:'#10b981'},
+    {key:'board', label:'MB수리',  color:'#a855f7'},
+  ];
+
+  if(type === 'worker') {
+    const vals = ['', ...workers];
+    dd.innerHTML = vals.map(v=>`
+      <div class="hist-dd-item ${histFilter.worker===v?'hist-dd-active':''}" onclick="applyHistFilter('worker','${v}')"
+        style="padding:8px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;">
+        <span style="width:14px;color:var(--accent);">${histFilter.worker===v?'✓':''}</span>
+        ${v||'<span style="color:var(--text2);">전체</span>'}
+      </div>`).join('');
+  } else if(type === 'model') {
+    const vals = ['', ...[...new Set(entries.map(e=>e.model||'').filter(Boolean))].sort()];
+    dd.innerHTML = vals.map(v=>`
+      <div class="hist-dd-item ${histFilter.model===v?'hist-dd-active':''}" onclick="applyHistFilter('model','${v}')"
+        style="padding:8px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;">
+        <span style="width:14px;color:var(--accent);">${histFilter.model===v?'✓':''}</span>
+        ${v||'<span style="color:var(--text2);">전체</span>'}
+      </div>`).join('');
+  } else if(type === 'serial') {
+    dd.innerHTML = `<div style="padding:8px 12px;">
+      <input id="hist-dd-serial" type="text" placeholder="시리얼 일부 입력" autocomplete="off"
+        value="${histFilter.serial}"
+        style="width:100%;padding:6px 10px;border:1px solid var(--border2);border-radius:6px;font-size:13px;outline:none;background:var(--surface2);color:var(--text1);"
+        oninput="histFilter.serial=this.value.toUpperCase();this.value=this.value.toUpperCase();applyHistFilterDirect()">
+      <div style="display:flex;gap:6px;margin-top:8px;justify-content:flex-end;">
+        <button onclick="histFilter.serial='';document.getElementById('hist-dd-serial').value='';applyHistFilterDirect()"
+          style="padding:4px 10px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;">지우기</button>
+        <button onclick="closeHistDropdown()"
+          style="padding:4px 10px;border-radius:6px;border:none;background:var(--accent);color:#fff;font-size:12px;cursor:pointer;">확인</button>
+      </div>
+    </div>`;
+  } else if(type === 'works') {
+    dd.innerHTML = `<div style="padding:6px 4px;">
+      ${WORK_META.map(w=>`
+        <div class="hist-dd-item" onclick="toggleHistWork('${w.key}',this)"
+          style="padding:8px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;">
+          <span style="width:14px;color:${w.color};">${histFilter.works.includes(w.key)?'✓':''}</span>
+          <span style="display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600;background:${w.color}22;color:${w.color};">${w.label}</span>
+        </div>`).join('')}
+      <div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px;">
+        <div class="hist-dd-item" onclick="histFilter.works=[];applyHistFilterDirect();closeHistDropdown()"
+          style="padding:6px 16px;cursor:pointer;font-size:12px;color:var(--text2);">✕ 항목 필터 해제</div>
+      </div>
+    </div>`;
+  } else if(type === 'note') {
+    dd.innerHTML = `
+      <div class="hist-dd-item ${!histFilter.noteOnly?'hist-dd-active':''}" onclick="applyHistFilter('noteOnly',false)"
+        style="padding:8px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;">
+        <span style="width:14px;color:var(--accent);">${!histFilter.noteOnly?'✓':''}</span>
+        <span style="color:var(--text2);">전체</span>
+      </div>
+      <div class="hist-dd-item ${histFilter.noteOnly?'hist-dd-active':''}" onclick="applyHistFilter('noteOnly',true)"
+        style="padding:8px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;">
+        <span style="width:14px;color:var(--accent);">${histFilter.noteOnly?'✓':''}</span>
+        특이사항 있는 건만
+      </div>`;
   }
+
+  document.body.appendChild(dd);
+
+  // 위치 계산
+  const rect = thEl.getBoundingClientRect();
+  const ddW = 220;
+  let left = rect.left;
+  if(left + ddW > window.innerWidth - 8) left = window.innerWidth - ddW - 8;
+  dd.style.left = left + 'px';
+  dd.style.top  = (rect.bottom + 4) + 'px';
+
+  if(type === 'serial') setTimeout(()=>document.getElementById('hist-dd-serial')?.focus(), 50);
+
+  // 바깥 클릭 시 닫기
+  setTimeout(()=>document.addEventListener('click', _histDdOutside, true), 10);
+}
+
+function _histDdOutside(e) {
+  const dd = document.getElementById('hist-dd');
+  if(dd && !dd.contains(e.target) && !e.target.closest('.hdr-filter')) {
+    closeHistDropdown();
+  }
+}
+function closeHistDropdown() {
+  document.getElementById('hist-dd')?.remove();
+  document.removeEventListener('click', _histDdOutside, true);
+}
+
+function applyHistFilter(key, val) {
+  histFilter[key] = val;
+  applyHistFilterDirect();
+  closeHistDropdown();
+}
+function applyHistFilterDirect() {
+  // 숨겨진 인풋에도 반영 (getRangeEntries가 읽음)
+  const ws = document.getElementById('history-worker-filter');
+  const ms = document.getElementById('history-model-filter');
+  const ss = document.getElementById('history-serial-filter');
+  const ns = document.getElementById('history-note-filter');
+  if(ws) ws.value = histFilter.worker;
+  if(ms) ms.value = histFilter.model;
+  if(ss) ss.value = histFilter.serial;
+  if(ns) ns.checked = histFilter.noteOnly;
   renderHistory();
 }
+function toggleHistWork(key, itemEl) {
+  const idx = histFilter.works.indexOf(key);
+  if(idx >= 0) histFilter.works.splice(idx, 1); else histFilter.works.push(key);
+  // 체크 표시 즉시 갱신
+  const WORK_COLORS = {nonbat:'#f97316',pcb:'#3b82f6',panel:'#10b981',board:'#a855f7'};
+  const checkEl = itemEl.querySelector('span');
+  if(checkEl) { checkEl.style.color=WORK_COLORS[key]; checkEl.textContent=histFilter.works.includes(key)?'✓':''; }
+  applyHistFilterDirect();
+}
+
+// 수리항목 칩 토글 (하위 호환 — 기존 칩 없으니 빈 함수만 유지)
+const CHIP_COLORS = { nonbat:'#f97316', pcb:'#3b82f6', panel:'#10b981', board:'#a855f7' };
+function toggleHistChip(el) {}
+
 function resetHistFilters() {
-  document.getElementById('date-from').value = '';
-  document.getElementById('date-to').value = '';
-  document.getElementById('history-worker-filter').value = '';
-  document.getElementById('history-model-filter').value = '';
-  document.getElementById('history-serial-filter').value = '';
-  document.getElementById('history-note-filter').checked = false;
-  document.querySelectorAll('.hist-chip.active').forEach(c => {
-    c.classList.remove('active');
-    c.style.background = 'transparent';
-    c.style.color = 'var(--text1)';
-  });
-  renderHistory();
+  histFilter.worker=''; histFilter.model=''; histFilter.serial=''; histFilter.noteOnly=false; histFilter.works=[];
+  document.getElementById('date-from').value='';
+  document.getElementById('date-to').value='';
+  applyHistFilterDirect();
 }
 
 /* 전체 기록 (기간 조회) */
@@ -3882,14 +3977,36 @@ async function renderHistory() {
   }
 
   const rangeList = getRangeEntries();
-  // 필터 적용 건수 표시
+
+  // 헤더 필터 활성 표시 (파란 점)
+  const from = document.getElementById('date-from').value;
+  const to   = document.getElementById('date-to').value;
+  const hdrActive = {
+    model:  histFilter.model  !== '',
+    serial: histFilter.serial !== '',
+    worker: histFilter.worker !== '',
+    works:  histFilter.works.length > 0,
+    note:   histFilter.noteOnly,
+  };
+  Object.entries(hdrActive).forEach(([key, active]) => {
+    const th = document.getElementById('hdr-' + key);
+    if(!th) return;
+    th.style.color = active ? 'var(--accent)' : '';
+    const arr = th.querySelector('.hdr-arrow');
+    if(arr) arr.textContent = active ? '●' : '▾';
+  });
+
+  // 초기화 버튼: 필터 적용 중일 때만 노출
+  const anyFilter = from || to || Object.values(hdrActive).some(Boolean);
+  const resetBtn = document.getElementById('hist-reset-btn');
+  if(resetBtn) resetBtn.style.display = anyFilter ? '' : 'none';
+
+  // 필터 건수 표시
   const countEl = document.getElementById('history-filter-count');
   if(countEl) {
     const total = entries.length;
-    countEl.textContent = rangeList.length < total ? `${rangeList.length} / ${total}건 표시 중` : '';
+    countEl.textContent = rangeList.length < total ? `${rangeList.length} / ${total}건` : '';
   }
-  const from = document.getElementById('date-from').value;
-  const to = document.getElementById('date-to').value;
   const totalRev = rangeList.reduce((s,e)=>s+Number(e.total),0);
 
   // KPI 현황 계산 (기간이 한 달인 경우)
@@ -3979,7 +4096,16 @@ async function renderHistory() {
       <span class="date-group-meta">${dl.length}건 · ${fmt(dr)}원</span>
     </div>
     <div class="card" style="padding:0;margin-bottom:8px;"><div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>특이사항</th><th>사용 부품</th><th style="text-align:right">공임비</th></tr></thead>
+      <thead><tr>
+        <th style="width:36px;">#</th>
+        <th id="hdr-model"  class="hdr-filter" onclick="openHistDropdown('model',this)"  style="cursor:pointer;white-space:nowrap;">기종 <span class="hdr-arrow">▾</span></th>
+        <th id="hdr-serial" class="hdr-filter" onclick="openHistDropdown('serial',this)" style="cursor:pointer;white-space:nowrap;">시리얼 번호 <span class="hdr-arrow">▾</span></th>
+        <th id="hdr-worker" class="hdr-filter" onclick="openHistDropdown('worker',this)" style="cursor:pointer;white-space:nowrap;">엔지니어 <span class="hdr-arrow">▾</span></th>
+        <th id="hdr-works"  class="hdr-filter" onclick="openHistDropdown('works',this)"  style="cursor:pointer;white-space:nowrap;">수리 항목 <span class="hdr-arrow">▾</span></th>
+        <th id="hdr-note"   class="hdr-filter" onclick="openHistDropdown('note',this)"   style="cursor:pointer;white-space:nowrap;">특이사항 <span class="hdr-arrow">▾</span></th>
+        <th>사용 부품</th>
+        <th style="text-align:right">공임비</th>
+      </tr></thead>
       <tbody>${dl.map((e,i)=>{const ws=parseWorks(e.works);return`<tr>
         <td style="color:var(--text3);width:36px;">${i+1}</td>
         <td><span style="font-size:11px;font-weight:700;background:${e.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${e.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${e.model||'-'}</span></td>
