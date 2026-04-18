@@ -3950,6 +3950,7 @@ function excAutoModel() {
     autoEl.textContent = ''; autoEl.style.display = 'none';
     manualEl.style.display = 'inline-block';
   }
+  excUpdatePreview(); // 모델 바뀌면 부품비 포함 즉시 갱신
 }
 function getExcModel() {
   const auto = document.getElementById('exc-model-auto').textContent;
@@ -4072,28 +4073,39 @@ function renderExchangeList() {
     return;
   }
   const sorted = [...exchangeList].sort((a,b) => new Date(b.date)-new Date(a.date));
-  const REASON_LABEL = { '비용초과': '비용 초과', '기타': '기타' };
   el.innerHTML = `<div class="card" style="padding:0;"><div class="table-wrap"><table>
     <thead><tr>
-      <th>날짜</th><th>시리얼</th><th>기종</th><th>엔지니어</th>
-      <th>수리항목</th><th>사유</th><th>예상비용</th><th>특이사항</th><th style="width:80px;"></th>
+      <th style="white-space:nowrap;">날짜</th>
+      <th>시리얼</th>
+      <th>기종</th>
+      <th>엔지니어</th>
+      <th>수리항목</th>
+      <th style="white-space:nowrap;">사유</th>
+      <th style="text-align:right;white-space:nowrap;">예상비용</th>
+      <th>특이사항</th>
+      <th style="width:70px;"></th>
     </tr></thead>
     <tbody>${sorted.map(x => {
       const worksArr = Array.isArray(x.works) ? x.works : (()=>{try{return JSON.parse(x.works||'[]');}catch{return[];}})();
       const canAct = isMaster || (currentUser && x.worker === currentUser);
+      const workTagsInline = worksArr.map(k => {
+        const w = WORKS[k]; if(!w) return '';
+        return `<span style="display:inline-block;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:600;background:${w.tagBg};color:${w.tagColor};margin-right:2px;white-space:nowrap;">${w.tag}</span>`;
+      }).join('');
+      const reasonLabel = x.reason === '비용초과' ? '비용초과' : (x.reason||'-');
       return `<tr>
         <td style="white-space:nowrap;font-size:12px;color:var(--text2);">${fmtDT(x.date)}</td>
-        <td class="mono" style="font-weight:600;">${x.serial}</td>
-        <td><span style="font-size:11px;font-weight:700;background:${x.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.model||'-'}</span></td>
-        <td>${x.worker}</td>
-        <td>${worksArr.map(k=>workTag(k)).join('')}</td>
-        <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#fef3c7;color:#92400e;">${REASON_LABEL[x.reason]||x.reason}</span></td>
+        <td class="mono" style="font-weight:600;white-space:nowrap;">${x.serial}</td>
+        <td style="white-space:nowrap;"><span style="font-size:11px;font-weight:700;background:${x.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.model||'-'}</span></td>
+        <td style="white-space:nowrap;">${x.worker}</td>
+        <td style="white-space:nowrap;">${workTagsInline}</td>
+        <td style="white-space:nowrap;"><span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px;background:#fef3c7;color:#92400e;">${reasonLabel}</span></td>
         <td style="text-align:right;white-space:nowrap;font-size:12px;font-weight:600;">${x.estimatedCost?fmt(x.estimatedCost)+'원':'-'}</td>
-        <td style="font-size:12px;color:var(--text2);">${x.note||'-'}</td>
+        <td style="font-size:12px;color:var(--text2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${x.note||''}">${x.note||'-'}</td>
         <td style="text-align:center;">
           <button class="btn btn-sm" onclick="revertExchange('${x.id}')"
             ${canAct?'':'disabled style="opacity:.3;cursor:not-allowed;"'}
-            style="font-size:11px;">↩ 원복</button>
+            style="font-size:11px;white-space:nowrap;">↩ 원복</button>
         </td>
       </tr>`;
     }).join('')}
