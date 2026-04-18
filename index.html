@@ -3589,8 +3589,8 @@ async function addEntry() {
     document.getElementById('inp-model').style.display = 'block';
     clearChecks(); renderToday();
     notify(`${serial} 수리 등록 완료!`);
-    // 재고 자동 차감
-    if(stock.length) deductStock(works);
+    // 재고 자동 차감 (실사용 부품 수량 기준)
+    if(stock.length) deductStock(works, getPartsData(), model);
   } catch { notify('저장 실패. 다시 시도해주세요.','error'); }
   busy = false; btn.disabled = false; btn.textContent = '수리 등록';
 }
@@ -4403,17 +4403,35 @@ async function renderHistory() {
         <th id="hdr-worker" class="hdr-filter" onclick="openHistDropdown('worker',this)" style="cursor:pointer;white-space:nowrap;">엔지니어 <span class="hdr-arrow">▾</span></th>
         <th id="hdr-works"  class="hdr-filter" onclick="openHistDropdown('works',this)"  style="cursor:pointer;white-space:nowrap;">수리 항목 <span class="hdr-arrow">▾</span></th>
         <th id="hdr-note"   class="hdr-filter" onclick="openHistDropdown('note',this)"   style="cursor:pointer;white-space:nowrap;">특이사항 <span class="hdr-arrow">▾</span></th>
-        <th>사용 부품</th>
+        <th>초과 사용 부품</th>
         <th style="text-align:right">공임비</th>
       </tr></thead>
-      <tbody>${dl.map((e,i)=>{const ws=parseWorks(e.works);return`<tr>
+      <tbody>${dl.map((e,i)=>{const ws=parseWorks(e.works);
+        // 초과 사용 부품: 실사용 - 기준 > 0 인 것만
+        const stdQty = {};
+        ws.forEach(k => {
+          const model = e.model || '';
+          (WORKS[k]?.parts||[]).forEach(p => {
+            if(p.modelOnly && p.modelOnly !== model) return;
+            stdQty[p.name] = (stdQty[p.name]||0) + p.qty;
+          });
+        });
+        const extraParts = [];
+        if(e.parts && Object.keys(e.parts).length) {
+          Object.entries(e.parts).forEach(([n,q]) => {
+            const std = stdQty[n] || 0;
+            if(q > std) extraParts.push(`${n}×${q-std}`);
+            else if(!std) extraParts.push(`${n}×${q}`); // 기준에 없는 추가 부품
+          });
+        }
+        return`<tr>
         <td style="color:var(--text3);width:36px;">${i+1}</td>
         <td><span style="font-size:11px;font-weight:700;background:${e.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${e.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${e.model||'-'}</span></td>
         <td class="mono">${e.serial}</td>
         <td>${e.worker}</td>
         <td>${workTags(e.works)}</td>
         <td>${e.note?`<span class="note-badge" title="${e.note}">${e.note}</span>`:'<span style="color:var(--text3);font-size:11px;">-</span>'}</td>
-        <td style="font-size:11px;color:var(--text2);">${e.parts&&Object.keys(e.parts).length?Object.entries(e.parts).map(([n,q])=>`${n}×${q}`).join(', '):'-'}</td>
+        <td style="font-size:11px;color:${extraParts.length?'var(--red)':'var(--text3)'};">${extraParts.length?extraParts.join(', '):'-'}</td>
         <td style="text-align:right;white-space:nowrap;">
           <div style="font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;margin-bottom:4px;">${fmt(e.total)}원</div>
           <div style="display:flex;gap:4px;justify-content:flex-end;">
@@ -5364,25 +5382,45 @@ async function saveStockIn() {
 }
 
 // 수리 등록 시 재고 자동 차감
-async function deductStock(works) {
-  const workToPartMap = {
-    pcb: 'PCB', panel: '패널', board: '메인보드', nonbat: '논배터리'
-  };
-  for(const w of works) {
-    const keyword = workToPartMap[w];
-    if(!keyword) continue;
-    const idx = stock.findIndex(p => p.name.includes(keyword));
-    if(idx > -1 && stock[idx].qty > 0) {
-      stock[idx].qty -= 1;
-      const logId = 'l'+Date.now()+(Math.random()*1000|0);
-      const logDate = new Date().toISOString();
-      const log = {logId, partId:stock[idx].id, partName:stock[idx].name, type:'out', qty:1, note:'수리 자동 차감', date:logDate, worker:currentUser||''};
-      stockLog.push(log);
-      try {
-        await saveStockToServer();
-        await gasCall({action:'addStockLog', ...log});
-      } catch {}
-    }
+async function deductStock(works, partsData, model) {
+  // partsData: getPartsData() 결과 {부품명: 실사용수량}
+  // model: 현재 기종 (modelOnly 필터용)
+
+  // 차감할 부품 목록 구성
+  // partsData가 있으면 그걸 기준으로, 없으면 WORKS 기본 부품으로 폴백
+  const toDeduct = {}; // {부품명: 수량}
+
+  if(partsData && Object.keys(partsData).length > 0) {
+    // 실제 입력된 수량 사용
+    Object.entries(partsData).forEach(([name, qty]) => {
+      if(qty > 0) toDeduct[name] = (toDeduct[name]||0) + qty;
+    });
+  } else {
+    // 폴백: WORKS 기본 수량
+    (works||[]).forEach(k => {
+      (WORKS[k]?.parts||[]).forEach(p => {
+        if(p.modelOnly && p.modelOnly !== (model||'')) return;
+        toDeduct[p.name] = (toDeduct[p.name]||0) + p.qty;
+      });
+    });
+  }
+
+  for(const [partName, qty] of Object.entries(toDeduct)) {
+    if(qty <= 0) continue;
+    // 재고에서 이름 정확 매칭 (대소문자 무시)
+    const idx = stock.findIndex(p => p.name.trim().toLowerCase() === partName.trim().toLowerCase());
+    if(idx < 0) continue; // 재고에 없는 부품은 스킵
+    const deductQty = Math.min(qty, stock[idx].qty); // 재고보다 많이 차감 방지
+    if(deductQty <= 0) continue;
+    stock[idx].qty -= deductQty;
+    const logId = 'l'+Date.now()+(Math.random()*1000|0);
+    const logDate = new Date().toISOString();
+    const log = {logId, partId:stock[idx].id, partName:stock[idx].name, type:'out', qty:deductQty, note:'수리 자동 차감', date:logDate, worker:currentUser||''};
+    stockLog.push(log);
+    try {
+      await saveStockToServer();
+      await gasCall({action:'addStockLog', ...log});
+    } catch {}
   }
 }
 
