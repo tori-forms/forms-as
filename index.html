@@ -1434,13 +1434,23 @@ function checkSerials() {
   const allOk = new Set(ok.map(x => String(x.entry.serial).toUpperCase()));
   const allHold = new Set(hold.map(x => String(x.entry.serial).toUpperCase()));
 
+  // _N 없이 입력해도 매칭되도록: 입력값과 입력값+'_N' 둘 다 체크
+  function matchSerial(s, set) {
+    return set.has(s) || set.has(s + '_N');
+  }
+  function findEntry(s) {
+    return entries.find(e => {
+      const es = String(e.serial).toUpperCase();
+      return es === s || es === s + '_N';
+    });
+  }
+
   const found = [], notInOk = [], notExist = [];
   inputSerials.forEach(s => {
-    if (allOk.has(s)) found.push(s);
-    else if (allHold.has(s)) notInOk.push({ serial: s, reason: '보류(에이징 진행 중)' });
+    if (matchSerial(s, allOk)) found.push(allOk.has(s) ? s : s + '_N');
+    else if (matchSerial(s, allHold)) notInOk.push({ serial: s, reason: '보류(에이징 진행 중)' });
     else {
-      // 전체 entries에서 확인
-      const inEntries = entries.find(e => String(e.serial).toUpperCase() === s);
+      const inEntries = findEntry(s);
       if (inEntries) notInOk.push({ serial: s, reason: '수리 기록 있음 (출고 기준 미충족)' });
       else notExist.push(s);
     }
@@ -3434,13 +3444,20 @@ function renderWorkerSel() {
 /* 수리 등록 */
 async function addEntry() {
   const worker = document.getElementById('sel-worker').value;
-  const serial = document.getElementById('inp-serial').value.trim();
+  let serial = document.getElementById('inp-serial').value.trim();
   const works = getChecked();
   const note = document.getElementById('inp-note').value.trim();
   if(!worker){ notify('엔지니어를 선택하세요.','error'); return; }
   if(!serial){ notify('시리얼 번호를 입력하세요.','error'); return; }
   if(!works.length){ notify('수리 항목을 하나 이상 선택하세요.','error'); return; }
   if(busy){ notify('처리 중입니다. 잠시 기다려주세요.','error'); return; }
+
+  // S2PRO_N / S2_N 기종이면 시리얼 끝에 _N 자동 추가 (이미 붙어있으면 중복 방지)
+  const model = getModel();
+  if((model === 'S2PRO_N' || model === 'S2_N') && !serial.endsWith('_N')) {
+    serial = serial + '_N';
+    document.getElementById('inp-serial').value = serial;
+  }
   // 시리얼 중복 체크
   const dup = entries.find(e => String(e.serial) === String(serial));
   if(dup) {
@@ -3454,7 +3471,6 @@ async function addEntry() {
   try {
     const id = Date.now(), date = new Date().toISOString();
     const total = works.reduce((s,k)=>s+WORKS[k].price, 0);
-    const model = getModel();
     const parts = JSON.stringify(getPartsData());
     await gasCall({action:'add', id, worker, serial, works:JSON.stringify(works), total, date, note, model, parts});
     entries.push({id, worker, serial, works, total, date, note, model, parts:getPartsData()});
