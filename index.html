@@ -3453,11 +3453,12 @@ async function addEntry() {
   if(busy){ notify('처리 중입니다. 잠시 기다려주세요.','error'); return; }
 
   // S2PRO_N / S2_N 기종이면 시리얼 끝에 _N 자동 추가 (이미 붙어있으면 중복 방지)
-  const model = getModel();
-  if((model === 'S2PRO_N' || model === 'S2_N') && !serial.endsWith('_N')) {
+  const detectedModel = detectModel(serial);
+  if((detectedModel === 'S2PRO_N' || detectedModel === 'S2_N') && !serial.endsWith('_N')) {
     serial = serial + '_N';
     document.getElementById('inp-serial').value = serial;
   }
+  const model = getModel() || detectedModel;
   // 시리얼 중복 체크
   const dup = entries.find(e => String(e.serial) === String(serial));
   if(dup) {
