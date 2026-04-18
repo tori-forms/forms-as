@@ -935,7 +935,7 @@ tr:hover td{background:var(--surface2);}
 </div>
 
 <script>
-const GAS = 'https://script.google.com/macros/s/AKfycbzZIoWU70TKdaLAKHs9PSTO9ppROSx4y5bZJwOxVwO3Ko0nIBSSh_nSEyMdo4kdrcPXgA/exec';
+const GAS = 'https://script.google.com/macros/s/AKfycbwd6db6yGWDswyccQCHU--N9PD0wGDyFBBWyQJrEpko_vuzwEHJnbN_ZCglktG0UL8BpA/exec';
 const HOLIDAY_KEY = 'f52c0659526679a86d04083efd86dff68943cae2fa05a623ff8606b79f3f6814';
 const MASTER_NAME = '최민규';
 
@@ -4963,6 +4963,15 @@ function switchStockTab(tab) {
   }
 }
 
+function togglePpmPart(uid) {
+  const body = document.getElementById(uid + '-body');
+  const arrow = document.getElementById(uid + '-arrow');
+  if(!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  if(arrow) arrow.style.transform = isOpen ? '' : 'rotate(90deg)';
+}
+
 function renderPPM() {
   const el = document.getElementById('ppm-content');
   if(!el) return;
@@ -5065,27 +5074,30 @@ function renderPPM() {
   // 부품별 섹션
   h += `<div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:16px;">📊 부품별 불량 PPM</div>`;
 
-  defectParts.forEach(pn => {
+  defectParts.forEach((pn, idx) => {
     const ps = partStats[pn];
     const ppm = ps.normal > 0 ? Math.round((ps.extra / ps.normal) * 1000000) : 0;
     const ppmRate = ps.normal > 0 ? (ps.extra / ps.normal * 100).toFixed(1) : '0.0';
+    const uid = 'ppm-part-' + idx;
 
-    h += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin-bottom:16px;box-shadow:var(--shadow);">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
-        <div style="font-size:15px;font-weight:700;">${pn}</div>
+    h += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;box-shadow:var(--shadow);overflow:hidden;">
+      <div onclick="togglePpmPart('${uid}')" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 18px;cursor:pointer;user-select:none;">
+        <span id="${uid}-arrow" style="font-size:12px;color:var(--text3);transition:transform .2s;display:inline-block;">▶</span>
+        <div style="font-size:14px;font-weight:700;">${pn}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;">
-          <span style="font-size:12px;background:var(--surface2);padding:4px 10px;border-radius:20px;color:var(--text2);">
-            총 사용 <strong>${ps.normal}개</strong>
+          <span style="font-size:12px;background:var(--surface2);padding:3px 10px;border-radius:20px;color:var(--text2);">
+            총 <strong>${ps.normal}개</strong>
           </span>
-          <span style="font-size:12px;background:#fca5a530;padding:4px 10px;border-radius:20px;color:#fca5a5;">
+          <span style="font-size:12px;background:#fca5a530;padding:3px 10px;border-radius:20px;color:#fca5a5;">
             초과 <strong>+${ps.extra}개</strong>
           </span>
-          <span style="font-size:12px;padding:4px 10px;border-radius:20px;font-weight:700;background:${ppm>10000?'#fca5a530':ppm>5000?'#fbbf2430':'#86efac30'};color:${ppmColor(ppm)};">
+          <span style="font-size:12px;padding:3px 10px;border-radius:20px;font-weight:700;background:${ppm>10000?'#fca5a530':ppm>5000?'#fbbf2430':'#86efac30'};color:${ppmColor(ppm)};">
             PPM ${ppm.toLocaleString()} <span style="font-weight:400;font-size:11px;">(${ppmRate}%)</span>
           </span>
         </div>
       </div>
-      <div style="overflow-x:auto;">
+      <div id="${uid}-body" style="display:none;border-top:1px solid var(--border);padding:0 18px 14px;">
+        <div style="overflow-x:auto;margin-top:12px;">
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
           <thead>
             <tr style="border-bottom:1px solid var(--border);background:var(--surface2);">
@@ -5112,7 +5124,7 @@ function renderPPM() {
       </tr>`;
     });
 
-    h += `</tbody></table></div></div>`;
+    h += `</tbody></table></div></div></div>`;
   });
 
   // ─── 엔지니어별 집계 ───────────────────────────────
