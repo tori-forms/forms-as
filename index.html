@@ -209,6 +209,7 @@ tr:hover td{background:var(--surface2);}
   <button class="nav-btn" onclick="switchTab('search',this)">시리얼 조회</button>
   <button class="nav-btn" onclick="switchTab('docs',this)">교육 자료</button>
   <button class="nav-btn" onclick="switchTab('shipping',this)">출고 관리</button>
+  <button class="nav-btn" onclick="switchTab('exchange',this)">교품 처리</button>
   <button class="nav-btn client-only-tab" onclick="switchTab('shipview',this)">출고 현황</button>
   <button class="nav-btn" id="nav-stock" onclick="switchTab('stock',this)" style="display:none;">📦 재고 관리</button>
   <button class="nav-btn admin-only-tab" id="nav-admin" onclick="switchTab('admin',this)" style="display:none;border-left:1px solid var(--border);">⚙️ 관리자</button>
@@ -248,8 +249,9 @@ tr:hover td{background:var(--surface2);}
         <label class="form-label">특이사항 <span style="color:var(--text3);font-weight:400;">(선택)</span></label>
         <textarea id="inp-note" placeholder="특이사항을 입력하세요. 없으면 공란으로 두셔도 됩니다."></textarea>
       </div>
-      <div style="display:flex;align-items:center;gap:12px;">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <button class="btn btn-primary" id="btn-add" onclick="addEntry()">수리 등록</button>
+        <button class="btn" id="btn-exchange" onclick="openExchangeModal()" style="border-color:var(--amber);color:var(--amber-text,#92400e);background:var(--amber-bg,#fffbeb);">📦 교품 처리</button>
         <span id="price-preview" style="font-size:13px;color:var(--text2);"></span>
       </div>
     </div>
@@ -593,6 +595,15 @@ tr:hover td{background:var(--surface2);}
   </div>
 
   <!-- 출고 현황 (고객사용) -->
+  <!-- 교품 처리 -->
+  <div id="tab-exchange" class="section">
+    <div class="section-header">
+      <span class="section-title">📦 교품 처리 현황</span>
+      <span id="exchange-count" style="font-size:13px;color:var(--text2);"></span>
+    </div>
+    <div id="exchange-content"></div>
+  </div>
+
   <div id="tab-shipview" class="section">
     <div class="section-header">
       <span class="section-title">📦 출고 현황</span>
@@ -856,6 +867,63 @@ tr:hover td{background:var(--surface2);}
   </div>
 </div>
 
+<!-- 교품 처리 등록 모달 -->
+<div class="modal-overlay" id="exchange-modal" style="display:none;align-items:center;justify-content:center;">
+  <div class="modal" style="max-width:480px;width:100%;">
+    <div class="modal-title">📦 교품 처리 등록</div>
+    <div style="display:flex;flex-direction:column;gap:14px;margin-top:4px;">
+      <div class="form-row" style="gap:12px;">
+        <div class="form-group" style="flex:1;">
+          <label class="form-label">시리얼 번호 <span style="color:var(--red);">*</span></label>
+          <input type="text" id="exc-serial" placeholder="시리얼 번호 입력" style="width:100%;" oninput="this.value=this.value.toUpperCase();excAutoModel();" autocomplete="off">
+        </div>
+        <div class="form-group" style="flex:1;">
+          <label class="form-label">기종</label>
+          <span id="exc-model-auto" style="display:inline-block;padding:6px 10px;border-radius:6px;font-size:13px;font-weight:600;background:#ede9fe;color:#6d28d9;"></span>
+          <input type="text" id="exc-model-manual" placeholder="직접 입력" style="width:100%;display:none;">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">담당 엔지니어 <span style="color:var(--red);">*</span></label>
+        <select id="exc-worker" style="width:100%;"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">처리 사유 <span style="color:var(--red);">*</span></label>
+        <select id="exc-reason" style="width:100%;">
+          <option value="비용초과">비용 초과 (수리비 > 새제품)</option>
+          <option value="기타">기타</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" style="margin-bottom:8px;">수리 항목 (해당사항 체크)</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;" id="exc-works-wrap">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border:1.5px solid #ea580c;border-radius:99px;font-size:12px;font-weight:600;">
+            <input type="checkbox" value="nonbat" checked style="accent-color:#ea580c;">논배터리
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border:1.5px solid #2563eb;border-radius:99px;font-size:12px;font-weight:600;">
+            <input type="checkbox" value="pcb" checked style="accent-color:#2563eb;">PCB 교체
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border:1.5px solid #16a34a;border-radius:99px;font-size:12px;font-weight:600;">
+            <input type="checkbox" value="panel" checked style="accent-color:#16a34a;">LCD 교체
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border:1.5px solid #7c3aed;border-radius:99px;font-size:12px;font-weight:600;">
+            <input type="checkbox" value="board" style="accent-color:#7c3aed;">MB수리
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">특이사항 (상세 사유)</label>
+        <textarea id="exc-note" placeholder="상세 내용을 입력하세요." style="height:72px;"></textarea>
+      </div>
+      <div id="exc-cost-preview" style="font-size:13px;color:var(--text2);padding:8px 12px;background:var(--surface2);border-radius:6px;"></div>
+    </div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="btn" onclick="closeExchangeModal()">취소</button>
+      <button class="btn" style="background:#f59e0b;border-color:#f59e0b;color:#fff;" onclick="registerExchange()">📦 교품 처리 등록</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const GAS = 'https://script.google.com/macros/s/AKfycbzZIoWU70TKdaLAKHs9PSTO9ppROSx4y5bZJwOxVwO3Ko0nIBSSh_nSEyMdo4kdrcPXgA/exec';
 const HOLIDAY_KEY = 'f52c0659526679a86d04083efd86dff68943cae2fa05a623ff8606b79f3f6814';
@@ -923,6 +991,7 @@ let entries = [], workers = [], busy = false;
 let kpiMap = {};
 let holidayCache = {};
 let stock = [], stockLog = [], docs = [];
+let exchangeList = []; // 교품 처리 목록
 let tierMap = {}; // { 이름: 'T1'|'T2'|'T3'|'T4' }
 
 const fmt = n => Number(n).toLocaleString();
@@ -1028,6 +1097,7 @@ async function syncData(silent=false) {
     });
     stock = data.stock || [];
     stockLog = data.stockLog || [];
+    exchangeList = data.exchange || [];
     // 출고 이력도 같이 로드
     if(data.shipLog) {
       shipHistory = data.shipLog;
@@ -1036,6 +1106,7 @@ async function syncData(silent=false) {
     const activeTab = document.querySelector('.nav-btn.active')?.getAttribute('onclick');
     if(activeTab?.includes('shipping')) renderShipping();
     if(activeTab?.includes('shipview')) renderShipview();
+    if(activeTab?.includes('exchange')) renderExchangeList();
     docs = (data.docs || []).map(d => ({
       ...d,
       title: (d.title||'').replace(/\[CL\]/g,'::').replace(/\[PP\]/g,'||'),
@@ -1296,11 +1367,13 @@ function renderShipping() {
 
   // 출고 완료된 시리얼
   const shippedSerials = new Set(shipHistory.map(h => String(h.serial)));
+  // 교품 처리된 시리얼 (출고 목록에서 제외)
+  const exchangedSerials = new Set((exchangeList||[]).map(x => String(x.serial)));
 
   // _shipOk, _shipHold 초기화 (날짜/시간 변경 시 재분류)
   if(!window._shipOk) {
     const ok = [], hold = [];
-    entries.filter(e => !shippedSerials.has(String(e.serial))).forEach(e => {
+    entries.filter(e => !shippedSerials.has(String(e.serial)) && !exchangedSerials.has(String(e.serial))).forEach(e => {
       const repairDT = new Date(e.date);
       if(repairDT <= deadlineDT) {
         ok.push({ entry: e, repairDT });
@@ -3265,6 +3338,7 @@ function switchTab(name, btn) {
   if(name==='docs') renderDocs();
   if(name==='shipping') { initShipping(); }
   if(name==='shipview') { setSvFilter('all'); }
+  if(name==='exchange') { renderExchangeList(); }
   if(name==='admin') { switchAdminTab('workers'); }
 }
 
@@ -3463,6 +3537,13 @@ async function addEntry() {
   const dup = entries.find(e => String(e.serial) === String(serial));
   if(dup) {
     notify(`⚠ 이미 등록된 시리얼 번호입니다! (${dup.worker} / ${fmtDT(dup.date)})`, 'error');
+    document.getElementById('inp-serial').focus();
+    return;
+  }
+  // 교품 처리된 시리얼 체크
+  const exchDup = exchangeList.find(x => String(x.serial) === String(serial));
+  if(exchDup) {
+    notify(`⚠ 교품 처리된 시리얼입니다! 교품 처리 탭에서 원복 후 수리 등록하세요.`, 'error');
     document.getElementById('inp-serial').focus();
     return;
   }
@@ -3828,6 +3909,161 @@ function toggleWorkerBlock(id) {
   const open = el.style.display !== 'none';
   el.style.display = open ? 'none' : 'block';
   if(arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
+}
+
+/* ===== 교품 처리 ===== */
+
+function openExchangeModal() {
+  // 작업자 목록 채우기
+  const sel = document.getElementById('exc-worker');
+  sel.innerHTML = '<option value="">엔지니어 선택</option>' +
+    workers.filter(w => w !== MASTER_NAME).map(w => `<option value="${w}">${w}</option>`).join('');
+  // 현재 수리 입력 폼에 선택된 작업자가 있으면 자동 선택
+  const curWorker = document.getElementById('sel-worker')?.value;
+  if(curWorker) sel.value = curWorker;
+  // 현재 폼 시리얼 있으면 가져오기
+  const curSerial = document.getElementById('inp-serial')?.value.trim();
+  if(curSerial) {
+    document.getElementById('exc-serial').value = curSerial;
+    excAutoModel();
+  }
+  updateExcCostPreview();
+  document.getElementById('exchange-modal').style.display = 'flex';
+}
+function closeExchangeModal() {
+  document.getElementById('exchange-modal').style.display = 'none';
+  document.getElementById('exc-serial').value = '';
+  document.getElementById('exc-note').value = '';
+  document.getElementById('exc-model-auto').textContent = '';
+  document.getElementById('exc-model-auto').style.display = 'none';
+  document.getElementById('exc-model-manual').style.display = 'block';
+  document.getElementById('exc-model-manual').value = '';
+}
+function excAutoModel() {
+  const serial = document.getElementById('exc-serial').value;
+  const detected = detectModel(serial);
+  const autoEl = document.getElementById('exc-model-auto');
+  const manualEl = document.getElementById('exc-model-manual');
+  if(detected) {
+    autoEl.textContent = detected; autoEl.style.display = 'inline-block';
+    manualEl.style.display = 'none'; manualEl.value = '';
+  } else {
+    autoEl.textContent = ''; autoEl.style.display = 'none';
+    manualEl.style.display = 'block';
+  }
+  updateExcCostPreview();
+}
+function getExcModel() {
+  const auto = document.getElementById('exc-model-auto').textContent;
+  const manual = document.getElementById('exc-model-manual').value.trim();
+  return auto || manual;
+}
+function getExcWorks() {
+  return [...document.querySelectorAll('#exc-works-wrap input[type=checkbox]:checked')].map(c => c.value);
+}
+function updateExcCostPreview() {
+  const works = getExcWorks();
+  const total = works.reduce((s, k) => s + (WORKS[k]?.price || 0), 0);
+  const el = document.getElementById('exc-cost-preview');
+  if(el) el.textContent = works.length ? `예상 수리비: ${fmt(total)}원 (공임비 기준)` : '';
+}
+// 체크박스 변경 시 미리보기 갱신
+document.addEventListener('change', e => {
+  if(e.target.closest('#exc-works-wrap')) updateExcCostPreview();
+});
+
+async function registerExchange() {
+  const serial = document.getElementById('exc-serial').value.trim();
+  const worker = document.getElementById('exc-worker').value;
+  const reason = document.getElementById('exc-reason').value;
+  const note   = document.getElementById('exc-note').value.trim();
+  if(!serial) { notify('시리얼 번호를 입력하세요.', 'error'); return; }
+  if(!worker)  { notify('엔지니어를 선택하세요.', 'error'); return; }
+
+  // 중복 체크: 이미 교품 처리된 시리얼
+  if(exchangeList.find(x => String(x.serial) === serial)) {
+    notify('이미 교품 처리된 시리얼입니다.', 'error'); return;
+  }
+  // 중복 체크: 수리 등록된 시리얼
+  if(entries.find(e => String(e.serial) === serial)) {
+    notify('이미 수리 등록된 시리얼입니다. 수리 기록을 먼저 삭제해주세요.', 'error'); return;
+  }
+
+  const works = getExcWorks();
+  const model = getExcModel() || detectModel(serial);
+  const estimatedCost = works.reduce((s, k) => s + (WORKS[k]?.price || 0), 0);
+  const id = Date.now();
+  const date = new Date().toISOString();
+
+  // _N 자동 처리
+  let finalSerial = serial;
+  if((model === 'S2PRO_N' || model === 'S2_N') && !finalSerial.endsWith('_N')) finalSerial += '_N';
+
+  try {
+    await gasCall({ action: 'addExchange', id, serial: finalSerial, worker, model, reason, note,
+      works: JSON.stringify(works), estimatedCost, date });
+    exchangeList.push({ id: String(id), serial: finalSerial, worker, model, reason, note,
+      works, estimatedCost, date });
+    closeExchangeModal();
+    // 수리 입력 폼 시리얼도 비우기
+    const inp = document.getElementById('inp-serial');
+    if(inp && inp.value.replace('_N','').toUpperCase() === serial.replace('_N','').toUpperCase()) {
+      inp.value = ''; autoDetectModel();
+    }
+    window._shipOk = null; window._shipHold = null; // 출고 목록 갱신
+    notify(`${finalSerial} 교품 처리 등록 완료`);
+    if(document.getElementById('tab-exchange')?.classList.contains('active')) renderExchangeList();
+  } catch { notify('저장 실패. 다시 시도해주세요.', 'error'); }
+}
+
+async function revertExchange(id) {
+  const item = exchangeList.find(x => String(x.id) === String(id));
+  if(!item) return;
+  openModal('교품 처리 원복', `${item.serial} 교품 처리를 취소하고 수리 등록 가능 상태로 되돌릴까요?`, async () => {
+    try {
+      await gasCall({ action: 'deleteExchange', id: String(id) });
+      exchangeList = exchangeList.filter(x => String(x.id) !== String(id));
+      window._shipOk = null; window._shipHold = null;
+      notify(`${item.serial} 교품 처리 원복 완료`);
+      renderExchangeList();
+    } catch { notify('원복 실패. 다시 시도해주세요.', 'error'); }
+  }, '원복 확인', 'btn-danger');
+}
+
+function renderExchangeList() {
+  const el = document.getElementById('exchange-content');
+  const countEl = document.getElementById('exchange-count');
+  if(!el) return;
+  if(countEl) countEl.textContent = exchangeList.length ? `총 ${exchangeList.length}건` : '';
+  if(!exchangeList.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">📦</div>교품 처리 내역이 없습니다.</div>';
+    return;
+  }
+  const sorted = [...exchangeList].sort((a,b) => new Date(b.date)-new Date(a.date));
+  const REASON_LABEL = { '비용초과': '비용 초과', '기타': '기타' };
+  el.innerHTML = `<div class="card" style="padding:0;"><div class="table-wrap"><table>
+    <thead><tr>
+      <th>날짜</th><th>시리얼</th><th>기종</th><th>엔지니어</th>
+      <th>수리항목</th><th>사유</th><th>예상비용</th><th>특이사항</th><th style="width:80px;"></th>
+    </tr></thead>
+    <tbody>${sorted.map(x => {
+      const worksArr = Array.isArray(x.works) ? x.works : (()=>{try{return JSON.parse(x.works||'[]');}catch{return[];}})();
+      return `<tr>
+        <td style="white-space:nowrap;font-size:12px;color:var(--text2);">${fmtDT(x.date)}</td>
+        <td class="mono" style="font-weight:600;">${x.serial}</td>
+        <td><span style="font-size:11px;font-weight:700;background:${x.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.model||'-'}</span></td>
+        <td>${x.worker}</td>
+        <td>${worksArr.map(k=>workTag(k)).join('')}</td>
+        <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#fef3c7;color:#92400e;">${REASON_LABEL[x.reason]||x.reason}</span></td>
+        <td style="text-align:right;white-space:nowrap;font-size:12px;font-weight:600;">${x.estimatedCost?fmt(x.estimatedCost)+'원':'-'}</td>
+        <td style="font-size:12px;color:var(--text2);">${x.note||'-'}</td>
+        <td style="text-align:center;">
+          <button class="btn btn-sm" onclick="revertExchange('${x.id}')" style="font-size:11px;">↩ 원복</button>
+        </td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table></div></div>`;
 }
 
 /* ===== 전체 기록 — 헤더 드롭다운 필터 (엑셀 스타일) ===== */
