@@ -766,16 +766,28 @@ tr:hover td{background:var(--surface2);}
 
     <!-- 기간 필터 -->
     <div class="card" style="margin-bottom:16px;">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-sm" id="svf-all" onclick="setSvFilter('all')">전체</button>
-        <button class="btn btn-sm" id="svf-month" onclick="setSvFilter('month')">이번 달</button>
-        <button class="btn btn-sm" id="svf-last" onclick="setSvFilter('last')">지난 달</button>
-        <button class="btn btn-sm" id="svf-custom" onclick="setSvFilter('custom')">직접 선택</button>
-        <div id="svf-custom-range" style="display:none;display:flex;gap:6px;align-items:center;">
-          <input type="date" id="sv-from" onchange="renderShipview()" style="width:145px;">
-          <span style="color:var(--text3);">~</span>
-          <input type="date" id="sv-to" onchange="renderShipview()" style="width:145px;">
-        </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+        <button class="btn btn-sm" id="svf-all"    onclick="setSvFilter('all')">전체</button>
+        <button class="btn btn-sm" id="svf-month"  onclick="setSvFilter('month')">이번 달</button>
+        <button class="btn btn-sm" id="svf-last"   onclick="setSvFilter('last')">지난 달</button>
+        <button class="btn btn-sm" id="svf-q1"     onclick="setSvFilter('q1')">1분기</button>
+        <button class="btn btn-sm" id="svf-q2"     onclick="setSvFilter('q2')">2분기</button>
+        <button class="btn btn-sm" id="svf-q3"     onclick="setSvFilter('q3')">3분기</button>
+        <button class="btn btn-sm" id="svf-q4"     onclick="setSvFilter('q4')">4분기</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+        <input type="date" id="sv-from" onchange="setSvFilter('custom')" style="height:34px;padding:0 10px;font-size:13px;">
+        <span style="color:var(--text3);">~</span>
+        <input type="date" id="sv-to" onchange="setSvFilter('custom')" style="height:34px;padding:0 10px;font-size:13px;">
+        <button class="btn btn-sm btn-primary" onclick="setSvFilter('custom')">조회</button>
+      </div>
+      <!-- AS 유형 필터 -->
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border);">
+        <span style="font-size:12px;color:var(--text2);font-weight:600;white-space:nowrap;">AS 유형</span>
+        <button class="btn btn-sm" id="svt-all"    onclick="setSvTypeFilter('all')">전체</button>
+        <button class="btn btn-sm" id="svt-single" onclick="setSvTypeFilter('single')">단일 수리</button>
+        <button class="btn btn-sm" id="svt-multi"  onclick="setSvTypeFilter('multi')">복합 수리</button>
+        <button class="btn btn-sm" id="svt-nonbat" onclick="setSvTypeFilter('nonbat')">논배터리 포함</button>
       </div>
     </div>
 
@@ -1986,29 +1998,50 @@ function renderShipHistory() {
 
 /* ===== 출고 현황 (고객사용) ===== */
 let svFilter = 'all';
+let svTypeFilter = 'all'; // 'all' | 'single' | 'multi' | 'nonbat'
+
+function setSvTypeFilter(type) {
+  svTypeFilter = type || 'all';
+  ['all','single','multi','nonbat'].forEach(t => {
+    const btn = document.getElementById('svt-'+t);
+    if(btn) btn.className = 'btn btn-sm' + (t===type ? ' btn-primary' : '');
+  });
+  renderShipview();
+}
 
 function setSvFilter(type) {
   svFilter = type || 'all';
-  ['all','month','last','custom'].forEach(t => {
+  ['all','month','last','q1','q2','q3','q4'].forEach(t => {
     const btn = document.getElementById('svf-'+t);
     if(btn) btn.className = 'btn btn-sm' + (t===type ? ' btn-primary' : '');
   });
-  const customRange = document.getElementById('svf-custom-range');
-  if(customRange) customRange.style.display = type==='custom' ? 'flex' : 'none';
 
   if(type !== 'custom') {
     const now = new Date();
-    const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const yr = now.getFullYear();
+    const fmtD = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     if(type === 'month') {
-      const from = new Date(now.getFullYear(), now.getMonth(), 1);
-      const to = new Date(now.getFullYear(), now.getMonth()+1, 0);
-      const fi = document.getElementById('sv-from'); if(fi) fi.value = fmt(from);
-      const ti = document.getElementById('sv-to');   if(ti) ti.value = fmt(to);
+      const from = new Date(yr, now.getMonth(), 1);
+      const to   = new Date(yr, now.getMonth()+1, 0);
+      const fi = document.getElementById('sv-from'); if(fi) fi.value = fmtD(from);
+      const ti = document.getElementById('sv-to');   if(ti) ti.value = fmtD(to);
     } else if(type === 'last') {
-      const from = new Date(now.getFullYear(), now.getMonth()-1, 1);
-      const to = new Date(now.getFullYear(), now.getMonth(), 0);
-      const fi = document.getElementById('sv-from'); if(fi) fi.value = fmt(from);
-      const ti = document.getElementById('sv-to');   if(ti) ti.value = fmt(to);
+      const from = new Date(yr, now.getMonth()-1, 1);
+      const to   = new Date(yr, now.getMonth(), 0);
+      const fi = document.getElementById('sv-from'); if(fi) fi.value = fmtD(from);
+      const ti = document.getElementById('sv-to');   if(ti) ti.value = fmtD(to);
+    } else if(type === 'q1') {
+      const fi = document.getElementById('sv-from'); if(fi) fi.value = `${yr}-01-01`;
+      const ti = document.getElementById('sv-to');   if(ti) ti.value = `${yr}-03-31`;
+    } else if(type === 'q2') {
+      const fi = document.getElementById('sv-from'); if(fi) fi.value = `${yr}-04-01`;
+      const ti = document.getElementById('sv-to');   if(ti) ti.value = `${yr}-06-30`;
+    } else if(type === 'q3') {
+      const fi = document.getElementById('sv-from'); if(fi) fi.value = `${yr}-07-01`;
+      const ti = document.getElementById('sv-to');   if(ti) ti.value = `${yr}-09-30`;
+    } else if(type === 'q4') {
+      const fi = document.getElementById('sv-from'); if(fi) fi.value = `${yr}-10-01`;
+      const ti = document.getElementById('sv-to');   if(ti) ti.value = `${yr}-12-31`;
     } else {
       const fi = document.getElementById('sv-from'); if(fi) fi.value = '';
       const ti = document.getElementById('sv-to');   if(ti) ti.value = '';
@@ -2105,6 +2138,18 @@ function getFilteredShipHistory() {
   let list = shipHistory;
   if(fromVal) list = list.filter(h => shipDateKey(h.shipDate) >= fromVal);
   if(toVal)   list = list.filter(h => shipDateKey(h.shipDate) <= toVal);
+
+  // AS유형 필터
+  if(svTypeFilter && svTypeFilter !== 'all') {
+    list = list.filter(h => {
+      const e = entries.find(en => String(en.serial) === String(h.serial));
+      const works = e ? parseWorks(e.works) : [];
+      if(svTypeFilter === 'single')  return works.length === 1;
+      if(svTypeFilter === 'multi')   return works.length >= 2;
+      if(svTypeFilter === 'nonbat')  return works.includes('nonbat');
+      return true;
+    });
+  }
   return list;
 }
 
@@ -3216,9 +3261,15 @@ function _startClientMode() {
     document.querySelectorAll('#svtab-dash,#svtab-analysis,#svtab-list').forEach(b=>{
       if(b) b.style.display='none';
     });
-    // 기간 필터 카드 가로 스크롤 허용
+    // 기간 필터 카드: 가로 스크롤 제거, flex-wrap 유지
     const filterCard = document.querySelector('#tab-shipview .card');
-    if(filterCard) filterCard.style.overflowX='auto';
+    if(filterCard) {
+      filterCard.style.overflowX = 'visible';
+      filterCard.style.overflowY = 'visible';
+    }
+    // 필터 버튼 row에 wrap 보장
+    const filterRows = document.querySelectorAll('#tab-shipview .card > div');
+    filterRows.forEach(r => { r.style.flexWrap = 'wrap'; });
   }
 
   // 데이터 로드 후 렌더
