@@ -1159,7 +1159,7 @@ function setSyncStatus(state) {
 /* 전체 로드 */
 async function syncData(silent=false) {
   setSyncStatus('loading');
-  if(!silent) notify('데이터 불러오는 중...', 'info');
+  if(!silent) notifyPersist('데이터 불러오는 중...');
   try {
     const data = await gasCall({action:'load'});
     entries = (data.entries || []).map(e => {
@@ -1309,6 +1309,11 @@ function notify(msg, type='success') {
   const el = document.getElementById('notif');
   el.textContent = msg; el.className = `notif ${type} show`;
   clearTimeout(nt); nt = setTimeout(()=>el.classList.remove('show'), 2800);
+}
+function notifyPersist(msg, type='success') {
+  const el = document.getElementById('notif');
+  el.textContent = msg; el.className = `notif ${type} show`;
+  clearTimeout(nt);
 }
 
 /* 모달 */
