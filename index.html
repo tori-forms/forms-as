@@ -2042,8 +2042,9 @@ function setSvFilter(type, andRender) {
       const fi = document.getElementById('sv-from'); if(fi) fi.value = `${yr}-10-01`;
       const ti = document.getElementById('sv-to');   if(ti) ti.value = `${yr}-12-31`;
     } else {
-      const fi = document.getElementById('sv-from'); if(fi) fi.value = '';
-      const ti = document.getElementById('sv-to');   if(ti) ti.value = '';
+      // 전체: 서비스 시작일 2026-04-01 ~ 오늘
+      const fi = document.getElementById('sv-from'); if(fi) fi.value = '2026-04-01';
+      const ti = document.getElementById('sv-to');   if(ti) ti.value = fmtD(now);
     }
   }
 
