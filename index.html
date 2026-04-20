@@ -113,7 +113,7 @@ tr:hover td{background:var(--surface2);}
 .empty-icon{font-size:32px;margin-bottom:10px;}
 .mono{font-family:'JetBrains Mono',monospace;font-size:12px;}
 
-.notif{position:fixed;bottom:24px;right:24px;background:var(--text);color:#fff;padding:12px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;box-shadow:var(--shadow-md);z-index:9999;transform:translateY(80px);opacity:0;transition:all .25s cubic-bezier(.34,1.56,.64,1);pointer-events:none;}
+.notif{position:fixed;bottom:24px;right:24px;background:var(--text);color:#fff;padding:12px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;box-shadow:var(--shadow-md);z-index:9999;transform:translateY(80px);opacity:0;transition:all .25s cubic-bezier(.34,1.56,.64,1);pointer-events:none;white-space:pre-line;line-height:1.6;}
 .notif.show{transform:translateY(0);opacity:1;}
 .notif.success{background:var(--green);}
 .notif.error{background:var(--red);}
@@ -1415,7 +1415,48 @@ function loginAs(name) {
   document.getElementById('current-user-badge').textContent = (isMaster ? '⚙️ ' : '👨‍🔧 ') + name;
   renderWorkerSel();
   updateAdminNav();
-  notify(`${name}님 안녕하세요!`);
+
+  // 날짜 기반 매일 다른 응원 문구
+  const cheers = [
+    '오늘도 최고의 하루 되세요! 💪',
+    '당신의 손끝이 고객의 일상을 살려요 🛠️',
+    '오늘 하루도 파이팅! 🔥',
+    '꼼꼼한 수리가 빛을 발하는 날이에요 ✨',
+    '수고 많으십니다, 든든한 엔지니어! 👏',
+    '오늘도 완벽한 AS 기대할게요 😊',
+    '모든 수리가 완료되는 날이 되길! 🙌',
+    '작은 나사 하나까지, 최고의 집중력! 🔩',
+    '오늘 수리한 태블릿이 또 누군가를 웃게 해요 😄',
+    '힘든 수리일수록 더 빛나는 실력! 💎',
+    '오늘도 현장을 지켜주셔서 감사해요 🙏',
+    '꾸준함이 최고의 기술이에요 📈',
+    '오늘 하루도 안전하게 마무리하세요 🏁',
+    '당신이 있어 팀이 빛납니다 ⭐',
+    '모든 불량을 완벽히 잡는 하루! 🎯',
+    '오늘 몇 건이나 처리할지 기대돼요! 📋',
+    '열정 하나만으로도 충분해요, 오늘도 화이팅! 🌟',
+    '묵묵히 일하는 당신이 진짜 프로예요 🏆',
+    '오늘도 0불량 목표! 가능하죠? 😎',
+    '고객의 감사 인사가 오늘 당신 것이에요 💌',
+    '밥은 꼭 챙겨드세요, 건강이 최우선! 🍚',
+    '어제보다 더 나은 오늘이 될 거예요 🌈',
+    '수리 한 건 한 건이 다 값진 일이에요 🌱',
+    '오늘 하루도 즐겁게 일하고 칼퇴해요! 🎉',
+    '당신의 노력, 데이터가 다 기록하고 있어요 💾',
+    '어떤 고장도 당신 앞에선 두 손 든다! 🛡️',
+    '오늘도 완주하면 나 자신에게 박수! 👍',
+    '팀워크가 오늘도 빛나길! 🤝',
+    '작은 것부터 꼼꼼하게, 그게 프로예요 🔍',
+    '오늘 수고한 만큼 내일은 더 빛날 거예요 ☀️',
+    '지금 이 순간에도 최선을 다하고 있잖아요 😤',
+  ];
+  const today = new Date();
+  const idx = (today.getFullYear() * 366 + today.getMonth() * 31 + today.getDate()) % cheers.length;
+  // 그리팅은 조금 더 오래 표시
+  const el = document.getElementById('notif');
+  el.textContent = `${name}님, 안녕하세요! 👋\n${cheers[idx]}`;
+  el.className = 'notif show';
+  clearTimeout(nt); nt = setTimeout(()=>el.classList.remove('show'), 4500);
 }
 async function loginMaster() {
   const pw = document.getElementById('master-pw').value;
