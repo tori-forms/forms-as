@@ -113,24 +113,11 @@ tr:hover td{background:var(--surface2);}
 .empty-icon{font-size:32px;margin-bottom:10px;}
 .mono{font-family:'JetBrains Mono',monospace;font-size:12px;}
 
-/* ===== 로딩 바 ===== */
-#loading-bar{position:fixed;top:0;left:0;height:3px;width:0%;background:var(--accent);z-index:10000;transition:width .3s ease,opacity .3s ease;opacity:0;}
-#loading-bar.loading{opacity:1;animation:loadingBar 1.2s ease infinite;}
-#loading-bar.done{width:100%!important;opacity:0;transition:opacity .5s ease;}
-@keyframes loadingBar{0%{width:0%;opacity:1;}60%{width:75%;opacity:1;}100%{width:85%;opacity:1;}}
-
-/* ===== 초기 로딩 오버레이 ===== */
-#init-overlay{position:fixed;inset:0;background:var(--bg);z-index:9990;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity .4s ease;}
-#init-overlay.hide{opacity:0;pointer-events:none;}
-.init-spinner{width:40px;height:40px;border:3px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;}
-@keyframes spin{to{transform:rotate(360deg);}}
-.init-txt{font-size:14px;color:var(--text2);letter-spacing:.5px;}
-
 background:var(--text);color:#fff;padding:12px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;box-shadow:var(--shadow-md);z-index:9999;transform:translateY(80px);opacity:0;transition:all .25s cubic-bezier(.34,1.56,.64,1);pointer-events:none;}
 .notif.show{transform:translateY(0);opacity:1;}
 .notif.success{background:var(--green);}
 .notif.error{background:var(--red);}
-.notif.info{background:var(--accent);}
+.notif.loading{background:#555;}
 
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:none;align-items:center;justify-content:center;}
 .modal-overlay.open{display:flex;}
@@ -1033,15 +1020,6 @@ background:var(--text);color:#fff;padding:12px 18px;border-radius:var(--radius);
 </div>
 <div class="notif" id="notif"></div>
 
-<!-- 상단 로딩 바 -->
-<div id="loading-bar"></div>
-
-<!-- 초기 로딩 오버레이 -->
-<div id="init-overlay">
-  <div class="init-spinner"></div>
-  <div class="init-txt">데이터 불러오는 중...</div>
-</div>
-
 
 <div class="modal-overlay" id="modal">
   <div class="modal">
@@ -1179,23 +1157,10 @@ function setSyncStatus(state) {
   document.getElementById('sync-txt').textContent = {ok:'연결됨',loading:'동기화 중...',error:'연결 오류'}[state];
 }
 
-/* 로딩 바 제어 */
-function showLoadingBar() {
-  const bar = document.getElementById('loading-bar');
-  if(!bar) return;
-  bar.className = 'loading';
-}
-function hideLoadingBar() {
-  const bar = document.getElementById('loading-bar');
-  if(!bar) return;
-  bar.className = 'done';
-  setTimeout(() => { bar.className = ''; }, 500);
-}
-
 /* 전체 로드 */
 async function syncData(silent=false) {
   setSyncStatus('loading');
-  showLoadingBar();
+  if(!silent) notify('데이터 불러오는 중...', 'loading');
   try {
     const data = await gasCall({action:'load'});
     entries = (data.entries || []).map(e => {
@@ -1272,18 +1237,11 @@ async function syncData(silent=false) {
       memo: (d.memo||'').replace(/\[BR\]/g,'\n').replace(/\[CL\]/g,'::').replace(/\[PP\]/g,'||')
     }));
     setSyncStatus('ok');
-    hideLoadingBar();
-    // 초기 오버레이 제거
-    const overlay = document.getElementById('init-overlay');
-    if(overlay && !overlay.classList.contains('hide')) overlay.classList.add('hide');
     renderAll();
     if(!silent) notify('데이터를 불러왔습니다.');
     if(!currentUser) buildLoginGrid();
   } catch {
     setSyncStatus('error');
-    hideLoadingBar();
-    const overlay = document.getElementById('init-overlay');
-    if(overlay && !overlay.classList.contains('hide')) overlay.classList.add('hide');
     if(!silent) notify('서버 연결 실패. 인터넷을 확인하세요.','error');
   }
 }
@@ -1351,7 +1309,8 @@ let nt;
 function notify(msg, type='success') {
   const el = document.getElementById('notif');
   el.textContent = msg; el.className = `notif ${type} show`;
-  clearTimeout(nt); nt = setTimeout(()=>el.classList.remove('show'), 2800);
+  clearTimeout(nt);
+  if(type !== 'loading') nt = setTimeout(()=>el.classList.remove('show'), 2800);
 }
 
 /* 모달 */
