@@ -3235,9 +3235,13 @@ function _startClientMode() {
   const overlay = document.getElementById('login-overlay');
   if(overlay) overlay.style.display = 'none';
 
-  // 헤더 타이틀 변경
-  const title = document.querySelector('.header-title');
-  if(title) title.textContent = 'AS 현황';
+  // 헤더 타이틀 변경 (이미지 로고 유지, 텍스트만 교체)
+  const titleTextSpan = document.querySelector('.header-title span');
+  if(titleTextSpan) titleTextSpan.textContent = 'AS 현황';
+
+  // 섹션 타이틀 "출고 현황" → "AS 현황"
+  const sectionTitleEl = document.querySelector('#tab-shipview .section-title');
+  if(sectionTitleEl) sectionTitleEl.textContent = 'AS 현황';
 
   // 네비 전체 숨기고 출고현황만 표시
   document.querySelector('nav')?.style && (document.querySelector('nav').style.display = 'none');
