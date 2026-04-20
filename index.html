@@ -117,7 +117,6 @@ background:var(--text);color:#fff;padding:12px 18px;border-radius:var(--radius);
 .notif.show{transform:translateY(0);opacity:1;}
 .notif.success{background:var(--green);}
 .notif.error{background:var(--red);}
-.notif.loading{background:#555;}
 
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:none;align-items:center;justify-content:center;}
 .modal-overlay.open{display:flex;}
@@ -1160,7 +1159,7 @@ function setSyncStatus(state) {
 /* 전체 로드 */
 async function syncData(silent=false) {
   setSyncStatus('loading');
-  if(!silent) notify('데이터 불러오는 중...', 'loading');
+  if(!silent) notify('데이터 불러오는 중...', 'info');
   try {
     const data = await gasCall({action:'load'});
     entries = (data.entries || []).map(e => {
@@ -1309,8 +1308,7 @@ let nt;
 function notify(msg, type='success') {
   const el = document.getElementById('notif');
   el.textContent = msg; el.className = `notif ${type} show`;
-  clearTimeout(nt);
-  if(type !== 'loading') nt = setTimeout(()=>el.classList.remove('show'), 2800);
+  clearTimeout(nt); nt = setTimeout(()=>el.classList.remove('show'), 2800);
 }
 
 /* 모달 */
