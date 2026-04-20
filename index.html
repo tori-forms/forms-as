@@ -766,20 +766,16 @@ tr:hover td{background:var(--surface2);}
 
     <!-- 기간 필터 -->
     <div class="card" style="margin-bottom:16px;">
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
-        <button class="btn btn-sm" id="svf-all"    onclick="setSvFilter('all')">전체</button>
-        <button class="btn btn-sm" id="svf-month"  onclick="setSvFilter('month')">이번 달</button>
-        <button class="btn btn-sm" id="svf-last"   onclick="setSvFilter('last')">지난 달</button>
-        <button class="btn btn-sm" id="svf-q1"     onclick="setSvFilter('q1')">1분기</button>
-        <button class="btn btn-sm" id="svf-q2"     onclick="setSvFilter('q2')">2분기</button>
-        <button class="btn btn-sm" id="svf-q3"     onclick="setSvFilter('q3')">3분기</button>
-        <button class="btn btn-sm" id="svf-q4"     onclick="setSvFilter('q4')">4분기</button>
-      </div>
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
-        <input type="date" id="sv-from" onchange="setSvFilter('custom')" style="height:34px;padding:0 10px;font-size:13px;">
-        <span style="color:var(--text3);">~</span>
-        <input type="date" id="sv-to" onchange="setSvFilter('custom')" style="height:34px;padding:0 10px;font-size:13px;">
-        <button class="btn btn-sm btn-primary" onclick="setSvFilter('custom')">조회</button>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <button class="btn btn-sm" id="svf-all"   onclick="setSvFilter('all')">전체</button>
+        <button class="btn btn-sm" id="svf-month" onclick="setSvFilter('month')">이번 달</button>
+        <button class="btn btn-sm" id="svf-last"  onclick="setSvFilter('last')">지난 달</button>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto;">
+          <input type="date" id="sv-from" style="height:34px;padding:0 10px;font-size:13px;">
+          <span style="color:var(--text3);">~</span>
+          <input type="date" id="sv-to" style="height:34px;padding:0 10px;font-size:13px;">
+          <button class="btn btn-sm btn-primary" onclick="setSvFilter('custom')">조회</button>
+        </div>
       </div>
       <!-- AS 유형 필터 -->
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border);">
