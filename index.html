@@ -784,7 +784,7 @@ tr:hover td{background:var(--surface2);}
           <button class="btn btn-sm" id="svt-multi"  onclick="setSvTypeFilter('multi')"  style="flex:1;text-align:center;">복합 수리</button>
         </div>
       </div>
-      <button onclick="setSvFilter('custom')"
+      <button onclick="setSvFilter('custom', true)"
         onmouseover="this.style.background='var(--accent)';this.style.color='#fff';"
         onmouseout="this.style.background='none';this.style.color='var(--text)';"
         style="width:80px;border:none;border-left:1px solid var(--border);background:none;font-size:15px;font-weight:700;color:var(--text);cursor:pointer;font-family:'Noto Sans KR',sans-serif;flex-shrink:0;transition:all .15s;">조회</button>
@@ -2005,10 +2005,10 @@ function setSvTypeFilter(type) {
     const btn = document.getElementById('svt-'+t);
     if(btn) btn.className = 'btn btn-sm' + (t===type ? ' btn-primary' : '');
   });
-  renderShipview();
+  // 렌더는 조회 버튼에서만
 }
 
-function setSvFilter(type) {
+function setSvFilter(type, andRender) {
   svFilter = type || 'all';
   ['all','month','last','q1','q2','q3','q4'].forEach(t => {
     const btn = document.getElementById('svf-'+t);
@@ -2047,11 +2047,12 @@ function setSvFilter(type) {
     }
   }
 
-  // 현재 활성 탭 파악 (display:block인 것) — 없으면 기본값
+  // andRender=true 일 때만 실제 렌더 (조회 버튼 또는 초기 로드)
+  if(!andRender) return;
+
   const canSeeAll = isMaster || isClientMode();
   const analysisEl = document.getElementById('shipview-analysis');
   const listEl = document.getElementById('shipview-content');
-  const dashViewEl = document.getElementById('shipview-dash');
   let currentTab;
   if(!canSeeAll) {
     currentTab = 'list';
@@ -2060,10 +2061,8 @@ function setSvFilter(type) {
   } else if(listEl && listEl.style.display === 'block') {
     currentTab = 'list';
   } else {
-    currentTab = 'dash'; // 기본값 (최초 진입 포함)
+    currentTab = 'dash';
   }
-
-  // 렌더 전에 탭 visibility 먼저 확정
   switchSvTab(currentTab);
   renderShipview();
   if(currentTab === 'analysis') renderShipAnalysis();
@@ -3272,7 +3271,7 @@ function _startClientMode() {
   }
 
   // 데이터 로드 후 렌더
-  syncData().then(() => { setSvFilter('all'); });
+  syncData().then(() => { setSvFilter('all', true); });
 }
 
 function exportShippingXlsx() {
@@ -3589,7 +3588,7 @@ function switchTab(name, btn) {
   if(name==='stock') { switchStockTab('inventory'); }
   if(name==='docs') renderDocs();
   if(name==='shipping') { initShipping(); }
-  if(name==='shipview') { setSvFilter('all'); }
+  if(name==='shipview') { setSvFilter('all', true); }
   if(name==='exchange') { renderWorkerSel(); renderExchangeList(); setTimeout(excUpdatePreview, 0); }
   if(name==='admin') { switchAdminTab('workers'); }
 }
