@@ -785,6 +785,12 @@ tr:hover td{background:var(--surface2);}
           <button class="btn btn-sm" id="svt-single" onclick="setSvTypeFilter('single')" style="flex:1;text-align:center;">단일 수리</button>
           <button class="btn btn-sm" id="svt-multi"  onclick="setSvTypeFilter('multi')"  style="flex:1;text-align:center;">복합 수리</button>
         </div>
+        <div style="display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1px solid var(--border);">
+          <span style="font-size:12px;color:var(--text2);font-weight:600;white-space:nowrap;min-width:44px;">기종</span>
+          <button class="btn btn-sm btn-primary" id="svm-all"     onclick="setSvModelFilter('all')"     style="flex:1;text-align:center;">전체</button>
+          <button class="btn btn-sm"             id="svm-S2PRO_N" onclick="setSvModelFilter('S2PRO_N')" style="flex:1;text-align:center;">S2PRO_N</button>
+          <button class="btn btn-sm"             id="svm-S2_N"    onclick="setSvModelFilter('S2_N')"    style="flex:1;text-align:center;">S2_N</button>
+        </div>
         <!-- 모바일용 조회 버튼 (640px 이하) -->
         <button onclick="setSvFilter('custom', true)"
           class="btn btn-primary btn-sm sv-query-mobile"
@@ -2055,6 +2061,15 @@ function renderShipHistory() {
 /* ===== 출고 현황 (고객사용) ===== */
 let svFilter = 'all';
 let svTypeFilter = 'all'; // 'all' | 'single' | 'multi' | 'nonbat'
+let svModelFilter = 'all'; // 'all' | 'S2PRO_N' | 'S2_N'
+
+function setSvModelFilter(type) {
+  svModelFilter = type || 'all';
+  ['all','S2PRO_N','S2_N'].forEach(t => {
+    const btn = document.getElementById('svm-'+t);
+    if(btn) btn.className = 'btn btn-sm' + (t===type ? ' btn-primary' : '');
+  });
+}
 
 function setSvTypeFilter(type) {
   svTypeFilter = type || 'all';
@@ -2206,6 +2221,15 @@ function getFilteredShipHistory() {
       return true;
     });
   }
+
+  // 기종 필터
+  if(svModelFilter && svModelFilter !== 'all') {
+    list = list.filter(h => {
+      const e = entries.find(en => String(en.serial) === String(h.serial));
+      return e && e.model === svModelFilter;
+    });
+  }
+
   return list;
 }
 
