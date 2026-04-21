@@ -1423,27 +1423,36 @@ function toggleSvTheme() {
 function getSvTheme() {
   const L = window.svLightMode;
   return {
+    // 메인 카드 - 흰 배경
     cardBg:       L ? '#ffffff' : 'linear-gradient(135deg,#0f172a 0%,#1e2d4a 40%,#162035 100%)',
     cardBorder:   L ? '#c8d0da' : 'rgba(255,255,255,.08)',
     cardColor:    L ? '#111827' : '#fff',
+    // 텍스트
     textHigh:     L ? '#111827' : 'rgba(255,255,255,.9)',
     textMid:      L ? '#374151' : 'rgba(255,255,255,.6)',
     textLow:      L ? '#4b5563' : 'rgba(255,255,255,.4)',
     textTiny:     L ? '#6b7280' : 'rgba(255,255,255,.35)',
-    barBg:        L ? '#c4cdd8' : 'rgba(255,255,255,.1)',
-    barBg2:       L ? '#d4dce7' : 'rgba(255,255,255,.07)',
+    // 바 트랙 - 뚜렷한 회색
+    barBg:        L ? '#d1d8e3' : 'rgba(255,255,255,.1)',
+    barBg2:       L ? '#dce3ec' : 'rgba(255,255,255,.07)',
     divider:      L ? '#d1d9e0' : 'rgba(255,255,255,.08)',
     barBlue:      L ? 'linear-gradient(90deg,#3b82f6,#2563eb)' : 'linear-gradient(90deg,#60a5fa,#3b82f6)',
-    statCard:     L ? '#e8edf4' : 'rgba(255,255,255,.07)',
+    // 내부 sub-card - 중간 회색
+    statCard:     L ? '#edf0f5' : 'rgba(255,255,255,.07)',
     statBorder:   L ? '#c8d0da' : 'rgba(255,255,255,.1)',
+    // 월별 차트 카드
     monthCardBg:  L ? '#ffffff' : 'linear-gradient(135deg,#0f172a 0%,#1e3a5f 60%,#1a2744 100%)',
-    savedBg1:     L ? 'linear-gradient(135deg,#bfdbfe,#93c5fd)' : 'linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%)',
-    savedBg2:     L ? 'linear-gradient(135deg,#a7f3d0,#6ee7b7)' : 'linear-gradient(135deg,#1a2744 0%,#1e4d3f 100%)',
-    innerCard:    L ? '#dde6f0'             : 'rgba(255,255,255,.1)',
-    savedGreen:   L ? 'rgba(5,150,105,.18)' : 'rgba(134,239,172,.15)',
-    savedGreenBd: L ? 'rgba(5,150,105,.5)'  : 'rgba(134,239,172,.4)',
-    savedGreenTxt:L ? '#064e3b'             : '#86efac',
+    // 절감 카드 - 라이트: 일반 흰 카드 (내부 포인트 박스만 색상)
+    savedBg1:     L ? '#ffffff' : 'linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%)',
+    savedBg2:     L ? '#ffffff' : 'linear-gradient(135deg,#1a2744 0%,#1e4d3f 100%)',
+    innerCard:    L ? '#edf0f5'             : 'rgba(255,255,255,.1)',
+    // 절감액 하이라이트 박스 - 라이트: 진한 초록 테두리로 시선 집중
+    savedGreen:   L ? '#f0fdf4'             : 'rgba(134,239,172,.15)',
+    savedGreenBd: L ? '#16a34a'             : 'rgba(134,239,172,.4)',
+    savedGreenTxt:L ? '#14532d'             : '#86efac',
+    // 범례
     legendLabel:  L ? '#1f2937'             : 'rgba(255,255,255,.8)',
+    // 수리항목 색상 (고정)
     pcb:   '#3b82f6',
     panel: '#10b981',
     board: '#a855f7',
@@ -2674,9 +2683,9 @@ function renderShipDashboard(list) {
         <div style="font-size:11px;opacity:.6;margin-top:4px;">${nonbatCount}개 × ${fmt(NEW_PRODUCT_PRICE)}원</div>
       </div>
       <div class="sv-nb-saved" style="background:${T.savedGreen};border:2px solid ${T.savedGreenBd};border-radius:12px;padding:16px;text-align:center;">
-        <div style="font-size:11px;color:#86efac;margin-bottom:6px;font-weight:700;">✨ 절감액</div>
-        <div style="font-size:22px;font-weight:800;color:#86efac;">${fmt(saved1)}<span style="font-size:12px;font-weight:400;opacity:.9;">원</span></div>
-        <div style="font-size:13px;color:#86efac;margin-top:4px;font-weight:600;">${savedPct1}% 절감</div>
+        <div style="font-size:11px;color:${T.savedGreenTxt};margin-bottom:6px;font-weight:700;">✨ 절감액</div>
+        <div style="font-size:22px;font-weight:800;color:${T.savedGreenTxt};">${fmt(saved1)}<span style="font-size:12px;font-weight:400;opacity:.9;">원</span></div>
+        <div style="font-size:13px;color:${T.savedGreenTxt};margin-top:4px;font-weight:600;">${savedPct1}% 절감</div>
       </div>
     </div>
   </div>
@@ -2688,23 +2697,23 @@ function renderShipDashboard(list) {
     </div>
     <div style="font-size:10px;opacity:.4;margin-bottom:16px;">PCB 교체 · LCD 교체 · M/B 수리만 집계 · 논배터리 제외 · ${compCount}건 기준</div>
     <div class="sv-cmp-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
-      <div style="background:rgba(255,255,255,.1);border-radius:12px;padding:16px;text-align:center;">
-        <div style="font-size:11px;opacity:.7;margin-bottom:6px;font-weight:600;">🏭 태클라스트 예상</div>
+      <div style="background:${T.innerCard};border-radius:12px;padding:16px;text-align:center;">
+        <div style="font-size:11px;color:${T.textMid};margin-bottom:6px;font-weight:600;">🏭 태클라스트 예상</div>
         <div style="font-size:20px;font-weight:800;">${fmt(totalTaeclast)}<span style="font-size:11px;font-weight:400;opacity:.8;">원</span></div>
         <div style="font-size:10px;opacity:.5;margin-top:4px;">세척비 포함</div>
         <div style="font-size:10px;opacity:.6;margin-top:2px;font-weight:600;">건당 ${fmt(Math.round(totalTaeclast/Math.max(compCount,1)))}원</div>
       </div>
-      <div style="background:rgba(255,255,255,.1);border-radius:12px;padding:16px;text-align:center;">
-        <div style="font-size:11px;opacity:.7;margin-bottom:6px;font-weight:600;">🔧 폼즈 실제 비용</div>
+      <div style="background:${T.innerCard};border-radius:12px;padding:16px;text-align:center;">
+        <div style="font-size:11px;color:${T.textMid};margin-bottom:6px;font-weight:600;">🔧 폼즈 실제 비용</div>
         <div style="font-size:20px;font-weight:800;">${fmt(totalForms2)}<span style="font-size:11px;font-weight:400;opacity:.8;">원</span></div>
         <div style="font-size:10px;opacity:.5;margin-top:4px;">공임비 + 부품비</div>
         <div style="font-size:10px;opacity:.6;margin-top:2px;font-weight:600;">건당 ${fmt(Math.round(totalForms2/Math.max(compCount,1)))}원</div>
       </div>
       <div class="sv-cmp-saved" style="background:${T.savedGreen};border:2px solid ${T.savedGreenBd};border-radius:12px;padding:16px;text-align:center;">
-        <div style="font-size:11px;color:#86efac;margin-bottom:6px;font-weight:700;">✨ 절감액</div>
-        <div style="font-size:22px;font-weight:800;color:#86efac;">${fmt(saved2)}<span style="font-size:12px;font-weight:400;opacity:.9;">원</span></div>
-        <div style="font-size:13px;color:#86efac;margin-top:4px;font-weight:600;">${savedPct2}% 저렴</div>
-        <div style="font-size:11px;color:#86efac;opacity:.7;margin-top:4px;">건당 ${fmt(Math.round(saved2/Math.max(compCount,1)))}원 절감</div>
+        <div style="font-size:11px;color:${T.savedGreenTxt};margin-bottom:6px;font-weight:700;">✨ 절감액</div>
+        <div style="font-size:22px;font-weight:800;color:${T.savedGreenTxt};">${fmt(saved2)}<span style="font-size:12px;font-weight:400;opacity:.9;">원</span></div>
+        <div style="font-size:13px;color:${T.savedGreenTxt};margin-top:4px;font-weight:600;">${savedPct2}% 저렴</div>
+        <div style="font-size:11px;color:${T.savedGreenTxt};opacity:.7;margin-top:4px;">건당 ${fmt(Math.round(saved2/Math.max(compCount,1)))}원 절감</div>
       </div>
     </div>
     <div style="margin-top:14px;font-size:10px;opacity:.35;line-height:1.6;">
