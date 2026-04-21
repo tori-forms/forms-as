@@ -237,6 +237,11 @@ tr:hover td{background:var(--surface2);}
 #tab-shipview.sv-light .sv-stat-main,
 #tab-shipview.sv-light .sv-stat-val { color:#1a1916 !important; }
 /* 수리분석 탭 추가 차트 라이트모드 */
+#tab-shipview.sv-light #shipview-analysis [style*="background:${T.cardBg}"],
+#tab-shipview.sv-light #shipview-analysis > div,
+#tab-shipview.sv-light #shipview-analysis-extra > div > div {
+  box-shadow: 0 1px 4px rgba(0,0,0,.08), 0 0 0 1px #e2e8f0;
+}
 #tab-shipview.sv-light #shipview-analysis-extra [style*="linear-gradient(135deg,#0f172a"] {
   background:linear-gradient(135deg,#f8fafc,#f1f5f9) !important;
   border-color:#e2e8f0 !important;
@@ -1392,35 +1397,35 @@ function toggleSvTheme() {
 function getSvTheme() {
   const L = window.svLightMode;
   return {
-    // 메인 카드
-    cardBg:       L ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : 'linear-gradient(135deg,#0f172a 0%,#1e2d4a 40%,#162035 100%)',
-    cardBorder:   L ? '#dee4ec' : 'rgba(255,255,255,.08)',
+    // 메인 카드 - 라이트: 흰 카드에 진한 테두리로 구분
+    cardBg:       L ? '#ffffff' : 'linear-gradient(135deg,#0f172a 0%,#1e2d4a 40%,#162035 100%)',
+    cardBorder:   L ? '#cbd5e1' : 'rgba(255,255,255,.08)',
     cardColor:    L ? '#0f172a' : '#fff',
-    // 텍스트
-    textHigh:     L ? 'rgba(0,0,0,.85)' : 'rgba(255,255,255,.9)',
-    textMid:      L ? 'rgba(0,0,0,.6)'  : 'rgba(255,255,255,.6)',
-    textLow:      L ? 'rgba(0,0,0,.4)'  : 'rgba(255,255,255,.4)',
-    textTiny:     L ? 'rgba(0,0,0,.35)' : 'rgba(255,255,255,.35)',
+    // 텍스트 - 라이트: 충분히 어둡게
+    textHigh:     L ? '#111827'           : 'rgba(255,255,255,.9)',
+    textMid:      L ? '#374151'           : 'rgba(255,255,255,.6)',
+    textLow:      L ? '#6b7280'           : 'rgba(255,255,255,.4)',
+    textTiny:     L ? '#9ca3af'           : 'rgba(255,255,255,.35)',
     // 바/배경
-    barBg:        L ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.1)',
-    barBg2:       L ? 'rgba(0,0,0,.05)' : 'rgba(255,255,255,.07)',
-    divider:      L ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.08)',
+    barBg:        L ? '#e5e7eb'           : 'rgba(255,255,255,.1)',
+    barBg2:       L ? '#f3f4f6'           : 'rgba(255,255,255,.07)',
+    divider:      L ? '#e5e7eb'           : 'rgba(255,255,255,.08)',
     barBlue:      L ? 'linear-gradient(90deg,#3b82f6,#2563eb)' : 'linear-gradient(90deg,#60a5fa,#3b82f6)',
     // stat 카드
-    statCard:     L ? 'rgba(0,0,0,.04)' : 'rgba(255,255,255,.07)',
-    statBorder:   L ? 'rgba(0,0,0,.1)'  : 'rgba(255,255,255,.1)',
+    statCard:     L ? '#f8fafc'           : 'rgba(255,255,255,.07)',
+    statBorder:   L ? '#e2e8f0'           : 'rgba(255,255,255,.1)',
     // 월별 차트 카드
-    monthCardBg:  L ? 'linear-gradient(135deg,#ffffff,#eff6ff)' : 'linear-gradient(135deg,#0f172a 0%,#1e3a5f 60%,#1a2744 100%)',
-    // 절감 카드
-    savedBg1:     L ? 'linear-gradient(135deg,#dbeafe,#bfdbfe)' : 'linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%)',
-    savedBg2:     L ? 'linear-gradient(135deg,#d1fae5,#a7f3d0)' : 'linear-gradient(135deg,#1a2744 0%,#1e4d3f 100%)',
-    innerCard:    L ? 'rgba(0,0,0,.06)'   : 'rgba(255,255,255,.1)',
-    savedGreen:   L ? 'rgba(5,150,105,.15)' : 'rgba(134,239,172,.15)',
-    savedGreenBd: L ? 'rgba(5,150,105,.4)'  : 'rgba(134,239,172,.4)',
-    savedGreenTxt:L ? '#065f46' : '#86efac',
+    monthCardBg:  L ? '#ffffff'           : 'linear-gradient(135deg,#0f172a 0%,#1e3a5f 60%,#1a2744 100%)',
+    // 절감 카드 - 라이트: 컬러 포인트 유지
+    savedBg1:     L ? 'linear-gradient(135deg,#eff6ff,#dbeafe)' : 'linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%)',
+    savedBg2:     L ? 'linear-gradient(135deg,#f0fdf4,#d1fae5)' : 'linear-gradient(135deg,#1a2744 0%,#1e4d3f 100%)',
+    innerCard:    L ? '#f1f5f9'           : 'rgba(255,255,255,.1)',
+    savedGreen:   L ? 'rgba(5,150,105,.1)': 'rgba(134,239,172,.15)',
+    savedGreenBd: L ? 'rgba(5,150,105,.3)': 'rgba(134,239,172,.4)',
+    savedGreenTxt:L ? '#065f46'           : '#86efac',
     // 범례
-    legendLabel:  L ? '#374151' : 'rgba(255,255,255,.8)',
-    // 수리항목 색상 (비교표에서 사용)
+    legendLabel:  L ? '#1f2937'           : 'rgba(255,255,255,.8)',
+    // 수리항목 색상 (고정)
     pcb:          '#3b82f6',
     panel:        '#10b981',
     board:        '#a855f7',
@@ -3007,7 +3012,7 @@ function renderShipAnalysis() {
   </div>
 
   <!-- ③ 단일/복합 수리 비교 -->
-  <div style="background:linear-gradient(135deg,#0f172a 0%,#2d1b4e 60%,#1a1030 100%);border-radius:16px;padding:22px 24px;margin-bottom:16px;color:${T.cardColor};">
+  <div style="background:${T.cardBg};border-radius:16px;padding:22px 24px;margin-bottom:16px;color:${T.cardColor};">
     <div style="font-size:12px;font-weight:600;color:${T.textLow};opacity:1;letter-spacing:.5px;margin-bottom:16px;">⚖️ 수리유형별 비교</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
       <div style="background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);border-radius:12px;padding:16px;text-align:center;">
@@ -3027,7 +3032,7 @@ function renderShipAnalysis() {
 
   <!-- ③-B 논배터리화 유형별 분포 + 진행율 -->
   ${totalNonbat > 0 ? `
-  <div style="background:linear-gradient(135deg,#0f172a 0%,#1f2d44 60%,#141c2e 100%);border-radius:16px;padding:22px 24px;margin-bottom:16px;color:${T.cardColor};">
+  <div style="background:${T.cardBg};border-radius:16px;padding:22px 24px;margin-bottom:16px;color:${T.cardColor};">
     <div style="font-size:12px;font-weight:600;color:${T.textLow};opacity:1;letter-spacing:.5px;margin-bottom:6px;">🔋 논배터리화 유형별 분포</div>
     <div style="font-size:11px;color:${T.textTiny};opacity:1;margin-bottom:16px;">전체 출고 ${totalCount}건 중 논배터리화 ${totalNonbat}건 (진행율 ${fmtProg(totalProg)})</div>
     <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">
@@ -3079,7 +3084,7 @@ function renderShipAnalysis() {
 
   <!-- ④ 제조년월 × 수리항목 교차분석 -->
   ${mfgKeys.length > 0 ? `
-  <div style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 60%,#1a2744 100%);border-radius:16px;padding:22px 24px;margin-bottom:16px;color:${T.cardColor};">
+  <div style="background:${T.cardBg};border-radius:16px;padding:22px 24px;margin-bottom:16px;color:${T.cardColor};">
     <div style="font-size:12px;font-weight:600;color:${T.textLow};opacity:1;letter-spacing:.5px;margin-bottom:6px;">📅 제조년월 × 수리항목 교차분석</div>
     <div style="font-size:11px;color:${T.textTiny};opacity:1;margin-bottom:14px;">시리얼번호 기준 제조년월별 수리 패턴</div>
     ${mfgRows}
