@@ -2355,6 +2355,7 @@ function renderShipDashboard(list) {
   if(!isMaster && !isClientMode()) { el.innerHTML = ''; return; }
 
   const NEW_PRODUCT_PRICE = window.NEW_PRODUCT_PRICE_OVERRIDE || 140000; // 새제품 단가
+  const T = getSvTheme();
 
   // 각 항목에서 entries 매핑
   const mapped = list.map(x => {
@@ -2459,7 +2460,6 @@ function renderShipDashboard(list) {
 
   // 반응형은 <style> 블록에서 처리 (동적 주입 제거)
   const isMob = window.innerWidth <= 640;
-  const T = getSvTheme();
 
   let h = `
   <div class="sv-dark-card" style="background:${T.cardBg};border-radius:16px;padding:24px;margin-bottom:16px;color:${T.cardColor};">
