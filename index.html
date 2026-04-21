@@ -3008,14 +3008,12 @@ function renderShipExtraCharts() {
   const quarterBars = Object.entries(quarterMap).map(([q, cnt]) => {
     const w = Math.round(cnt/maxQ*100);
     const colors = { Q1:'#60a5fa', Q2:'#34d399', Q3:'#f59e0b', Q4:'#c084fc' };
-    return `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;">
-      <div style="font-size:13px;font-weight:700;color:${colors[q]};width:30px;">${q}</div>
-      <div style="flex:1;background:rgba(255,255,255,.1);border-radius:4px;height:20px;">
-        <div style="height:20px;background:${colors[q]};border-radius:4px;width:${w}%;transition:width .6s;display:flex;align-items:center;padding-left:8px;">
-          ${cnt>0?`<span style="font-size:11px;font-weight:700;color:#fff;">${cnt}건</span>`:''}
-        </div>
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;">
+      <div style="font-size:13px;font-weight:700;color:${colors[q]};width:24px;flex-shrink:0;">${q}</div>
+      <div style="flex:1;background:rgba(255,255,255,.1);border-radius:4px;height:18px;min-width:0;overflow:hidden;">
+        <div style="height:18px;background:${colors[q]};border-radius:4px;width:${w}%;transition:width .6s;"></div>
       </div>
-      <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.6);width:30px;text-align:right;">${cnt}</div>
+      <div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.8);width:36px;text-align:right;flex-shrink:0;">${cnt}건</div>
     </div>`;
   }).join('');
 
