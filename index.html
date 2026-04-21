@@ -2560,6 +2560,183 @@ function renderShipDashboard(list) {
     </div>
   </div>`;
 
+  // ③ 추가 분석 차트 5종 (볼타레스 요청)
+  // 시리얼에서 제조년월 파싱 함수 (예: TO2403GB... → 2024년 03월)
+  function parseMfgMonth(serial) {
+    const m = String(serial).match(/^TO(\d{2})(\d{2})/);
+    if(!m) return null;
+    return { year: 2000+Number(m[1]), month: Number(m[2]), label: `20${m[1]}년 ${m[2]}월` };
+  }
+
+  // ③-1 분기별 물량 분포
+  const quarterMap = { Q1:0, Q2:0, Q3:0, Q4:0 };
+  mapped.forEach(x => {
+    const mfg = parseMfgMonth(x.serial);
+    if(!mfg) return;
+    const q = Math.ceil(mfg.month/3);
+    quarterMap['Q'+q]++;
+  });
+  const maxQ = Math.max(...Object.values(quarterMap), 1);
+  const quarterBars = Object.entries(quarterMap).map(([q, cnt]) => {
+    const w = Math.round(cnt/maxQ*100);
+    const colors = { Q1:'#60a5fa', Q2:'#34d399', Q3:'#f59e0b', Q4:'#c084fc' };
+    return `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;">
+      <div style="font-size:13px;font-weight:700;color:${colors[q]};width:30px;">${q}</div>
+      <div style="flex:1;background:rgba(255,255,255,.1);border-radius:4px;height:20px;">
+        <div style="height:20px;background:${colors[q]};border-radius:4px;width:${w}%;transition:width .6s;display:flex;align-items:center;padding-left:8px;">
+          ${cnt>0?`<span style="font-size:11px;font-weight:700;color:#fff;">${cnt}건</span>`:''}
+        </div>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.6);width:30px;text-align:right;">${cnt}</div>
+    </div>`;
+  }).join('');
+
+  // ③-2 제조년월별 작업 추이
+  const mfgMonthMap = {};
+  mapped.forEach(x => {
+    const mfg = parseMfgMonth(x.serial);
+    if(!mfg) return;
+    const key = mfg.label;
+    mfgMonthMap[key] = (mfgMonthMap[key]||0)+1;
+  });
+  const mfgMonths = Object.keys(mfgMonthMap).sort();
+  const maxMfg = Math.max(...Object.values(mfgMonthMap), 1);
+  const mfgBars = mfgMonths.map(m => {
+    const cnt = mfgMonthMap[m];
+    const w = Math.round(cnt/maxMfg*100);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);">
+      <div style="font-size:11px;color:rgba(255,255,255,.6);width:70px;flex-shrink:0;">${m}</div>
+      <div style="flex:1;background:rgba(255,255,255,.1);border-radius:3px;height:14px;">
+        <div style="height:14px;background:linear-gradient(90deg,#06b6d4,#3b82f6);border-radius:3px;width:${w}%;"></div>
+      </div>
+      <div style="font-size:11px;font-weight:700;color:#93c5fd;width:28px;text-align:right;">${cnt}</div>
+    </div>`;
+  }).join('');
+
+  // ③-3 비용 구조 분석 (공임비 vs 부품비)
+  const totalFee3 = mapped.reduce((s,x)=>s+x.fee,0);
+  const PP3 = window.PARTS_PRICE||{};
+  const totalParts3 = mapped.reduce((s,x)=>{
+    const mp = PP3.modelParts?.[x.model]||{};
+    return s+x.works.reduce((ws,k)=>ws+(mp[k]||0),0);
+  },0);
+  const total3 = totalFee3+totalParts3||1;
+  const feePct = Math.round(totalFee3/total3*100);
+  const partsPct = Math.round(totalParts3/total3*100);
+
+  // ③-4 수리 복잡도 분석
+  const complexity = { '1개 항목':0, '2개 항목':0, '3개 항목':0 };
+  mapped.forEach(x => {
+    const cnt = x.works.length;
+    if(cnt===1) complexity['1개 항목']++;
+    else if(cnt===2) complexity['2개 항목']++;
+    else if(cnt>=3) complexity['3개 항목']++;
+  });
+  const maxCx = Math.max(...Object.values(complexity),1);
+  const cxColors = { '1개 항목':'#34d399', '2개 항목':'#f59e0b', '3개 항목':'#f87171' };
+  const cxBars = Object.entries(complexity).map(([label, cnt]) => {
+    const w = Math.round(cnt/maxCx*100);
+    const revenue = mapped.filter(x=>{
+      if(label==='1개 항목') return x.works.length===1;
+      if(label==='2개 항목') return x.works.length===2;
+      return x.works.length>=3;
+    }).reduce((s,x)=>s+x.fee,0);
+    return `<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,.07);">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+        <span style="font-size:12px;font-weight:600;color:${cxColors[label]};">${label}</span>
+        <span style="font-size:12px;color:rgba(255,255,255,.6);">${cnt}건 · ${fmt(revenue)}원</span>
+      </div>
+      <div style="background:rgba(255,255,255,.1);border-radius:4px;height:10px;">
+        <div style="height:10px;background:${cxColors[label]};border-radius:4px;width:${w}%;"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // ③-5 수리유형별 매출 (단일 vs 복합)
+  const singleList = mapped.filter(x=>x.works.length===1);
+  const multiList  = mapped.filter(x=>x.works.length>=2);
+  const singleFee  = singleList.reduce((s,x)=>s+x.fee,0);
+  const multiFee   = multiList.reduce((s,x)=>s+x.fee,0);
+  const totalFeeAll = singleFee+multiFee||1;
+  const singlePct5 = Math.round(singleFee/totalFeeAll*100);
+  const multiPct5  = Math.round(multiFee/totalFeeAll*100);
+
+  h += `
+  <!-- ③ 추가 분석 2×3 그리드 -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;">
+
+    <!-- 분기별 물량 분포 -->
+    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:20px;color:#fff;">
+      <div style="font-size:11px;font-weight:600;opacity:.5;letter-spacing:.5px;margin-bottom:14px;text-transform:uppercase;">📊 분기별 물량 분포</div>
+      ${mapped.length===0?'<div style="opacity:.4;font-size:12px;">데이터 없음</div>':quarterBars}
+    </div>
+
+    <!-- 제조년월별 작업 추이 -->
+    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:20px;color:#fff;max-height:280px;overflow-y:auto;">
+      <div style="font-size:11px;font-weight:600;opacity:.5;letter-spacing:.5px;margin-bottom:14px;text-transform:uppercase;">📈 제조년월별 작업 추이</div>
+      ${mfgMonths.length===0?'<div style="opacity:.4;font-size:12px;">데이터 없음</div>':mfgBars}
+    </div>
+
+    <!-- 비용 구조 분석 -->
+    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:20px;color:#fff;">
+      <div style="font-size:11px;font-weight:600;opacity:.5;letter-spacing:.5px;margin-bottom:16px;text-transform:uppercase;">💰 비용 구조 분석</div>
+      <div style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-size:12px;color:#fbbf24;font-weight:600;">공임비</span>
+          <span style="font-size:12px;color:rgba(255,255,255,.7);">${fmt(totalFee3)}원 (${feePct}%)</span>
+        </div>
+        <div style="background:rgba(255,255,255,.1);border-radius:4px;height:14px;">
+          <div style="height:14px;background:#fbbf24;border-radius:4px;width:${feePct}%;"></div>
+        </div>
+      </div>
+      <div style="margin-bottom:18px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-size:12px;color:#34d399;font-weight:600;">부품비</span>
+          <span style="font-size:12px;color:rgba(255,255,255,.7);">${totalParts3?fmt(totalParts3)+'원':'-'} (${partsPct}%)</span>
+        </div>
+        <div style="background:rgba(255,255,255,.1);border-radius:4px;height:14px;">
+          <div style="height:14px;background:#34d399;border-radius:4px;width:${partsPct}%;"></div>
+        </div>
+      </div>
+      <div style="background:rgba(255,255,255,.07);border-radius:10px;padding:12px;text-align:center;">
+        <div style="font-size:10px;opacity:.5;margin-bottom:4px;">합계</div>
+        <div style="font-size:18px;font-weight:800;">${fmt(totalFee3+totalParts3)}<span style="font-size:11px;font-weight:400;opacity:.7;">원</span></div>
+      </div>
+    </div>
+
+    <!-- 수리 복잡도 분석 -->
+    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:20px;color:#fff;">
+      <div style="font-size:11px;font-weight:600;opacity:.5;letter-spacing:.5px;margin-bottom:14px;text-transform:uppercase;">🔩 수리 복잡도 분석</div>
+      ${cxBars}
+    </div>
+
+    <!-- 수리유형별 매출 (2열 전체) -->
+    <div style="grid-column:1/-1;background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:20px;color:#fff;">
+      <div style="font-size:11px;font-weight:600;opacity:.5;letter-spacing:.5px;margin-bottom:16px;text-transform:uppercase;">📋 수리유형별 매출</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);border-radius:12px;padding:16px;text-align:center;">
+          <div style="font-size:11px;color:#34d399;font-weight:600;margin-bottom:6px;">단일 수리</div>
+          <div style="font-size:22px;font-weight:800;color:#34d399;">${singleList.length}건</div>
+          <div style="font-size:13px;font-weight:600;margin-top:4px;">${fmt(singleFee)}원</div>
+          <div style="font-size:11px;opacity:.5;margin-top:4px;">${singlePct5}% 비중</div>
+        </div>
+        <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:16px;text-align:center;">
+          <div style="font-size:11px;color:#fbbf24;font-weight:600;margin-bottom:6px;">복합 수리</div>
+          <div style="font-size:22px;font-weight:800;color:#fbbf24;">${multiList.length}건</div>
+          <div style="font-size:13px;font-weight:600;margin-top:4px;">${fmt(multiFee)}원</div>
+          <div style="font-size:11px;opacity:.5;margin-top:4px;">${multiPct5}% 비중</div>
+        </div>
+      </div>
+      <!-- 비율 바 -->
+      <div style="margin-top:14px;background:rgba(255,255,255,.1);border-radius:6px;height:10px;overflow:hidden;">
+        <div style="height:10px;background:linear-gradient(90deg,#34d399 ${singlePct5}%,#fbbf24 ${singlePct5}%);"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;opacity:.5;">
+        <span>단일 ${singlePct5}%</span><span>복합 ${multiPct5}%</span>
+      </div>
+    </div>
+  </div>`;
+
   if(el) el.innerHTML = h;
 }
 
