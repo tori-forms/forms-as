@@ -3323,15 +3323,6 @@ function _startClientMode() {
     document.querySelectorAll('#svtab-dash,#svtab-analysis,#svtab-list').forEach(b=>{
       if(b) b.style.display='none';
     });
-    // 기간 필터 카드: 가로 스크롤 제거, flex-wrap 유지
-    const filterCard = document.querySelector('#tab-shipview .card');
-    if(filterCard) {
-      filterCard.style.overflowX = 'visible';
-      filterCard.style.overflowY = 'visible';
-    }
-    // 필터 버튼 row에 wrap 보장
-    const filterRows = document.querySelectorAll('#tab-shipview .card > div');
-    filterRows.forEach(r => { r.style.flexWrap = 'wrap'; });
   }
 
   // 데이터 로드 후 렌더
