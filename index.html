@@ -223,6 +223,55 @@ tr:hover td{background:var(--surface2);}
   .sv-query-pc{display:none!important;}
 }
 
+/* ── 고객사 대시보드 라이트 모드 ── */
+#tab-shipview.sv-light { background:var(--bg); }
+#tab-shipview.sv-light .sv-dark-card {
+  background:#ffffff !important;
+  border:1px solid #e2e8f0 !important;
+  color:#1a1916 !important;
+}
+#tab-shipview.sv-light .sv-stat-card {
+  background:#f8fafc !important;
+  border:1px solid #e2e8f0 !important;
+}
+#tab-shipview.sv-light .sv-stat-main,
+#tab-shipview.sv-light .sv-stat-val { color:#1a1916 !important; }
+/* 수리분석 탭 추가 차트 라이트모드 */
+#tab-shipview.sv-light #shipview-analysis-extra [style*="linear-gradient(135deg,#0f172a"] {
+  background:linear-gradient(135deg,#f8fafc,#f1f5f9) !important;
+  border-color:#e2e8f0 !important;
+  color:#1a1916 !important;
+}
+#tab-shipview.sv-light #shipview-analysis-extra [style*="rgba(255,255,255,.1)"] {
+  background:rgba(0,0,0,.05) !important;
+}
+#tab-shipview.sv-light #shipview-analysis-extra [style*="rgba(255,255,255,.8)"],
+#tab-shipview.sv-light #shipview-analysis-extra [style*="rgba(255,255,255,.7)"],
+#tab-shipview.sv-light #shipview-analysis-extra [style*="rgba(255,255,255,.6)"],
+#tab-shipview.sv-light #shipview-analysis-extra [style*="rgba(255,255,255,.5)"] {
+  color:rgba(0,0,0,.65) !important;
+}
+/* 필터 카드 라이트모드 */
+#tab-shipview.sv-light > div[style*="border:1px solid var(--border)"] {
+  background:#fff !important;
+}
+/* 테마 토글 버튼 */
+.sv-theme-btn {
+  display:none;
+  background:rgba(255,255,255,.15);
+  border:1px solid rgba(255,255,255,.3);
+  color:#fff;
+  border-radius:6px;
+  padding:4px 12px;
+  font-size:13px;
+  cursor:pointer;
+  transition:background .15s;
+  font-family:'Noto Sans KR',sans-serif;
+}
+.sv-theme-btn:hover { background:rgba(255,255,255,.25); }
+.sv-light .sv-theme-btn { background:rgba(0,0,0,.08); border-color:rgba(0,0,0,.2); color:#1a1916; }
+.sv-light .sv-theme-btn:hover { background:rgba(0,0,0,.15); }
+
 /* ── 고객사 모바일 전용 하단 탭바 ── */
 .client-bottom-nav{
   display:none;
@@ -761,7 +810,8 @@ tr:hover td{background:var(--surface2);}
   <div id="tab-shipview" class="section">
     <div class="section-header">
       <span class="section-title">📦 출고 현황</span>
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="sv-theme-btn" class="btn btn-sm" onclick="toggleSvTheme()" style="font-size:16px;padding:0 10px;height:34px;display:none;" title="라이트/다크 모드">🌙</button>
         <button class="btn btn-sm btn-primary" onclick="exportShipviewXlsx()">엑셀 내보내기</button>
       </div>
     </div>
@@ -1320,6 +1370,34 @@ function getRangeEntries() {
 
 /* 알림 */
 let nt;
+function toggleSvTheme() {
+  const tab = document.getElementById('tab-shipview');
+  const btn = document.getElementById('sv-theme-btn');
+  const isLight = tab && tab.classList.contains('sv-light');
+  if(tab) tab.classList.toggle('sv-light', !isLight);
+  if(btn) btn.textContent = isLight ? '🌙' : '☀️';
+  window.svLightMode = !isLight;
+  localStorage.setItem('svTheme', !isLight ? 'light' : 'dark');
+  // 차트 재렌더
+  renderShipDashboard(getFilteredShipHistory().map(x=>{
+    const e=entries.find(en=>String(en.serial)===String(x.serial));
+    return {...x,entry:e,fee:x.fee?Number(x.fee):(e?Number(e.total):0),works:e?parseWorks(e.works):[]};
+  }));
+  renderShipExtraCharts();
+}
+// 저장된 테마 복원
+window.svLightMode = false;
+(function(){
+  const saved = localStorage.getItem('svTheme');
+  if(saved === 'light') {
+    window.svLightMode = true;
+    const tab = document.getElementById('tab-shipview');
+    if(tab) tab.classList.add('sv-light');
+    const btn = document.getElementById('sv-theme-btn');
+    if(btn) btn.textContent = '☀️';
+  }
+})();
+
 function notify(msg, type='success') {
   const el = document.getElementById('notif');
   el.textContent = msg; el.className = `notif ${type} show`;
@@ -3345,6 +3423,21 @@ function _startClientMode() {
   document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
   const shipviewTab = document.getElementById('tab-shipview');
   if(shipviewTab) { shipviewTab.style.display = 'block'; shipviewTab.classList.add('active'); }
+
+  // 테마 토글 버튼 표시 (고객사 모드에서만)
+  const themeBtn = document.getElementById('sv-theme-btn');
+  if(themeBtn) {
+    themeBtn.style.display = 'inline-flex';
+    themeBtn.style.alignItems = 'center';
+    // 저장된 테마 적용
+    const savedTheme = localStorage.getItem('svTheme');
+    if(savedTheme === 'light') {
+      shipviewTab.classList.add('sv-light');
+      themeBtn.textContent = '☀️';
+    } else {
+      themeBtn.textContent = '🌙';
+    }
+  }
 
   // 모바일이면 하단 탭바 표시, 서브탭 버튼 숨김
   if(window.innerWidth <= 640) {
@@ -5832,6 +5925,19 @@ function renderShipExtraCharts() {
   const list = getFilteredShipHistory();
   if(!list.length) { el.innerHTML = ''; return; }
 
+  // 테마 색상
+  const lm = !!window.svLightMode;
+  const T = {
+    cardBg:   lm ? '#ffffff'                   : 'linear-gradient(135deg,#0f172a,#1e293b)',
+    cardBorder: lm ? '1px solid #e2e8f0'       : '1px solid rgba(255,255,255,.1)',
+    color:    lm ? '#1a1916'                   : '#fff',
+    muted:    lm ? 'rgba(0,0,0,.55)'           : 'rgba(255,255,255,.6)',
+    label:    lm ? 'rgba(0,0,0,.4)'            : 'rgba(255,255,255,.5)',
+    barBg:    lm ? 'rgba(0,0,0,.07)'           : 'rgba(255,255,255,.1)',
+    divider:  lm ? '1px solid rgba(0,0,0,.06)' : '1px solid rgba(255,255,255,.07)',
+    countBg:  lm ? '#f1f5f9'                   : 'rgba(255,255,255,.07)',
+  };
+
   const mapped = list.map(x => {
     const e = entries.find(en => String(en.serial) === String(x.serial));
     const fee = x.fee ? Number(x.fee) : (e ? Number(e.total) : 0);
@@ -5857,10 +5963,10 @@ function renderShipExtraCharts() {
     const colors = { Q1:'#60a5fa', Q2:'#34d399', Q3:'#f59e0b', Q4:'#c084fc' };
     return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;">
       <div style="font-size:13px;font-weight:700;color:${colors[q]};width:24px;flex-shrink:0;">${q}</div>
-      <div style="flex:1;background:rgba(255,255,255,.1);border-radius:4px;height:18px;min-width:0;overflow:hidden;">
+      <div style="flex:1;background:${T.barBg};border-radius:4px;height:18px;min-width:0;overflow:hidden;">
         <div style="height:18px;background:${colors[q]};border-radius:4px;width:${w}%;transition:width .6s;"></div>
       </div>
-      <div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.8);width:36px;text-align:right;flex-shrink:0;">${cnt}건</div>
+      <div style="font-size:12px;font-weight:700;color:${T.muted};width:36px;text-align:right;flex-shrink:0;">${cnt}건</div>
     </div>`;
   }).join('');
 
@@ -5876,12 +5982,12 @@ function renderShipExtraCharts() {
   const mfgBars = mfgMonths.map(m => {
     const cnt = mfgMonthMap[m];
     const w = Math.round(cnt/maxMfg*100);
-    return `<div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);">
-      <div style="font-size:11px;color:rgba(255,255,255,.6);width:70px;flex-shrink:0;">${m}</div>
-      <div style="flex:1;background:rgba(255,255,255,.1);border-radius:3px;height:14px;">
+    return `<div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:${T.divider};">
+      <div style="font-size:11px;color:${T.muted};width:70px;flex-shrink:0;">${m}</div>
+      <div style="flex:1;background:${T.barBg};border-radius:3px;height:14px;">
         <div style="height:14px;background:linear-gradient(90deg,#06b6d4,#3b82f6);border-radius:3px;width:${w}%;"></div>
       </div>
-      <div style="font-size:11px;font-weight:700;color:#93c5fd;width:28px;text-align:right;">${cnt}</div>
+      <div style="font-size:11px;font-weight:700;color:#3b82f6;width:28px;text-align:right;">${cnt}</div>
     </div>`;
   }).join('');
 
@@ -5913,12 +6019,12 @@ function renderShipExtraCharts() {
       if(label==='2개 항목') return x.works.length===2;
       return x.works.length>=3;
     }).reduce((s,x)=>s+x.fee,0);
-    return `<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,.07);">
+    return `<div style="padding:10px 0;border-bottom:${T.divider};">
       <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
         <span style="font-size:12px;font-weight:600;color:${cxColors[label]};">${label}</span>
-        <span style="font-size:12px;color:rgba(255,255,255,.6);">${cnt}건 · ${fmt(revenue)}원</span>
+        <span style="font-size:12px;color:${T.muted};">${cnt}건 · ${fmt(revenue)}원</span>
       </div>
-      <div style="background:rgba(255,255,255,.1);border-radius:4px;height:10px;">
+      <div style="background:${T.barBg};border-radius:4px;height:10px;">
         <div style="height:10px;background:${cxColors[label]};border-radius:4px;width:${w}%;"></div>
       </div>
     </div>`;
@@ -5935,57 +6041,57 @@ function renderShipExtraCharts() {
 
   el.innerHTML = `
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px;">
-    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:20px;color:#fff;">
-      <div style="font-size:11px;font-weight:600;opacity:.5;letter-spacing:.5px;margin-bottom:14px;text-transform:uppercase;">📊 분기별 물량 분포</div>
+    <div style="background:${T.cardBg};${T.cardBorder};border-radius:16px;padding:20px;color:${T.color};">
+      <div style="font-size:11px;font-weight:600;color:${T.label};letter-spacing:.5px;margin-bottom:14px;text-transform:uppercase;">📊 분기별 물량 분포</div>
       ${mapped.length===0?'<div style="opacity:.4;font-size:12px;">데이터 없음</div>':quarterBars}
     </div>
-    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:20px;color:#fff;max-height:280px;overflow-y:auto;">
-      <div style="font-size:11px;font-weight:600;opacity:.5;letter-spacing:.5px;margin-bottom:14px;text-transform:uppercase;">📈 제조년월별 작업 추이</div>
+    <div style="background:${T.cardBg};${T.cardBorder};border-radius:16px;padding:20px;color:${T.color};max-height:280px;overflow-y:auto;">
+      <div style="font-size:11px;font-weight:600;color:${T.label};letter-spacing:.5px;margin-bottom:14px;text-transform:uppercase;">📈 제조년월별 작업 추이</div>
       ${mfgMonths.length===0?'<div style="opacity:.4;font-size:12px;">데이터 없음</div>':mfgBars}
     </div>
-    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:20px;color:#fff;">
-      <div style="font-size:11px;font-weight:600;opacity:.5;letter-spacing:.5px;margin-bottom:16px;text-transform:uppercase;">💰 비용 구조 분석</div>
+    <div style="background:${T.cardBg};${T.cardBorder};border-radius:16px;padding:20px;color:${T.color};">
+      <div style="font-size:11px;font-weight:600;color:${T.label};letter-spacing:.5px;margin-bottom:16px;text-transform:uppercase;">💰 비용 구조 분석</div>
       <div style="margin-bottom:14px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-          <span style="font-size:12px;color:#fbbf24;font-weight:600;">공임비</span>
-          <span style="font-size:12px;color:rgba(255,255,255,.7);">${fmt(totalFee3)}원 (${feePct}%)</span>
+          <span style="font-size:12px;color:#f59e0b;font-weight:600;">공임비</span>
+          <span style="font-size:12px;color:${T.muted};">${fmt(totalFee3)}원 (${feePct}%)</span>
         </div>
-        <div style="background:rgba(255,255,255,.1);border-radius:4px;height:14px;">
-          <div style="height:14px;background:#fbbf24;border-radius:4px;width:${feePct}%;"></div>
+        <div style="background:${T.barBg};border-radius:4px;height:14px;">
+          <div style="height:14px;background:#f59e0b;border-radius:4px;width:${feePct}%;"></div>
         </div>
       </div>
       <div style="margin-bottom:18px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-          <span style="font-size:12px;color:#34d399;font-weight:600;">부품비</span>
-          <span style="font-size:12px;color:rgba(255,255,255,.7);">${totalParts3?fmt(totalParts3)+'원':'-'} (${partsPct}%)</span>
+          <span style="font-size:12px;color:#10b981;font-weight:600;">부품비</span>
+          <span style="font-size:12px;color:${T.muted};">${totalParts3?fmt(totalParts3)+'원':'-'} (${partsPct}%)</span>
         </div>
-        <div style="background:rgba(255,255,255,.1);border-radius:4px;height:14px;">
-          <div style="height:14px;background:#34d399;border-radius:4px;width:${partsPct}%;"></div>
+        <div style="background:${T.barBg};border-radius:4px;height:14px;">
+          <div style="height:14px;background:#10b981;border-radius:4px;width:${partsPct}%;"></div>
         </div>
       </div>
-      <div style="background:rgba(255,255,255,.07);border-radius:10px;padding:12px;text-align:center;">
-        <div style="font-size:10px;opacity:.5;margin-bottom:4px;">합계</div>
-        <div style="font-size:18px;font-weight:800;">${fmt(totalFee3+totalParts3)}<span style="font-size:11px;font-weight:400;opacity:.7;">원</span></div>
+      <div style="background:${T.countBg};border-radius:10px;padding:12px;text-align:center;">
+        <div style="font-size:10px;color:${T.muted};margin-bottom:4px;">합계</div>
+        <div style="font-size:18px;font-weight:800;color:${T.color};">${fmt(totalFee3+totalParts3)}<span style="font-size:11px;font-weight:400;opacity:.7;">원</span></div>
       </div>
     </div>
-    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:20px;color:#fff;">
-      <div style="font-size:11px;font-weight:600;opacity:.5;letter-spacing:.5px;margin-bottom:14px;text-transform:uppercase;">🔩 수리 복잡도 분석</div>
+    <div style="background:${T.cardBg};${T.cardBorder};border-radius:16px;padding:20px;color:${T.color};">
+      <div style="font-size:11px;font-weight:600;color:${T.label};letter-spacing:.5px;margin-bottom:14px;text-transform:uppercase;">🔩 수리 복잡도 분석</div>
       ${cxBars}
     </div>
-    <div style="grid-column:1/-1;background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:20px;color:#fff;">
-      <div style="font-size:11px;font-weight:600;opacity:.5;letter-spacing:.5px;margin-bottom:16px;text-transform:uppercase;">📋 수리유형별 매출</div>
+    <div style="grid-column:1/-1;background:${T.cardBg};${T.cardBorder};border-radius:16px;padding:20px;color:${T.color};">
+      <div style="font-size:11px;font-weight:600;color:${T.label};letter-spacing:.5px;margin-bottom:16px;text-transform:uppercase;">📋 수리유형별 매출</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);border-radius:12px;padding:16px;text-align:center;">
-          <div style="font-size:11px;color:#34d399;font-weight:600;margin-bottom:6px;">단일 수리</div>
-          <div style="font-size:22px;font-weight:800;color:#34d399;">${singleList.length}건</div>
-          <div style="font-size:13px;font-weight:600;margin-top:4px;">${fmt(singleFee)}원</div>
-          <div style="font-size:11px;opacity:.5;margin-top:4px;">${singlePct5}% 비중</div>
+          <div style="font-size:11px;color:#10b981;font-weight:600;margin-bottom:6px;">단일 수리</div>
+          <div style="font-size:22px;font-weight:800;color:#10b981;">${singleList.length}건</div>
+          <div style="font-size:13px;font-weight:600;color:${T.color};margin-top:4px;">${fmt(singleFee)}원</div>
+          <div style="font-size:11px;color:${T.muted};margin-top:4px;">${singlePct5}% 비중</div>
         </div>
         <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:16px;text-align:center;">
-          <div style="font-size:11px;color:#fbbf24;font-weight:600;margin-bottom:6px;">복합 수리</div>
-          <div style="font-size:22px;font-weight:800;color:#fbbf24;">${multiList.length}건</div>
-          <div style="font-size:13px;font-weight:600;margin-top:4px;">${fmt(multiFee)}원</div>
-          <div style="font-size:11px;opacity:.5;margin-top:4px;">${multiPct5}% 비중</div>
+          <div style="font-size:11px;color:#f59e0b;font-weight:600;margin-bottom:6px;">복합 수리</div>
+          <div style="font-size:22px;font-weight:800;color:#f59e0b;">${multiList.length}건</div>
+          <div style="font-size:13px;font-weight:600;color:${T.color};margin-top:4px;">${fmt(multiFee)}원</div>
+          <div style="font-size:11px;color:${T.muted};margin-top:4px;">${multiPct5}% 비중</div>
         </div>
       </div>
     </div>
