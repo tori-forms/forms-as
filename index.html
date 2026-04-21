@@ -223,43 +223,89 @@ tr:hover td{background:var(--surface2);}
   .sv-query-pc{display:none!important;}
 }
 
+/* ── 고객사 대시보드 다크 모드 (기본) ── */
+#tab-shipview {
+  background: #0d1117;
+  min-height: 100vh;
+  padding-bottom: 40px;
+}
+/* 다크모드: 필터카드, 탭바 어둡게 */
+#tab-shipview > div[style*="var(--surface)"],
+#tab-shipview > div[style*="var(--border)"] {
+  background: #161b22 !important;
+  border-color: rgba(255,255,255,.1) !important;
+  color: #fff !important;
+}
+#tab-shipview .btn {
+  background: rgba(255,255,255,.08) !important;
+  border-color: rgba(255,255,255,.15) !important;
+  color: rgba(255,255,255,.8) !important;
+}
+#tab-shipview .btn.btn-primary,
+#tab-shipview .btn-primary {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+}
+#tab-shipview input[type="date"] {
+  background: rgba(255,255,255,.07) !important;
+  border-color: rgba(255,255,255,.15) !important;
+  color: rgba(255,255,255,.85) !important;
+  color-scheme: dark;
+}
+/* 섹션헤더 */
+#tab-shipview .section-header {
+  background: transparent !important;
+}
+#tab-shipview .section-title { color: #fff !important; }
+
 /* ── 고객사 대시보드 라이트 모드 ── */
-#tab-shipview.sv-light { background:var(--bg); }
+#tab-shipview.sv-light {
+  background: #f0f2f5;
+}
+#tab-shipview.sv-light > div[style*="var(--surface)"],
+#tab-shipview.sv-light > div[style*="var(--border)"] {
+  background: #ffffff !important;
+  border-color: #d1d9e0 !important;
+  color: #1a1916 !important;
+}
+#tab-shipview.sv-light .btn {
+  background: #fff !important;
+  border-color: #d1d9e0 !important;
+  color: #374151 !important;
+}
+#tab-shipview.sv-light .btn.btn-primary,
+#tab-shipview.sv-light .btn-primary {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+}
+#tab-shipview.sv-light input[type="date"] {
+  background: #fff !important;
+  border-color: #d1d9e0 !important;
+  color: #1a1916 !important;
+  color-scheme: light;
+}
+#tab-shipview.sv-light .section-title { color: #1a1916 !important; }
 #tab-shipview.sv-light .sv-dark-card {
   background:#ffffff !important;
-  border:1px solid #e2e8f0 !important;
+  border:1px solid #d1d9e0 !important;
   color:#1a1916 !important;
+  box-shadow:0 1px 4px rgba(0,0,0,.06) !important;
 }
 #tab-shipview.sv-light .sv-stat-card {
-  background:#f8fafc !important;
-  border:1px solid #e2e8f0 !important;
+  background:#f6f8fa !important;
+  border:1px solid #d1d9e0 !important;
 }
 #tab-shipview.sv-light .sv-stat-main,
 #tab-shipview.sv-light .sv-stat-val { color:#1a1916 !important; }
-/* 수리분석 탭 추가 차트 라이트모드 */
-#tab-shipview.sv-light #shipview-analysis [style*="background:${T.cardBg}"],
+
+/* 수리분석 + 수리분석 차트: 라이트모드에서 카드 테두리/그림자 */
 #tab-shipview.sv-light #shipview-analysis > div,
 #tab-shipview.sv-light #shipview-analysis-extra > div > div {
-  box-shadow: 0 1px 4px rgba(0,0,0,.08), 0 0 0 1px #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0,0,0,.07), 0 0 0 1px #d1d9e0 !important;
 }
-#tab-shipview.sv-light #shipview-analysis-extra [style*="linear-gradient(135deg,#0f172a"] {
-  background:linear-gradient(135deg,#f8fafc,#f1f5f9) !important;
-  border-color:#e2e8f0 !important;
-  color:#1a1916 !important;
-}
-#tab-shipview.sv-light #shipview-analysis-extra [style*="rgba(255,255,255,.1)"] {
-  background:rgba(0,0,0,.05) !important;
-}
-#tab-shipview.sv-light #shipview-analysis-extra [style*="rgba(255,255,255,.8)"],
-#tab-shipview.sv-light #shipview-analysis-extra [style*="rgba(255,255,255,.7)"],
-#tab-shipview.sv-light #shipview-analysis-extra [style*="rgba(255,255,255,.6)"],
-#tab-shipview.sv-light #shipview-analysis-extra [style*="rgba(255,255,255,.5)"] {
-  color:rgba(0,0,0,.65) !important;
-}
-/* 필터 카드 라이트모드 */
-#tab-shipview.sv-light > div[style*="border:1px solid var(--border)"] {
-  background:#fff !important;
-}
+
 /* 테마 토글 버튼 */
 .sv-theme-btn {
   display:none;
@@ -276,6 +322,8 @@ tr:hover td{background:var(--surface2);}
 .sv-theme-btn:hover { background:rgba(255,255,255,.25); }
 .sv-light .sv-theme-btn { background:rgba(0,0,0,.08); border-color:rgba(0,0,0,.2); color:#1a1916; }
 .sv-light .sv-theme-btn:hover { background:rgba(0,0,0,.15); }
+
+
 
 /* ── 고객사 모바일 전용 하단 탭바 ── */
 .client-bottom-nav{
@@ -2284,8 +2332,13 @@ function switchSvTab(tab) {
   if(analysis) analysis.style.display = tab === 'analysis' ? 'block' : 'none';
   if(extra) extra.style.display = tab === 'analysis' ? 'block' : 'none';
 
-  const activeStyle = 'padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--accent);';
-  const inactiveStyle = 'padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text2);';
+  const isLight = document.getElementById('tab-shipview')?.classList.contains('sv-light');
+  const activeStyle = isLight
+    ? 'padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--accent);'
+    : 'padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid #60a5fa;margin-bottom:-2px;color:#60a5fa;';
+  const inactiveStyle = isLight
+    ? 'padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:#4b5563;'
+    : 'padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:rgba(255,255,255,.5);';
   if(dashBtn) dashBtn.style.cssText = tab === 'dash' ? activeStyle : inactiveStyle;
   if(listBtn) listBtn.style.cssText = tab === 'list' ? activeStyle : inactiveStyle;
   if(analysisBtn) analysisBtn.style.cssText = tab === 'analysis' ? activeStyle : inactiveStyle;
@@ -2962,8 +3015,15 @@ function renderShipAnalysis() {
       const v = matrix[a][b];
       const isSelf = a === b;
       const intensity = isSelf ? 0.35 : (v/maxMatrix*0.7);
-      const bg = isSelf ? `rgba(255,255,255,${intensity})` : (v>0 ? `rgba(96,165,250,${intensity+0.1})` : '${window.svLightMode ? "rgba(0,0,0,.04)" : "rgba(255,255,255,.04)"}');
-      const textColor = isSelf ? 'rgba(255,255,255,.5)' : (v>0 ? '#93c5fd' : '${T.textTiny}');
+      const lm2 = window.svLightMode;
+      const bg = isSelf
+        ? (lm2 ? 'rgba(0,0,0,.06)' : `rgba(255,255,255,${intensity})`)
+        : (v>0
+          ? (lm2 ? `rgba(37,99,235,${intensity+0.25})` : `rgba(96,165,250,${intensity+0.1})`)
+          : (lm2 ? 'rgba(0,0,0,.03)' : 'rgba(255,255,255,.04)'));
+      const textColor = isSelf
+        ? (lm2 ? '#6b7280' : 'rgba(255,255,255,.5)')
+        : (v>0 ? (lm2 ? '#1e40af' : '#93c5fd') : '${T.textTiny}');
       return `<div style="background:${bg};border-radius:6px;padding:8px 4px;text-align:center;">
         <div style="font-size:15px;font-weight:800;color:${textColor};">${v}</div>
         <div style="font-size:9px;opacity:.4;">건</div>
