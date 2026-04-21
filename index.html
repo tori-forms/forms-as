@@ -1403,6 +1403,7 @@ function getSvTheme() {
     barBg:        L ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.1)',
     barBg2:       L ? 'rgba(0,0,0,.05)' : 'rgba(255,255,255,.07)',
     divider:      L ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.08)',
+    barBlue:      L ? 'linear-gradient(90deg,#3b82f6,#2563eb)' : 'linear-gradient(90deg,#60a5fa,#3b82f6)',
     // stat 카드
     statCard:     L ? 'rgba(0,0,0,.04)' : 'rgba(255,255,255,.07)',
     statBorder:   L ? 'rgba(0,0,0,.1)'  : 'rgba(255,255,255,.1)',
@@ -1415,9 +1416,13 @@ function getSvTheme() {
     savedGreen:   L ? 'rgba(5,150,105,.15)' : 'rgba(134,239,172,.15)',
     savedGreenBd: L ? 'rgba(5,150,105,.4)'  : 'rgba(134,239,172,.4)',
     savedGreenTxt:L ? '#065f46' : '#86efac',
-    // 범례/기타
+    // 범례
     legendLabel:  L ? '#374151' : 'rgba(255,255,255,.8)',
-    barBlue:      L ? 'linear-gradient(90deg,#3b82f6,#2563eb)' : 'linear-gradient(90deg,#60a5fa,#3b82f6)',
+    // 수리항목 색상 (비교표에서 사용)
+    pcb:          '#3b82f6',
+    panel:        '#10b981',
+    board:        '#a855f7',
+    wash:         '#94a3b8',
   };
 }
 // 저장된 테마 복원
@@ -3468,9 +3473,11 @@ function _startClientMode() {
     // 저장된 테마 적용
     const savedTheme = localStorage.getItem('svTheme');
     if(savedTheme === 'light') {
+      window.svLightMode = true;
       shipviewTab.classList.add('sv-light');
       themeBtn.textContent = '☀️';
     } else {
+      window.svLightMode = false;
       themeBtn.textContent = '🌙';
     }
   }
