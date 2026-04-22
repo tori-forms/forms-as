@@ -256,7 +256,7 @@ tr:hover td{background:var(--surface2);}
 .empty-icon{font-size:32px;margin-bottom:10px;}
 .mono{font-family:'JetBrains Mono',monospace;font-size:12px;}
 
-.notif{position:fixed;bottom:24px;right:24px;background:var(--text);color:#fff;padding:12px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;box-shadow:var(--shadow-md);z-index:9999;transform:translateY(80px);opacity:0;transition:all .25s cubic-bezier(.34,1.56,.64,1);pointer-events:none;white-space:pre-line;line-height:1.6;}
+.notif{position:fixed;bottom:24px;right:24px;background:#1f2937;color:#fff;padding:12px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;box-shadow:var(--shadow-md);z-index:9999;transform:translateY(80px);opacity:0;transition:all .25s cubic-bezier(.34,1.56,.64,1);pointer-events:none;white-space:pre-line;line-height:1.6;border:1px solid rgba(255,255,255,.08);}
 .notif.show{transform:translateY(0);opacity:1;}
 .notif.success{background:var(--green);}
 .notif.error{background:var(--red);}
@@ -311,7 +311,7 @@ tr:hover td{background:var(--surface2);}
 
 @keyframes confettiFall{0%{transform:translateY(0) rotate(0deg);opacity:1;}100%{transform:translateY(105vh) rotate(720deg);opacity:0;}}
 /* 축하 토스트 */
-.cheer-toast{position:fixed;top:80px;left:50%;transform:translateX(-50%) translateY(-120px);background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:16px 24px;box-shadow:var(--shadow-md);z-index:9998;opacity:0;transition:all .4s cubic-bezier(.34,1.56,.64,1);text-align:center;min-width:260px;pointer-events:none;}
+.cheer-toast{position:fixed;top:80px;left:50%;transform:translateX(-50%) translateY(-120px);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 24px;box-shadow:var(--shadow-md);z-index:9998;opacity:0;transition:all .4s cubic-bezier(.34,1.56,.64,1);text-align:center;min-width:260px;pointer-events:none;}
 .cheer-toast.show{transform:translateX(-50%) translateY(0);opacity:1;}
 .cheer-emoji{font-size:32px;margin-bottom:6px;}
 .cheer-name{font-size:16px;font-weight:700;color:var(--text);margin-bottom:2px;}
