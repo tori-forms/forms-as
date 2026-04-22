@@ -20,6 +20,11 @@
   --radius:12px;--radius-sm:8px;
   --shadow:0 1px 4px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
   --shadow-md:0 4px 16px rgba(0,0,0,.09),0 2px 4px rgba(0,0,0,.05);
+  /* 출고현황 전용 토큰 */
+  --sv-bg:#f4f5f7;--sv-surface:#ffffff;--sv-surface2:#f1f3f6;
+  --sv-border:#e5e7eb;--sv-text:#0f172a;--sv-text2:#475569;--sv-text3:#94a3b8;
+  --sv-shadow:0 1px 2px rgba(15,23,42,.04),0 4px 12px -4px rgba(15,23,42,.08);
+  --sv-shadow-md:0 4px 16px -4px rgba(15,23,42,.1);
 }
 /* 다크 모드 */
 html[data-theme="dark"], body.dark {
@@ -32,6 +37,11 @@ html[data-theme="dark"], body.dark {
   --red:#f87171;--red-bg:rgba(248,113,113,.1);--red-text:#fca5a5;
   --shadow:0 1px 4px rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.2);
   --shadow-md:0 4px 16px rgba(0,0,0,.4),0 2px 4px rgba(0,0,0,.3);
+  /* 출고현황 전용 다크 토큰 */
+  --sv-bg:#0a0a0b;--sv-surface:#141416;--sv-surface2:#1c1c1f;
+  --sv-border:rgba(255,255,255,.08);--sv-text:#f3f4f6;--sv-text2:#9ca3af;--sv-text3:#6b7280;
+  --sv-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 4px 16px -6px rgba(0,0,0,.7);
+  --sv-shadow-md:0 1px 0 rgba(255,255,255,.05) inset,0 8px 28px -12px rgba(0,0,0,.75);
   color-scheme:dark;
 }
 /* 다크모드 헤더 */
@@ -431,6 +441,330 @@ tr:hover td{background:var(--surface2);}
 .sv-light .sv-theme-btn { background: rgba(0,0,0,.07); border-color: #d1d9e0; color: #374151; }
 .sv-light .sv-theme-btn:hover { background: rgba(0,0,0,.12); }
 
+
+
+/* sv-dark-card — 이름만 dark일 뿐 라이트/다크 다 적용 */
+#tab-shipview .sv-dark-card,
+.sv-dark-card{
+  background:var(--sv-surface)!important;
+  border:1px solid var(--sv-border)!important;
+  color:var(--sv-text)!important;
+  box-shadow:var(--sv-shadow-md)!important;
+  border-radius:var(--radius)!important;
+}
+
+/* sv-dark-card 내부 stat card */
+#tab-shipview .sv-stat-card,
+.sv-stat-card{
+  background:var(--sv-surface2)!important;
+  border:1px solid var(--sv-border)!important;
+  color:var(--sv-text)!important;
+  border-radius:var(--radius-md)!important;
+}
+#tab-shipview .sv-stat-main,#tab-shipview .sv-stat-val,
+.sv-stat-main,.sv-stat-val{color:var(--sv-text)!important;}
+#tab-shipview .sv-stat-label{color:var(--sv-text3)!important;}
+
+/* 분석 블록 */
+#tab-shipview #shipview-analysis > div,
+#tab-shipview #shipview-analysis-extra > div > div{
+  background:var(--sv-surface)!important;
+  border:1px solid var(--sv-border)!important;
+  color:var(--sv-text)!important;
+  box-shadow:var(--sv-shadow)!important;
+  border-radius:var(--radius)!important;
+}
+
+/* sv-dark-card 내부의 opacity-낮은 텍스트 (.7, .6) — 테마에 맞게 */
+#tab-shipview [style*="opacity:.7"],
+#tab-shipview [style*="opacity: .7"],
+#tab-shipview [style*="opacity:.6"],
+#tab-shipview [style*="opacity: .6"]{
+  color:var(--sv-text2)!important;
+  opacity:1!important;
+}
+
+/* sv-dark-card 내부 하드코드 색상들 톤다운 */
+#tab-shipview [style*="color:#fff"],
+#tab-shipview [style*="color: #fff"]{
+  color:var(--sv-text)!important;
+}
+
+/* 특정 tint 배경 (bar 차트, 월별 추이 등) */
+#tab-shipview [style*="background:rgba(96,165,250"],
+#tab-shipview [style*="background: rgba(96,165,250"]{
+  background:var(--accent-bg)!important;color:var(--accent-text)!important;
+}
+
+/* 숨기기: 기존 sv-theme-btn은 이제 전역 테마 토글 하나로 통일 */
+.sv-theme-btn{display:none!important;}
+
+/* ════════════════════════════════════════════════════════════════════
+   SHIPVIEW DARK MODE · 인라인 라이트 팔레트 오버라이드
+   (sv-dark-card 내부 stat 카드들이 인라인으로 라이트 배경 사용 중)
+   ════════════════════════════════════════════════════════════════════ */
+
+/* 다크일 때만: 인라인으로 칠해진 밝은 tint 배경들을 어둡게 */
+[data-theme="dark"] #tab-shipview [style*="background:#ede9fe"]{background:rgba(167,139,250,.12)!important;}
+[data-theme="dark"] #tab-shipview [style*="background:#fef9c3"]{background:rgba(251,191,36,.12)!important;}
+[data-theme="dark"] #tab-shipview [style*="background:#f0fdf4"]{background:rgba(74,222,128,.12)!important;}
+[data-theme="dark"] #tab-shipview [style*="background:#fef2f2"]{background:rgba(248,113,113,.12)!important;}
+[data-theme="dark"] #tab-shipview [style*="background:#eff6ff"]{background:rgba(96,165,250,.12)!important;}
+[data-theme="dark"] #tab-shipview [style*="background:#fff7ed"]{background:rgba(251,146,60,.12)!important;}
+[data-theme="dark"] #tab-shipview [style*="background:#dce3ec"]{background:rgba(255,255,255,.06)!important;}
+[data-theme="dark"] #tab-shipview [style*="background:#d1d8e3"]{background:rgba(255,255,255,.08)!important;}
+[data-theme="dark"] #tab-shipview [style*="background:#edf0f5"]{background:rgba(255,255,255,.05)!important;}
+[data-theme="dark"] #tab-shipview [style*="background:#ffffff"]{background:var(--sv-surface2)!important;}
+[data-theme="dark"] #tab-shipview [style*="background: #fff"]{background:var(--sv-surface2)!important;}
+[data-theme="dark"] #tab-shipview [style*="background:#fff;"]{background:var(--sv-surface2)!important;}
+[data-theme="dark"] #tab-shipview [style*="background:rgba(0,0,0,.07)"]{background:rgba(255,255,255,.06)!important;}
+[data-theme="dark"] #tab-shipview [style*="background:rgba(0,0,0,.04)"]{background:rgba(255,255,255,.04)!important;}
+
+/* 다크 텍스트가 밝은 카드에 올라오는 경우 — 밝게 */
+[data-theme="dark"] #tab-shipview [style*="color:#111827"]{color:var(--sv-text)!important;}
+[data-theme="dark"] #tab-shipview [style*="color:#1a1916"]{color:var(--sv-text)!important;}
+[data-theme="dark"] #tab-shipview [style*="color:#374151"]{color:var(--sv-text2)!important;}
+[data-theme="dark"] #tab-shipview [style*="color:#4b5563"]{color:var(--sv-text2)!important;}
+[data-theme="dark"] #tab-shipview [style*="color:#6b7280"]{color:var(--sv-text3)!important;}
+[data-theme="dark"] #tab-shipview [style*="color:rgba(0,0,0,.55)"]{color:var(--sv-text2)!important;}
+[data-theme="dark"] #tab-shipview [style*="color:rgba(0,0,0,.4)"]{color:var(--sv-text3)!important;}
+/* 진한 강조색 텍스트 → 다크에 맞는 밝은 톤으로 */
+[data-theme="dark"] #tab-shipview [style*="color:#6d28d9"]{color:#c4b5fd!important;}
+[data-theme="dark"] #tab-shipview [style*="color:#854d0e"]{color:#fcd34d!important;}
+[data-theme="dark"] #tab-shipview [style*="color:#166534"]{color:#86efac!important;}
+[data-theme="dark"] #tab-shipview [style*="color:#14532d"]{color:#86efac!important;}
+[data-theme="dark"] #tab-shipview [style*="color:#1e40af"]{color:#93c5fd!important;}
+
+/* 바 배경 (월별 추이) */
+[data-theme="dark"] #tab-shipview [style*="background:linear-gradient(90deg,#06b6d4,#3b82f6)"]{
+  background:linear-gradient(90deg,#22d3ee,#60a5fa)!important;
+}
+[data-theme="dark"] #tab-shipview [style*="background:linear-gradient(90deg,#60a5fa,#3b82f6)"]{
+  background:linear-gradient(90deg,#7dd3fc,#60a5fa)!important;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   SHIPVIEW LIGHT MODE · 인라인 "다크" 팔레트가 있다면 라이트로
+   ════════════════════════════════════════════════════════════════════ */
+
+/* 라이트에서 어두운 인라인 배경 치환 */
+:root:not([data-theme="dark"]) #tab-shipview [style*="background:rgba(255,255,255,.1)"]{background:var(--sv-surface2)!important;}
+:root:not([data-theme="dark"]) #tab-shipview [style*="background:rgba(255,255,255,.06)"]{background:var(--sv-surface2)!important;}
+:root:not([data-theme="dark"]) #tab-shipview [style*="background:rgba(255,255,255,.08)"]{background:var(--sv-surface2)!important;}
+/* 라이트에서 흰 텍스트 → 다크 텍스트로 */
+:root:not([data-theme="dark"]) #tab-shipview .sv-dark-card [style*="color:#fff"]{color:var(--sv-text)!important;}
+:root:not([data-theme="dark"]) #tab-shipview .sv-stat-card [style*="color:#fff"]{color:var(--sv-text)!important;}
+
+/* ════════════════════════════════════════════════════════════════════
+   SHIPVIEW · 인라인 다크 그라데이션 카드 (월별 추이, 수리 항목 분포 등)
+   원본은 "무조건 다크 카드" 전제로 만들어짐 — 라이트에선 흰 카드로 치환
+   ════════════════════════════════════════════════════════════════════ */
+
+/* 라이트 모드: 다크 그라데이션 카드 → 흰 카드 */
+:root:not([data-theme="dark"]) #tab-shipview [style*="linear-gradient(135deg,#0f172a"],
+:root:not([data-theme="dark"]) #tab-shipview [style*="linear-gradient(135deg, #0f172a"],
+:root:not([data-theme="dark"]) #tab-shipview [style*="linear-gradient(135deg,rgb(15, 23, 42)"]{
+  background:var(--sv-surface)!important;
+  color:var(--sv-text)!important;
+  border:1px solid var(--sv-border)!important;
+  box-shadow:var(--sv-shadow-md)!important;
+}
+/* 위 카드 안쪽의 흰 텍스트/반투명 흰 텍스트 전부 다크 톤으로 */
+:root:not([data-theme="dark"]) #tab-shipview [style*="linear-gradient(135deg,#0f172a"] *,
+:root:not([data-theme="dark"]) #tab-shipview [style*="linear-gradient(135deg, #0f172a"] *{
+  --inherit-text-override:1;
+}
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:#fff"]{color:var(--sv-text)!important;}
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:rgba(255,255,255,.9)"],
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:rgba(255,255,255,.8)"],
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:rgba(255,255,255,.7)"]{
+  color:var(--sv-text2)!important;
+}
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:rgba(255,255,255,.6)"],
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:rgba(255,255,255,.5)"],
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:rgba(255,255,255,.4)"]{
+  color:var(--sv-text3)!important;
+}
+/* 흰 반투명 배경 (도넛 센터 등) */
+:root:not([data-theme="dark"]) #tab-shipview [style*="background:rgba(255,255,255,.1)"],
+:root:not([data-theme="dark"]) #tab-shipview [style*="background:rgba(255,255,255,.08)"],
+:root:not([data-theme="dark"]) #tab-shipview [style*="background:rgba(255,255,255,.06)"],
+:root:not([data-theme="dark"]) #tab-shipview [style*="background:rgba(255,255,255,.05)"]{
+  background:var(--sv-surface2)!important;
+}
+
+/* 절감액 하이라이트 카드 — 민트 배경에 글씨 가독성 */
+:root:not([data-theme="dark"]) #tab-shipview [style*="background:rgba(134,239,172"],
+:root:not([data-theme="dark"]) #tab-shipview [style*="background: rgba(134,239,172"]{
+  background:#d1fae5!important;
+  border-color:#34d399!important;
+}
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:#86efac"]{color:#065f46!important;}
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:#34d399"]{color:#059669!important;}
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:#4ade80"]{color:#16a34a!important;}
+
+/* 라이트에서 업체별 비교 — 좌측 2개 카드(인라인 rgba(255,255,255,.08)) */
+:root:not([data-theme="dark"]) #tab-shipview [style*="background:rgba(255,255,255,.08)"] [style*="color:"]{color:var(--sv-text)!important;}
+
+/* 다크 모드: 인라인 민트 배경은 유지, 진한 초록 텍스트만 밝게 */
+[data-theme="dark"] #tab-shipview [style*="color:#065f46"]{color:#86efac!important;}
+
+/* 다크 모드: 같은 다크 그라데이션 카드는 원래 디자인 유지 (그대로 둠) */
+
+/* 라이트 모드: 도넛차트 아래 바 라벨/퍼센트/건수 — 인라인 색상(#60a5fa, #34d399 등)은 유지 OK,
+   문제는 배경이 다크 그라데이션에서 흰색으로 바뀌면서 살짝 흐린 톤이 흰색 배경에 안 보일 수 있음 → 진하게 */
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:#60a5fa"]{color:#2563eb!important;}
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:#93c5fd"]{color:#2563eb!important;}
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:#fb923c"]{color:#ea580c!important;}
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:#c084fc"]{color:#7c3aed!important;}
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:#fcd34d"]{color:#b45309!important;}
+
+/* ── 추가 수정 (라이트/다크 통합) ─────────────────────── */
+
+/* 1. 새제품 구입 카드 / 업체별 비교 중앙 카드 — 다른 형제 카드와 배경 통일 */
+:root:not([data-theme="dark"]) #tab-shipview .sv-nb-grid > div[style*="background:rgba(255,255,255,.1)"],
+:root:not([data-theme="dark"]) #tab-shipview .sv-cmp-grid > div[style*="background:rgba(255,255,255,.1)"]{
+  background:#edf0f5!important;
+}
+[data-theme="dark"] #tab-shipview .sv-nb-grid > div[style*="background:#edf0f5"],
+[data-theme="dark"] #tab-shipview .sv-cmp-grid > div[style*="background:#edf0f5"],
+[data-theme="dark"] #tab-shipview .sv-nb-grid > div[style*="background:rgba(255,255,255,.1)"],
+[data-theme="dark"] #tab-shipview .sv-cmp-grid > div[style*="background:rgba(255,255,255,.1)"]{
+  background:rgba(255,255,255,.06)!important;
+  color:#f3f4f6!important;
+}
+
+/* 2. 월별 추이 출고건수 바 (흰 반투명 → 진한 색) */
+:root:not([data-theme="dark"]) #tab-shipview .sv-month-grid div[style*="background:rgba(255,255,255,.4)"]{
+  background:#94a3b8!important;
+}
+[data-theme="dark"] #tab-shipview .sv-month-grid div[style*="background:rgba(255,255,255,.4)"]{
+  background:rgba(255,255,255,.55)!important;
+}
+/* 월별 배경 트랙도 다크에서 약간 밝게 */
+[data-theme="dark"] #tab-shipview .sv-month-grid div[style*="background:#d1d8e3"],
+[data-theme="dark"] #tab-shipview .sv-month-grid div[style*="background:#dce3ec"]{
+  background:rgba(255,255,255,.1)!important;
+}
+
+/* 3. 다크 모드 공통 — 흰 카드 배경 치환 */
+[data-theme="dark"] #tab-shipview div[style*="background:#ffffff"],
+[data-theme="dark"] #tab-shipview div[style*="background: #ffffff"]{
+  background:#141416!important;
+  color:#f3f4f6!important;
+  border-color:rgba(255,255,255,.08)!important;
+}
+[data-theme="dark"] #tab-shipview div[style*="background:#f1f5f9"]{
+  background:rgba(255,255,255,.06)!important;
+}
+[data-theme="dark"] #tab-shipview div[style*="background:#edf0f5"]{
+  background:rgba(255,255,255,.06)!important;
+}
+
+/* 4. 다크 — 어두운 인라인 텍스트 → 밝게 */
+[data-theme="dark"] #tab-shipview [style*="color:#111827"],
+[data-theme="dark"] #tab-shipview [style*="color:#1a1916"],
+[data-theme="dark"] #tab-shipview [style*="color:#1f2937"]{
+  color:#f3f4f6!important;
+}
+[data-theme="dark"] #tab-shipview [style*="color:#374151"],
+[data-theme="dark"] #tab-shipview [style*="color:#4b5563"]{
+  color:#d1d5db!important;
+}
+[data-theme="dark"] #tab-shipview [style*="color:#6b7280"]{
+  color:#9ca3af!important;
+}
+[data-theme="dark"] #tab-shipview [style*="color:rgba(0,0,0,.55)"],
+[data-theme="dark"] #tab-shipview [style*="color:rgba(0,0,0,.5)"]{
+  color:#9ca3af!important;
+}
+[data-theme="dark"] #tab-shipview [style*="color:rgba(0,0,0,.4)"]{
+  color:#6b7280!important;
+}
+
+/* 5. 다크 — 매트릭스 4단계 채도는 JS에서 직접 색 지정 */
+
+/* 6. 발생현황 합계행 공임비/부품비 흰 글씨 — 라이트에선 다크 */
+:root:not([data-theme="dark"]) #tab-shipview div[style*="border-top:2px solid #6b7280"] div[style*="color:#fff"]{
+  color:#111827!important;
+}
+
+/* 7. 수리항목별 발생현황 — 마지막 데이터 row의 하단 선 제거 (합계 row의 top border와 겹쳐서 2줄로 보임) */
+#tab-shipview div[style*="border-top:2px solid #6b7280"]{
+  border-top-color:#cbd5e1!important;
+}
+[data-theme="dark"] #tab-shipview div[style*="border-top:2px solid #6b7280"]{
+  border-top-color:rgba(255,255,255,.2)!important;
+}
+/* 합계 직전 row의 border-bottom 제거 */
+#tab-shipview div[style*="border-top:2px solid #6b7280"]{
+  margin-top:0!important;
+  padding-top:14px!important;
+}
+/* 마지막 MB수리 row(border-bottom)와 합계 row(border-top)가 붙음 → 합계 row의 top-margin으로 약간 분리하는 대신 MB수리의 border-bottom을 제거 */
+
+/* 8. 다크 — 바 트랙(검은 반투명) 살짝 밝게 */
+[data-theme="dark"] #tab-shipview div[style*="background:rgba(0,0,0,.06)"],
+[data-theme="dark"] #tab-shipview div[style*="background:rgba(0,0,0,.07)"]{
+  background:rgba(255,255,255,.08)!important;
+}
+[data-theme="dark"] #tab-shipview div[style*="border-bottom:1px solid #d1d9e0"]{
+  border-bottom-color:rgba(255,255,255,.08)!important;
+}
+[data-theme="dark"] #tab-shipview div[style*="border-bottom:1px solid rgba(0,0,0,.06)"]{
+  border-bottom-color:rgba(255,255,255,.06)!important;
+}
+
+/* 9. 라이트 — 논배터리화 유형별 분포 섹션: 연한 라벨/퍼센트 톤을 숫자와 동일하게 통일 */
+:root:not([data-theme="dark"]) #tab-shipview span[style*="color:#93c5fd"],
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:#93c5fd"]{
+  color:#2563eb!important;
+}
+:root:not([data-theme="dark"]) #tab-shipview span[style*="color:#fdba74"],
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:#fdba74"]{
+  color:#ea580c!important;
+}
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:#60a5fa"]{
+  color:#2563eb!important;
+}
+:root:not([data-theme="dark"]) #tab-shipview [style*="color:#fb923c"]{
+  color:#ea580c!important;
+}
+
+/* 10. 라이트 배경 — 민트 톤 제거, 뉴트럴 화이트로 */
+:root:not([data-theme="dark"]){
+  --sv-bg:#f4f5f7!important;
+  --sv-surface:#ffffff!important;
+  --sv-surface2:#f1f3f6!important;
+  --sv-border:#e5e7eb!important;
+}
+:root:not([data-theme="dark"]) #tab-shipview{
+  background:#f4f5f7!important;
+}
+
+/* 11. 헤더 로고 — 라이트 모드에서 흰 로고가 안 보이는 문제 해결.
+   헤더 배경을 짙은 네이비로, 텍스트/아이콘은 밝게 */
+:root:not([data-theme="dark"]){
+  --header-bg:#0f172a;
+  --header-text:#f8fafc;
+  --header-text2:#cbd5e1;
+  --header-text3:#94a3b8;
+  --header-border:#1e293b;
+}
+:root:not([data-theme="dark"]) .header-date{
+  background:rgba(255,255,255,.08)!important;
+  color:#cbd5e1!important;
+}
+:root:not([data-theme="dark"]) .sync-wrap{
+  background:rgba(255,255,255,.08)!important;
+}
+:root:not([data-theme="dark"]) .current-user-badge{
+  background:rgba(255,255,255,.1)!important;
+  color:#f8fafc!important;
+}
+
+/* 12. 매트릭스 — 새 4단계 채도 로직은 JS에서 직접 계산하므로 여기선 override 없음 */
+/* 라이트모드의 광역 color:#fff override가 매트릭스 셀을 역으로 해치지 않게, rgb(255,255,255)는 피해감 */
 
 
 /* ── 고객사 모바일 전용 하단 탭바 ── */
@@ -2689,6 +3023,10 @@ function renderShipDashboard(list) {
   const totalNew    = totalCount * NEW_PRODUCT_PRICE;
   const totalSaved  = totalNew - totalRepair;
   const savedPct    = totalNew > 0 ? Math.round(totalSaved/totalNew*100) : 0;
+  // 추가 지표: 평균 수리비용 + 복합수리 비율 (수리 항목 2개 이상인 건수 / 전체)
+  const avgRepair   = totalCount > 0 ? Math.round(totalRepair / totalCount) : 0;
+  const complexCnt  = mapped.filter(x => (new Set(x.works)).size >= 2).length;
+  const complexPct  = totalCount > 0 ? Math.round(complexCnt / totalCount * 100) : 0;
 
   // ① 요약 + 수리항목분포 통합 다크 카드
   // 수리 항목 분포 계산 (먼저)
@@ -2776,23 +3114,24 @@ function renderShipDashboard(list) {
   let h = `
   <div class="sv-dark-card" style="background:${T.cardBg};border-radius:16px;padding:24px;margin-bottom:16px;color:${T.cardColor};">
     <!-- 상단: 수량/금액 4개 지표 -->
-    <div class="sv-stat-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px;">
-      <div class="sv-stat-card" style="background:${T.statCard};border:1px solid ${T.statBorder};border-radius:12px;padding:14px 16px;">
-        <div style="font-size:10px;font-weight:600;opacity:.5;letter-spacing:.5px;margin-bottom:6px;text-transform:uppercase;">총 출고 건수</div>
-        <div class="sv-stat-main" style="font-size:26px;font-weight:800;letter-spacing:-.5px;line-height:1;">${totalCount}<span style="font-size:13px;font-weight:400;opacity:.6;margin-left:2px;">건</span></div>
+    <!-- 상단: 4개 컬러 그라데이션 카드 -->
+    <div class="sv-stat-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px;">
+      <div class="sv-stat-card" style="background:linear-gradient(135deg,#3b82f6 0%,#06b6d4 100%);border-radius:14px;padding:18px 20px;color:#fff;box-shadow:0 4px 14px -4px rgba(59,130,246,.35);">
+        <div style="font-size:11px;font-weight:600;opacity:.85;letter-spacing:.3px;margin-bottom:8px;">총 작업 수량</div>
+        <div class="sv-stat-main" style="font-size:30px;font-weight:800;letter-spacing:-.5px;line-height:1;">${totalCount}<span style="font-size:14px;font-weight:500;opacity:.8;margin-left:3px;">건</span></div>
       </div>
-      <div class="sv-stat-card" style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.25);border-radius:12px;padding:14px 16px;">
-        <div style="font-size:10px;font-weight:600;color:#34d399;opacity:.8;letter-spacing:.5px;margin-bottom:6px;text-transform:uppercase;">총 공임비</div>
-        <div class="sv-stat-val" style="font-size:20px;font-weight:800;color:#34d399;letter-spacing:-.5px;line-height:1;">${fmt(totalFee)}<span style="font-size:11px;font-weight:400;opacity:.7;margin-left:2px;">원</span></div>
+      <div class="sv-stat-card" style="background:linear-gradient(135deg,#10b981 0%,#059669 100%);border-radius:14px;padding:18px 20px;color:#fff;box-shadow:0 4px 14px -4px rgba(16,185,129,.35);">
+        <div style="font-size:11px;font-weight:600;opacity:.85;letter-spacing:.3px;margin-bottom:8px;">총 매출액</div>
+        <div class="sv-stat-val" style="font-size:26px;font-weight:800;letter-spacing:-.5px;line-height:1;">${fmt(totalRepair)}<span style="font-size:13px;font-weight:500;opacity:.8;margin-left:3px;">원</span></div>
       </div>
-      <div class="sv-stat-card" style="background:rgba(251,146,60,.1);border:1px solid rgba(251,146,60,.25);border-radius:12px;padding:14px 16px;">
-        <div style="font-size:10px;font-weight:600;color:#fb923c;opacity:.8;letter-spacing:.5px;margin-bottom:6px;text-transform:uppercase;">총 부품비</div>
-        <div class="sv-stat-val" style="font-size:20px;font-weight:800;color:${totalParts?'#fb923c':'rgba(255,255,255,.25)'};letter-spacing:-.5px;line-height:1;">${totalParts?fmt(totalParts)+'<span style="font-size:11px;font-weight:400;opacity:.7;margin-left:2px;">원</span>':'<span style="font-size:14px;">-</span>'}</div>
-        ${totalParts?'':'<div style="font-size:10px;opacity:.35;margin-top:4px;">단가 설정 후 표시</div>'}
+      <div class="sv-stat-card" style="background:linear-gradient(135deg,#f59e0b 0%,#ea580c 100%);border-radius:14px;padding:18px 20px;color:#fff;box-shadow:0 4px 14px -4px rgba(245,158,11,.35);">
+        <div style="font-size:11px;font-weight:600;opacity:.85;letter-spacing:.3px;margin-bottom:8px;">평균 수리비용</div>
+        <div class="sv-stat-val" style="font-size:26px;font-weight:800;letter-spacing:-.5px;line-height:1;">${fmt(avgRepair)}<span style="font-size:13px;font-weight:500;opacity:.8;margin-left:3px;">원</span></div>
       </div>
-      <div class="sv-stat-card" style="background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.25);border-radius:12px;padding:14px 16px;">
-        <div style="font-size:10px;font-weight:600;color:#c084fc;opacity:.8;letter-spacing:.5px;margin-bottom:6px;text-transform:uppercase;">총 수리 합계</div>
-        <div class="sv-stat-val" style="font-size:20px;font-weight:800;color:#c084fc;letter-spacing:-.5px;line-height:1;">${fmt(totalRepair)}<span style="font-size:11px;font-weight:400;opacity:.7;margin-left:2px;">원</span></div>
+      <div class="sv-stat-card" style="background:linear-gradient(135deg,#a855f7 0%,#7c3aed 100%);border-radius:14px;padding:18px 20px;color:#fff;box-shadow:0 4px 14px -4px rgba(168,85,247,.35);">
+        <div style="font-size:11px;font-weight:600;opacity:.85;letter-spacing:.3px;margin-bottom:8px;">복합수리 비율</div>
+        <div class="sv-stat-val" style="font-size:30px;font-weight:800;letter-spacing:-.5px;line-height:1;">${complexPct}<span style="font-size:14px;font-weight:500;opacity:.8;margin-left:3px;">%</span></div>
+        <div style="font-size:10px;opacity:.75;margin-top:4px;">${complexCnt}건 / ${totalCount}건</div>
       </div>
     </div>
     <!-- 하단: 수리 항목 분포 -->
@@ -6363,7 +6702,7 @@ function renderShipExtraCharts() {
     </div>`;
   }).join('');
 
-  // ①-2 제조년월별 작업 추이
+  // ①-2 제조년월별 작업 추이 (Area 차트)
   const mfgMonthMap = {};
   mapped.forEach(x => {
     const mfg = parseMfgMonth(x.serial);
@@ -6372,17 +6711,77 @@ function renderShipExtraCharts() {
   });
   const mfgMonths = Object.keys(mfgMonthMap).sort();
   const maxMfg = Math.max(...Object.values(mfgMonthMap), 1);
-  const mfgBars = mfgMonths.map(m => {
-    const cnt = mfgMonthMap[m];
-    const w = Math.round(cnt/maxMfg*100);
-    return `<div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:${T.divider};">
-      <div style="font-size:11px;color:${T.muted};width:70px;flex-shrink:0;">${m}</div>
-      <div style="flex:1;background:${T.barBg};border-radius:3px;height:14px;">
-        <div style="height:14px;background:linear-gradient(90deg,#06b6d4,#3b82f6);border-radius:3px;width:${w}%;"></div>
-      </div>
-      <div style="font-size:11px;font-weight:700;color:#3b82f6;width:28px;text-align:right;">${cnt}</div>
-    </div>`;
-  }).join('');
+
+  // SVG Area 차트
+  const _lmM = window.svLightMode || (document.documentElement.getAttribute('data-theme') !== 'dark');
+  const _lineC = _lmM ? '#2563eb' : '#60a5fa';
+  const _lineRGB = _lmM ? '37,99,235' : '96,165,250';
+  const _gridC = _lmM ? 'rgba(0,0,0,.07)' : 'rgba(255,255,255,.09)';
+  const _labelC = _lmM ? '#64748b' : 'rgba(255,255,255,.55)';
+  const _dotFill = _lmM ? '#ffffff' : '#0f172a';
+
+  const _cW = 800, _cH = 240;
+  const _pL = 42, _pR = 18, _pT = 22, _pB = 34;
+  const _iW = _cW - _pL - _pR;
+  const _iH = _cH - _pT - _pB;
+  const _n = mfgMonths.length;
+  const _xF = i => _n <= 1 ? _pL + _iW/2 : _pL + (i / (_n - 1)) * _iW;
+  const _yF = v => _pT + _iH - (v / maxMfg) * _iH;
+
+  const _pts = mfgMonths.map((m, i) => ({ x: _xF(i), y: _yF(mfgMonthMap[m]), cnt: mfgMonthMap[m], label: m }));
+
+  const _smooth = (pts) => {
+    if (pts.length === 0) return '';
+    if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i-1] || pts[i];
+      const p1 = pts[i];
+      const p2 = pts[i+1];
+      const p3 = pts[i+2] || p2;
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+    }
+    return d;
+  };
+
+  const _line = _smooth(_pts);
+  const _area = _n >= 1 ? `${_line} L ${_xF(_n-1)} ${_pT+_iH} L ${_xF(0)} ${_pT+_iH} Z` : '';
+
+  const _yTicks = [0, 0.5, 1].map(t => ({ y: _yF(maxMfg * t), label: Math.round(maxMfg * t) }));
+  const _gradIdM = 'mfgArea_' + Math.random().toString(36).slice(2, 7);
+
+  // X축 레이블 — 전부 찍으면 빽빽하니 최대 8개까지
+  const _xStep = Math.max(1, Math.ceil(_n / 8));
+  const _xLabels = mfgMonths.map((m, i) => ({ x: _xF(i), label: m, show: i % _xStep === 0 || i === _n - 1 }));
+
+  const mfgAreaSvg = _n === 0 ? '' : `
+    <svg viewBox="0 0 ${_cW} ${_cH}" preserveAspectRatio="none" style="width:100%;height:240px;display:block;overflow:visible;">
+      <defs>
+        <linearGradient id="${_gradIdM}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="rgb(${_lineRGB})" stop-opacity="${_lmM ? 0.30 : 0.42}"/>
+          <stop offset="100%" stop-color="rgb(${_lineRGB})" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      ${_yTicks.map(t => `
+        <line x1="${_pL}" y1="${t.y}" x2="${_cW-_pR}" y2="${t.y}" stroke="${_gridC}" stroke-width="1" stroke-dasharray="${t.label===0?'0':'2,3'}"/>
+        <text x="${_pL-6}" y="${t.y+3}" text-anchor="end" fill="${_labelC}" font-size="9" font-weight="600">${t.label}</text>
+      `).join('')}
+      <path d="${_area}" fill="url(#${_gradIdM})"/>
+      <path d="${_line}" fill="none" stroke="${_lineC}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      ${_pts.map(p => `
+        <circle cx="${p.x}" cy="${p.y}" r="3.5" fill="${_dotFill}" stroke="${_lineC}" stroke-width="2"/>
+        <text x="${p.x}" y="${p.y-10}" text-anchor="middle" fill="${_lineC}" font-size="10" font-weight="800">${p.cnt}</text>
+      `).join('')}
+      ${_xLabels.filter(l => l.show).map(l => `
+        <text x="${l.x}" y="${_cH-_pB+16}" text-anchor="middle" fill="${_labelC}" font-size="10" font-weight="600">${l.label}</text>
+      `).join('')}
+    </svg>`;
+
+  const mfgBars = mfgAreaSvg;
 
   // ①-3 비용 구조 분석
   const totalFee3 = mapped.reduce((s,x)=>s+x.fee,0);
@@ -6438,7 +6837,7 @@ function renderShipExtraCharts() {
       <div style="font-size:11px;font-weight:600;color:${T.label};letter-spacing:.5px;margin-bottom:14px;text-transform:uppercase;">📊 분기별 물량 분포</div>
       ${mapped.length===0?'<div style="opacity:.4;font-size:12px;">데이터 없음</div>':quarterBars}
     </div>
-    <div style="background:${T.cardBg};${T.cardBorder};border-radius:16px;padding:20px;color:${T.color};max-height:280px;overflow-y:auto;">
+    <div style="background:${T.cardBg};${T.cardBorder};border-radius:16px;padding:20px;color:${T.color};">
       <div style="font-size:11px;font-weight:600;color:${T.label};letter-spacing:.5px;margin-bottom:14px;text-transform:uppercase;">📈 제조년월별 작업 추이</div>
       ${mfgMonths.length===0?'<div style="opacity:.4;font-size:12px;">데이터 없음</div>':mfgBars}
     </div>
@@ -6490,6 +6889,11 @@ function renderShipExtraCharts() {
     </div>
   </div>`;
 }
+init();
+</script>
+
+</body></html
+
 init();
 </script>
 </body>
