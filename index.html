@@ -9,21 +9,34 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg:#f5f4f0;--surface:#fff;--surface2:#f0ede8;
-  --border:#e2ddd8;--border2:#ccc8c2;
-  --text:#1a1916;--text2:#6b6860;--text3:#9e9b96;
-  --accent:#2563eb;--accent-bg:#eff6ff;
+  /* 라이트 모드 기본 */
+  --bg:#f2f3f7;--surface:#ffffff;--surface2:#f4f5f8;
+  --border:#e4e6ed;--border2:#cdd0d9;
+  --text:#111827;--text2:#6b7280;--text3:#9ca3af;
+  --accent:#0ea5a0;--accent-light:#0d9488;--accent-bg:#f0fdfa;
   --green:#16a34a;--green-bg:#f0fdf4;--green-text:#15803d;
   --amber:#d97706;--amber-bg:#fffbeb;--amber-text:#b45309;
   --red:#dc2626;--red-bg:#fef2f2;--red-text:#b91c1c;
-  --radius:10px;--radius-sm:6px;
-  --shadow:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.04);
-  --shadow-md:0 4px 12px rgba(0,0,0,.08),0 2px 4px rgba(0,0,0,.04);
+  --radius:12px;--radius-sm:8px;
+  --shadow:0 1px 4px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
+  --shadow-md:0 4px 16px rgba(0,0,0,.09),0 2px 4px rgba(0,0,0,.05);
+}
+/* 다크 모드 */
+body.dark {
+  --bg:#0d0f14;--surface:#161b24;--surface2:#1e2433;
+  --border:rgba(255,255,255,.09);--border2:rgba(255,255,255,.15);
+  --text:#f1f5f9;--text2:rgba(255,255,255,.55);--text3:rgba(255,255,255,.35);
+  --accent:#2dd4bf;--accent-light:#14b8a6;--accent-bg:rgba(45,212,191,.1);
+  --green:#4ade80;--green-bg:rgba(74,222,128,.1);--green-text:#86efac;
+  --amber:#fbbf24;--amber-bg:rgba(251,191,36,.1);--amber-text:#fcd34d;
+  --red:#f87171;--red-bg:rgba(248,113,113,.1);--red-text:#fca5a5;
+  --shadow:0 1px 4px rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.2);
+  --shadow-md:0 4px 16px rgba(0,0,0,.4),0 2px 4px rgba(0,0,0,.3);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;line-height:1.6;}
 
-.header{background:var(--text);color:#fff;padding:0 24px;display:flex;align-items:center;justify-content:space-between;height:56px;position:sticky;top:0;z-index:100;}
+.header{background:#111827;color:#fff;padding:0 24px;display:flex;align-items:center;justify-content:space-between;height:56px;position:sticky;top:0;z-index:100;box-shadow:0 1px 0 rgba(255,255,255,.06);}
 .header-title{font-size:15px;font-weight:600;letter-spacing:-.3px;}
 .header-right{display:flex;align-items:center;gap:12px;}
 .header-date{font-size:12px;color:rgba(255,255,255,.55);font-family:'JetBrains Mono',monospace;}
@@ -35,9 +48,9 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
 
 .nav{background:var(--surface);border-bottom:1px solid var(--border);display:flex;padding:0 24px;position:sticky;top:56px;z-index:99;overflow-x:auto;}
-.nav-btn{padding:0 18px;height:46px;border:none;background:none;font-family:'Noto Sans KR',sans-serif;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+.nav-btn{padding:0 14px;height:46px;border:none;background:none;font-family:'Noto Sans KR',sans-serif;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;flex-shrink:0;border-radius:0;}
 .nav-btn:hover{color:var(--text);}
-.nav-btn.active{color:var(--accent);border-bottom-color:var(--accent);}
+.nav-btn.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600;}
 
 .main{padding:24px;max-width:960px;margin:0 auto;}
 .section{display:none;}.section.active{display:block;}
@@ -70,7 +83,7 @@ textarea::placeholder{color:var(--text3);}
 .btn:active{transform:scale(.98);}
 .btn:disabled{opacity:.5;cursor:not-allowed;}
 .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent);}
-.btn-primary:hover{background:#1d4ed8;}
+.btn-primary:hover{background:var(--accent-light);}
 .btn-sm{height:30px;padding:0 12px;font-size:12px;}
 .btn-danger{color:var(--red-text);border-color:#fca5a5;}
 .btn-danger:hover{background:var(--red-bg);}
@@ -867,6 +880,34 @@ tr:hover td{background:var(--surface2);}
           <button class="btn btn-sm" id="svt-all"    onclick="setSvTypeFilter('all')"    style="flex:1;height:30px;font-size:12px;">전체</button>
           <button class="btn btn-sm" id="svt-single" onclick="setSvTypeFilter('single')" style="flex:1;height:30px;font-size:12px;">단일</button>
           <button class="btn btn-sm" id="svt-multi"  onclick="setSvTypeFilter('multi')"  style="flex:1;height:30px;font-size:12px;">복합</button>
+        </div>
+        <!-- 세부 필터: 제조년월 / 수리유형 / 시리얼번호 검색 -->
+        <div style="display:flex;gap:8px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;align-items:center;">
+          <div style="position:relative;flex:1;min-width:140px;">
+            <label style="position:absolute;top:-7px;left:10px;background:var(--surface);padding:0 6px;font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.3px;z-index:1;">제조년월</label>
+            <select id="sv-mfg-filter" onchange="setSvMfgFilter(this.value)" style="width:100%;height:36px;padding:0 12px;font-size:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);cursor:pointer;">
+              <option value="all">전체</option>
+            </select>
+          </div>
+          <div style="position:relative;flex:1;min-width:140px;">
+            <label style="position:absolute;top:-7px;left:10px;background:var(--surface);padding:0 6px;font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.3px;z-index:1;">수리유형</label>
+            <select id="sv-repair-filter" onchange="setSvRepairFilter(this.value)" style="width:100%;height:36px;padding:0 12px;font-size:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);cursor:pointer;">
+              <option value="all">전체</option>
+              <option value="single">단일수리</option>
+              <option value="multi">복합수리</option>
+              <option value="nonbat">논배터리</option>
+              <option value="pcb">PCB 교체</option>
+              <option value="panel">LCD 교체</option>
+              <option value="board">MB수리</option>
+            </select>
+          </div>
+          <div style="position:relative;flex:1.3;min-width:180px;">
+            <label style="position:absolute;top:-7px;left:10px;background:var(--surface);padding:0 6px;font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.3px;z-index:1;">시리얼번호 검색</label>
+            <input type="text" id="sv-serial-search" placeholder="시리얼번호 일부 입력" oninput="setSvSerialQuery(this.value)" style="width:100%;height:36px;padding:0 12px;font-size:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);outline:none;">
+          </div>
+          <button onclick="resetSvDetailFilters()" style="height:36px;padding:0 12px;font-size:11px;font-weight:600;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text2);cursor:pointer;white-space:nowrap;">
+            초기화
+          </button>
         </div>
         <!-- 모바일용 조회 버튼 (640px 이하) -->
         <button onclick="setSvFilter('custom', true)"
@@ -2214,6 +2255,55 @@ function renderShipHistory() {
 let svFilter = 'all';
 let svTypeFilter = 'all'; // 'all' | 'single' | 'multi' | 'nonbat'
 let svModelFilter = 'all'; // 'all' | 'S2PRO_N' | 'S2_N'
+let svMfgFilter = 'all'; // 'all' | 'YYYY-MM'
+let svRepairFilter = 'all'; // 'all' | 'single' | 'multi' | 'nonbat' | 'pcb' | 'panel' | 'board'
+let svSerialQuery = ''; // 시리얼 검색어
+
+function setSvMfgFilter(val) {
+  svMfgFilter = val || 'all';
+  refreshShipview();
+}
+
+function setSvRepairFilter(val) {
+  svRepairFilter = val || 'all';
+  refreshShipview();
+}
+
+let _svSerialDebounce = null;
+function setSvSerialQuery(val) {
+  svSerialQuery = val || '';
+  clearTimeout(_svSerialDebounce);
+  _svSerialDebounce = setTimeout(() => refreshShipview(), 200);
+}
+
+function resetSvDetailFilters() {
+  svMfgFilter = 'all';
+  svRepairFilter = 'all';
+  svSerialQuery = '';
+  const m = document.getElementById('sv-mfg-filter'); if(m) m.value = 'all';
+  const r = document.getElementById('sv-repair-filter'); if(r) r.value = 'all';
+  const s = document.getElementById('sv-serial-search'); if(s) s.value = '';
+  refreshShipview();
+}
+
+// 전체 출고 이력에서 제조년월 옵션 생성
+function populateSvMfgOptions() {
+  const sel = document.getElementById('sv-mfg-filter');
+  if(!sel) return;
+  const set = new Set();
+  (window.shipHistory || shipHistory || []).forEach(h => {
+    const m = String(h.serial || '').match(/[A-Z]{2}(\d{2})(\d{2})[A-Z]/);
+    if(m) set.add(`20${m[1]}-${m[2]}`);
+  });
+  const sorted = [...set].sort((a,b) => b.localeCompare(a));
+  const cur = sel.value;
+  sel.innerHTML = '<option value="all">전체</option>' +
+    sorted.map(k => {
+      const [y,mm] = k.split('-');
+      return `<option value="${k}">${y}년 ${mm}월</option>`;
+    }).join('');
+  if(sorted.includes(cur) || cur === 'all') sel.value = cur;
+}
 
 function setSvModelFilter(type) {
   svModelFilter = type || 'all';
@@ -2387,6 +2477,33 @@ function getFilteredShipHistory() {
       const e = entries.find(en => String(en.serial) === String(h.serial));
       return e && e.model === svModelFilter;
     });
+  }
+
+  // 제조년월 필터 — 시리얼에서 추출 (예: TO2310FB3309 → 2023-10)
+  if(svMfgFilter && svMfgFilter !== 'all') {
+    list = list.filter(h => {
+      const m = String(h.serial).match(/[A-Z]{2}(\d{2})(\d{2})[A-Z]/);
+      if(!m) return false;
+      const key = `20${m[1]}-${m[2]}`;
+      return key === svMfgFilter;
+    });
+  }
+
+  // 수리유형 필터 (세부) — 단일/복합 또는 개별 수리항목
+  if(svRepairFilter && svRepairFilter !== 'all') {
+    list = list.filter(h => {
+      const e = entries.find(en => String(en.serial) === String(h.serial));
+      const works = e ? parseWorks(e.works) : [];
+      if(svRepairFilter === 'single') return works.length === 1;
+      if(svRepairFilter === 'multi')  return works.length >= 2;
+      return works.includes(svRepairFilter);
+    });
+  }
+
+  // 시리얼 검색
+  if(svSerialQuery && svSerialQuery.trim()) {
+    const q = svSerialQuery.trim().toUpperCase();
+    list = list.filter(h => String(h.serial).toUpperCase().includes(q));
   }
 
   return list;
@@ -2983,7 +3100,30 @@ function renderShipAnalysis() {
       usedKeys.forEach(b => { matrix[a][b]++; });
     });
   });
-  const maxMatrix = Math.max(...activeKeys.flatMap(a => activeKeys.map(b => a===b?0:matrix[a][b])), 1);
+  const maxMatrix = Math.max(...activeKeys.flatMap(a => activeKeys.map(b => matrix[a][b])), 1);
+
+  // 4단계 채도 bucket — 건수 순위로 1~4등급. 0건은 투명. 대각선 포함.
+  const _allCellVals = [];
+  activeKeys.forEach(a => activeKeys.forEach(b => {
+    const v = matrix[a][b];
+    if (v > 0) _allCellVals.push(v);
+  }));
+  const _uniqSorted = [...new Set(_allCellVals)].sort((x,y)=>x-y);
+  const _tierMap = new Map();
+  if (_uniqSorted.length === 0) {
+    // nothing
+  } else if (_uniqSorted.length <= 4) {
+    _uniqSorted.forEach((v, i) => _tierMap.set(v, i + 1));
+    const maxTier = _uniqSorted.length;
+    _uniqSorted.forEach(v => _tierMap.set(v, Math.round(_tierMap.get(v) * 4 / maxTier)));
+  } else {
+    _uniqSorted.forEach(v => {
+      const idx = _uniqSorted.indexOf(v);
+      const pct = idx / (_uniqSorted.length - 1);
+      const tier = pct < 0.25 ? 1 : pct < 0.5 ? 2 : pct < 0.75 ? 3 : 4;
+      _tierMap.set(v, tier);
+    });
+  }
 
   const matrixHeader = `<div style="display:grid;grid-template-columns:90px ${activeKeys.map(()=>'1fr').join(' ')};gap:4px;margin-bottom:4px;">
     <div></div>
@@ -2992,20 +3132,29 @@ function renderShipAnalysis() {
   const matrixRows2 = activeKeys.map(a => {
     const cells = activeKeys.map(b => {
       const v = matrix[a][b];
-      const isSelf = a === b;
-      const intensity = isSelf ? 0.35 : (v/maxMatrix*0.7);
+      const tier = _tierMap.get(v) || 0;  // 0 = 건수 0 (투명)
       const lm2 = window.svLightMode;
-      const bg = isSelf
-        ? (lm2 ? 'rgba(0,0,0,.06)' : `rgba(255,255,255,${intensity})`)
-        : (v>0
-          ? (lm2 ? `rgba(37,99,235,${intensity+0.25})` : `rgba(96,165,250,${intensity+0.1})`)
-          : (lm2 ? 'rgba(0,0,0,.03)' : 'rgba(255,255,255,.04)'));
-      const textColor = isSelf
-        ? (lm2 ? '#6b7280' : 'rgba(255,255,255,.5)')
-        : (v>0 ? (lm2 ? '#1e40af' : '#93c5fd') : '${T.textTiny}');
+      // 4단계 알파 — 대비 강하게. 라이트/다크 분리.
+      const alphaLight = [0, 0.14, 0.34, 0.60, 0.90][tier];
+      const alphaDark  = [0, 0.35, 0.55, 0.78, 1.00][tier];
+      const tierAlpha = lm2 ? alphaLight : alphaDark;
+      const bg = tier === 0
+        ? (lm2 ? 'rgba(37,99,235,.05)' : 'rgba(96,165,250,.06)')
+        : (lm2 ? `rgba(37,99,235,${tierAlpha})` : `rgba(59,130,246,${tierAlpha})`);
+      // 텍스트 색: tier별 최적 대비
+      let textColor;
+      if (tier === 0) {
+        textColor = lm2 ? 'rgba(107,114,128,.55)' : 'rgba(255,255,255,.45)';
+      } else if (tier >= 3) {
+        textColor = 'rgb(255,255,255)';
+      } else if (tier === 2) {
+        textColor = lm2 ? '#1e3a8a' : 'rgb(255,255,255)';
+      } else {
+        textColor = lm2 ? '#1e3a8a' : 'rgb(255,255,255)';
+      }
       return `<div style="background:${bg};border-radius:6px;padding:8px 4px;text-align:center;">
         <div style="font-size:15px;font-weight:800;color:${textColor};">${v}</div>
-        <div style="font-size:9px;opacity:.4;">건</div>
+        <div style="font-size:9px;opacity:.55;color:${textColor};">건</div>
       </div>`;
     }).join('');
     return `<div style="display:grid;grid-template-columns:90px ${activeKeys.map(()=>'1fr').join(' ')};gap:4px;margin-bottom:4px;">
@@ -3143,6 +3292,7 @@ function renderShipAnalysis() {
 // ============ 수리 분석 탭 추가 차트 5종 ============
 
 function refreshShipview() {
+  populateSvMfgOptions();
   renderShipview();
 }
 
