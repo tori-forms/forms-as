@@ -22,17 +22,137 @@
   --shadow-md:0 4px 16px rgba(0,0,0,.09),0 2px 4px rgba(0,0,0,.05);
 }
 /* 다크 모드 */
-body.dark {
-  --bg:#0d0f14;--surface:#161b24;--surface2:#1e2433;
+html[data-theme="dark"], body.dark {
+  --bg:#0a0a0b;--surface:#141416;--surface2:#1c1c1f;
   --border:rgba(255,255,255,.09);--border2:rgba(255,255,255,.15);
-  --text:#f1f5f9;--text2:rgba(255,255,255,.55);--text3:rgba(255,255,255,.35);
-  --accent:#2dd4bf;--accent-light:#14b8a6;--accent-bg:rgba(45,212,191,.1);
+  --text:#f3f4f6;--text2:#9ca3af;--text3:#6b7280;
+  --accent:#2dd4bf;--accent-light:#14b8a6;--accent-bg:rgba(45,212,191,.12);
   --green:#4ade80;--green-bg:rgba(74,222,128,.1);--green-text:#86efac;
   --amber:#fbbf24;--amber-bg:rgba(251,191,36,.1);--amber-text:#fcd34d;
   --red:#f87171;--red-bg:rgba(248,113,113,.1);--red-text:#fca5a5;
   --shadow:0 1px 4px rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.2);
   --shadow-md:0 4px 16px rgba(0,0,0,.4),0 2px 4px rgba(0,0,0,.3);
+  color-scheme:dark;
 }
+/* 다크모드 헤더 */
+html[data-theme="dark"] .header {
+  background:#050506 !important;
+  border-bottom:1px solid rgba(255,255,255,.06);
+}
+/* 다크모드 네비 */
+html[data-theme="dark"] .nav {
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+}
+/* 다크모드 텍스트 색 강제 */
+html[data-theme="dark"] body {
+  background:var(--bg);
+  color:var(--text);
+}
+/* 다크모드 섹션 카드 */
+html[data-theme="dark"] .section-header .section-title {
+  color:var(--text);
+}
+html[data-theme="dark"] .stat-card,
+html[data-theme="dark"] .worker-block,
+html[data-theme="dark"] .form-group,
+html[data-theme="dark"] .card,
+html[data-theme="dark"] #tab-input > div,
+html[data-theme="dark"] #tab-exchange > div,
+html[data-theme="dark"] #tab-summary > div,
+html[data-theme="dark"] #tab-history > div,
+html[data-theme="dark"] #tab-shipping > div,
+html[data-theme="dark"] #tab-docs > div {
+  background:var(--surface) !important;
+  border-color:var(--border) !important;
+  color:var(--text) !important;
+}
+/* 다크모드 입력 필드 */
+html[data-theme="dark"] input:not([type="date"]):not([type="checkbox"]),
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea {
+  background:var(--surface2) !important;
+  border-color:var(--border) !important;
+  color:var(--text) !important;
+}
+html[data-theme="dark"] input[type="date"] {
+  background:var(--surface2) !important;
+  border-color:var(--border) !important;
+  color:var(--text) !important;
+  color-scheme:dark;
+}
+/* 다크모드 버튼 */
+html[data-theme="dark"] .btn {
+  background:var(--surface2) !important;
+  border-color:var(--border2) !important;
+  color:var(--text) !important;
+}
+html[data-theme="dark"] .btn:hover {
+  background:rgba(255,255,255,.08) !important;
+}
+html[data-theme="dark"] .btn-primary {
+  background:var(--accent) !important;
+  color:#0a0a0b !important;
+  border-color:var(--accent) !important;
+}
+html[data-theme="dark"] .btn-primary:hover {
+  background:var(--accent-light) !important;
+}
+/* 다크모드 테이블 */
+html[data-theme="dark"] table {
+  background:var(--surface) !important;
+  color:var(--text) !important;
+}
+html[data-theme="dark"] th {
+  background:var(--surface2) !important;
+  color:var(--text2) !important;
+  border-color:var(--border) !important;
+}
+html[data-theme="dark"] td {
+  border-color:var(--border) !important;
+  color:var(--text) !important;
+}
+html[data-theme="dark"] tr:hover {
+  background:rgba(255,255,255,.03) !important;
+}
+/* 다크모드 뱃지/배경 */
+html[data-theme="dark"] .badge {
+  background:var(--surface2) !important;
+  color:var(--text) !important;
+}
+/* work-check 카드 */
+html[data-theme="dark"] .work-check {
+  background:var(--surface2) !important;
+  border-color:var(--border) !important;
+  color:var(--text) !important;
+}
+html[data-theme="dark"] .work-check:hover {
+  border-color:var(--accent) !important;
+  background:var(--accent-bg) !important;
+}
+html[data-theme="dark"] .work-check.checked {
+  background:var(--accent-bg) !important;
+  border-color:var(--accent) !important;
+}
+html[data-theme="dark"] .work-check-price {
+  color:var(--text2) !important;
+}
+/* 테마 토글 버튼 (전역) */
+.theme-toggle {
+  width:36px;
+  height:36px;
+  border:none;
+  border-radius:50%;
+  background:rgba(255,255,255,.1);
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:18px;
+  transition:all .15s;
+}
+.theme-toggle:hover { background:rgba(255,255,255,.2); }
+.theme-toggle:active { transform:scale(.92); }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;line-height:1.6;}
 
@@ -337,6 +457,41 @@ tr:hover td{background:var(--surface2);}
   box-shadow:var(--shadow-md);text-align:center;}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+// 전역 테마 시스템 - 플리커 방지 위해 <head>에서 먼저 실행
+(function(){
+  const saved = localStorage.getItem('as-theme');
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme = saved || (prefersDark ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', theme);
+})();
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('as-theme', next);
+  const icon = document.getElementById('theme-icon');
+  if(icon) icon.textContent = next === 'dark' ? '🌙' : '☀️';
+  // 출고현황 탭 svLightMode 동기화
+  window.svLightMode = (next !== 'dark');
+  const svTab = document.getElementById('tab-shipview');
+  if(svTab) svTab.classList.toggle('sv-light', next !== 'dark');
+  localStorage.setItem('svTheme', next === 'dark' ? 'dark' : 'light');
+  // 출고현황 재렌더
+  if(typeof renderShipDashboard === 'function' && typeof getFilteredShipHistory === 'function') {
+    try { renderShipview && renderShipview(); } catch(e){}
+  }
+}
+window.addEventListener('DOMContentLoaded', function(){
+  const cur = document.documentElement.getAttribute('data-theme') || 'light';
+  const icon = document.getElementById('theme-icon');
+  if(icon) icon.textContent = cur === 'dark' ? '🌙' : '☀️';
+  // 출고현황 초기 동기화
+  window.svLightMode = (cur !== 'dark');
+  const svTab = document.getElementById('tab-shipview');
+  if(svTab) svTab.classList.toggle('sv-light', cur !== 'dark');
+});
+</script>
 </head>
 <body>
 
@@ -375,6 +530,7 @@ tr:hover td{background:var(--surface2);}
     </div>
     <span class="header-date" id="header-date"></span>
     <span class="current-user-badge" id="current-user-badge" style="display:none;"></span>
+    <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="테마 전환"><span id="theme-icon">☀️</span></button>
     <button onclick="syncData()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:#fff;border-radius:6px;padding:5px 12px;font-size:13px;font-family:'Noto Sans KR',sans-serif;cursor:pointer;transition:background .15s;" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">🔄 새로고침</button>
   </div>
 </div>
