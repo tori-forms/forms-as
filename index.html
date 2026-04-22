@@ -1991,10 +1991,10 @@ function getSvTheme() {
     wash:  '#94a3b8',
   };
 }
-// 저장된 테마 복원
-window.svLightMode = false;
+// 저장된 테마 복원 - data-theme 또는 svTheme 기반
+window.svLightMode = document.documentElement.getAttribute('data-theme') !== 'dark';
 (function(){
-  const saved = localStorage.getItem('svTheme');
+  const saved = localStorage.getItem('svTheme') || localStorage.getItem('as-theme');
   if(saved === 'light') {
     window.svLightMode = true;
     const tab = document.getElementById('tab-shipview');
@@ -4153,9 +4153,15 @@ function _startClientMode() {
   // 로그인 영역 숨기기
   document.querySelector('.header-right')?.style && (document.querySelector('.header-right').style.display = 'none');
 
-  // 고객사 모드: .main full width
-  const mainEl = document.querySelector('.main');
-  if(mainEl) { mainEl.style.maxWidth = 'none'; mainEl.style.padding = '0'; }
+  // 고객사 모드: .main full width - 동적 CSS 주입으로 확실히 처리
+  const _clientStyle = document.createElement('style');
+  _clientStyle.id = 'client-mode-style';
+  _clientStyle.textContent = `
+    .main { max-width: none !important; padding: 16px 20px !important; margin: 0 !important; }
+    .section { border-radius: 0 !important; }
+    #tab-shipview { min-height: 100vh; }
+  `;
+  document.head.appendChild(_clientStyle);
   document.body.style.overflow = 'auto';
 
   // 모든 탭 숨기고 출고현황만 표시
