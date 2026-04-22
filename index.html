@@ -4157,10 +4157,8 @@ function _startClientMode() {
   const _clientStyle = document.createElement('style');
   _clientStyle.id = 'client-mode-style';
   _clientStyle.textContent = `
-    .main { max-width: 1200px !important; padding: 24px !important; margin: 0 auto !important; }
-    .section { border-radius: 12px !important; }
-    #tab-shipview { min-height: calc(100vh - 56px); background: transparent !important; padding-bottom: 24px; }
-    body { background: #f2f3f7 !important; }
+    /* 고객사 모드: 관리자와 동일한 .main 레이아웃 유지 (switchSvTab의 list→전체폭 로직 보존) */
+    #tab-shipview { min-height: calc(100vh - 56px); padding-bottom: 24px; }
     @media (max-width: 640px) {
       .main { padding: 16px !important; }
     }
