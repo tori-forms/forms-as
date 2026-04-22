@@ -396,7 +396,7 @@ tr:hover td{background:var(--surface2);}
 #tab-shipview .section-title { color: #fff !important; }
 
 /* ── 고객사 대시보드 라이트 모드 ── */
-#tab-shipview.sv-light { background: #d8dde6; }
+#tab-shipview.sv-light { background: #f2f3f7; }
 #tab-shipview.sv-light > div[style*="var(--surface)"],
 #tab-shipview.sv-light > div[style*="var(--border)"] {
   background: #ffffff !important;
@@ -1940,7 +1940,7 @@ function toggleSvTheme() {
   const icon = document.getElementById('theme-icon');
   if(icon) icon.textContent = newLight ? '☀️' : '🌙';
   // body 배경색 변경
-  document.body.style.background = newLight ? '#d8dde6' : '#0d1117';
+  document.body.style.background = newLight ? '#f2f3f7' : '#0d1117';
   // 차트 재렌더
   const curTab = document.getElementById('shipview-analysis');
   if(curTab && curTab.style.display !== 'none') renderShipAnalysis();
@@ -4153,13 +4153,17 @@ function _startClientMode() {
   // 로그인 영역 숨기기
   document.querySelector('.header-right')?.style && (document.querySelector('.header-right').style.display = 'none');
 
-  // 고객사 모드: .main full width - 동적 CSS 주입으로 확실히 처리
+  // 고객사 모드: 관리자와 동일한 중앙 정렬 레이아웃 (원전산 톤 그대로)
   const _clientStyle = document.createElement('style');
   _clientStyle.id = 'client-mode-style';
   _clientStyle.textContent = `
-    .main { max-width: none !important; padding: 16px 20px !important; margin: 0 !important; }
-    .section { border-radius: 0 !important; }
-    #tab-shipview { min-height: 100vh; }
+    .main { max-width: 1200px !important; padding: 24px !important; margin: 0 auto !important; }
+    .section { border-radius: 12px !important; }
+    #tab-shipview { min-height: calc(100vh - 56px); background: transparent !important; padding-bottom: 24px; }
+    body { background: #f2f3f7 !important; }
+    @media (max-width: 640px) {
+      .main { padding: 16px !important; }
+    }
   `;
   document.head.appendChild(_clientStyle);
   document.body.style.overflow = 'auto';
@@ -4180,7 +4184,7 @@ function _startClientMode() {
       window.svLightMode = true;
       shipviewTab.classList.add('sv-light');
       themeBtn.textContent = '☀️';
-      document.body.style.background = '#d8dde6';
+      document.body.style.background = '#f2f3f7';
       document.documentElement.setAttribute('data-theme', 'light');
     } else {
       window.svLightMode = false;
