@@ -466,20 +466,7 @@ tr:hover td{background:var(--surface2);}
 [data-theme="dark"] .sv-stat-main,
 [data-theme="dark"] .sv-stat-val{color:#fff!important;}
 /* 라이트모드 stat 카드 - 연한 색상 버전 */
-/* 라이트모드 stat 카드 - 흰 배경 + 컬러 왼쪽 테두리 */
-:root:not([data-theme="dark"]) .sv-stat-card{
-  background:#ffffff!important;
-  border:1px solid #e5e7eb!important;
-  box-shadow:0 1px 4px rgba(0,0,0,.05)!important;
-  border-radius:14px!important;
-}
-:root:not([data-theme="dark"]) .sv-stat-card .sv-stat-main,
-:root:not([data-theme="dark"]) .sv-stat-card .sv-stat-val{
-  color:#111827!important;
-}
-:root:not([data-theme="dark"]) .sv-stat-card div[style*="opacity:.85"]{
-  color:#6b7280!important;
-}
+/* stat 카드 배경은 JS에서 라이트/다크 분기 처리 */
 
 /* 분석 블록 */
 #tab-shipview #shipview-analysis > div,
@@ -1880,6 +1867,8 @@ function renderAll() {
   const tab = document.querySelector('.nav-btn.active')?.textContent.trim();
   if(tab==='일일 마감') renderSummary();
   if(tab==='전체 기록') renderHistory();
+  // 제조년월 필터 옵션 갱신 (shipHistory 로드 후)
+  populateSvMfgOptions();
 }
 setInterval(()=>syncData(true), 30000);
 
@@ -1945,6 +1934,11 @@ function toggleSvTheme() {
   if(btn) btn.textContent = newLight ? '☀️' : '🌙';
   window.svLightMode = newLight;
   localStorage.setItem('svTheme', newLight ? 'light' : 'dark');
+  // 전역 data-theme도 동기화 (CSS 변수 적용 위해)
+  document.documentElement.setAttribute('data-theme', newLight ? 'light' : 'dark');
+  localStorage.setItem('as-theme', newLight ? 'light' : 'dark');
+  const icon = document.getElementById('theme-icon');
+  if(icon) icon.textContent = newLight ? '☀️' : '🌙';
   // body 배경색 변경
   document.body.style.background = newLight ? '#d8dde6' : '#0d1117';
   // 차트 재렌더
@@ -3129,19 +3123,19 @@ function renderShipDashboard(list) {
     <!-- 상단: 수량/금액 4개 지표 -->
     <!-- 상단: 4개 컬러 그라데이션 카드 -->
     <div class="sv-stat-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px;">
-      <div class="sv-stat-card" style="background:${L?'#eff6ff':'linear-gradient(135deg,#3b82f6 0%,#06b6d4 100%)'};border-left:${L?'4px solid #3b82f6':'none'};border-radius:14px;padding:18px 20px;color:${L?'#111827':'#fff'};box-shadow:${L?'0 1px 4px rgba(0,0,0,.06)':'0 4px 14px -4px rgba(59,130,246,.35)'};">
+      <div class="sv-stat-card" style="background:${L?'#eff6ff':'linear-gradient(135deg,#3b82f6 0%,#06b6d4 100%)'};border-left:${L?'4px solid #3b82f6':'0'};border-radius:14px;padding:18px 20px;color:${L?'#111827':'#fff'};box-shadow:${L?'0 1px 4px rgba(0,0,0,.06)':'0 4px 14px -4px rgba(59,130,246,.35)'};">
         <div style="font-size:11px;font-weight:600;color:${L?'#6b7280':'rgba(255,255,255,.85)'};letter-spacing:.3px;margin-bottom:8px;">총 작업 수량</div>
         <div class="sv-stat-main" style="font-size:30px;font-weight:800;letter-spacing:-.5px;line-height:1;color:${L?'#111827':'#fff'}">${totalCount}<span style="font-size:14px;font-weight:500;color:${L?'#374151':'rgba(255,255,255,.8)'};margin-left:3px;">건</span></div>
       </div>
-      <div class="sv-stat-card" style="background:${L?'#f0fdf4':'linear-gradient(135deg,#10b981 0%,#059669 100%)'};border-left:${L?'4px solid #10b981':'none'};border-radius:14px;padding:18px 20px;color:${L?'#111827':'#fff'};box-shadow:${L?'0 1px 4px rgba(0,0,0,.06)':'0 4px 14px -4px rgba(16,185,129,.35)'};">
+      <div class="sv-stat-card" style="background:${L?'#f0fdf4':'linear-gradient(135deg,#10b981 0%,#059669 100%)'};border-left:${L?'4px solid #10b981':'0'};border-radius:14px;padding:18px 20px;color:${L?'#111827':'#fff'};box-shadow:${L?'0 1px 4px rgba(0,0,0,.06)':'0 4px 14px -4px rgba(16,185,129,.35)'};">
         <div style="font-size:11px;font-weight:600;color:${L?'#6b7280':'rgba(255,255,255,.85)'};letter-spacing:.3px;margin-bottom:8px;">총 매출액</div>
         <div class="sv-stat-val" style="font-size:26px;font-weight:800;letter-spacing:-.5px;line-height:1;color:${L?'#111827':'#fff'}">${fmt(totalRepair)}<span style="font-size:13px;font-weight:500;color:${L?'#374151':'rgba(255,255,255,.8)'};margin-left:3px;">원</span></div>
       </div>
-      <div class="sv-stat-card" style="background:${L?'#fffbeb':'linear-gradient(135deg,#f59e0b 0%,#ea580c 100%)'};border-left:${L?'4px solid #f59e0b':'none'};border-radius:14px;padding:18px 20px;color:${L?'#111827':'#fff'};box-shadow:${L?'0 1px 4px rgba(0,0,0,.06)':'0 4px 14px -4px rgba(245,158,11,.35)'};">
+      <div class="sv-stat-card" style="background:${L?'#fffbeb':'linear-gradient(135deg,#f59e0b 0%,#ea580c 100%)'};border-left:${L?'4px solid #f59e0b':'0'};border-radius:14px;padding:18px 20px;color:${L?'#111827':'#fff'};box-shadow:${L?'0 1px 4px rgba(0,0,0,.06)':'0 4px 14px -4px rgba(245,158,11,.35)'};">
         <div style="font-size:11px;font-weight:600;color:${L?'#6b7280':'rgba(255,255,255,.85)'};letter-spacing:.3px;margin-bottom:8px;">평균 수리비용</div>
         <div class="sv-stat-val" style="font-size:26px;font-weight:800;letter-spacing:-.5px;line-height:1;color:${L?'#111827':'#fff'}">${fmt(avgRepair)}<span style="font-size:13px;font-weight:500;color:${L?'#374151':'rgba(255,255,255,.8)'};margin-left:3px;">원</span></div>
       </div>
-      <div class="sv-stat-card" style="background:${L?'#f5f3ff':'linear-gradient(135deg,#a855f7 0%,#7c3aed 100%)'};border-left:${L?'4px solid #a855f7':'none'};border-radius:14px;padding:18px 20px;color:${L?'#111827':'#fff'};box-shadow:${L?'0 1px 4px rgba(0,0,0,.06)':'0 4px 14px -4px rgba(168,85,247,.35)'};">
+      <div class="sv-stat-card" style="background:${L?'#f5f3ff':'linear-gradient(135deg,#a855f7 0%,#7c3aed 100%)'};border-left:${L?'4px solid #a855f7':'0'};border-radius:14px;padding:18px 20px;color:${L?'#111827':'#fff'};box-shadow:${L?'0 1px 4px rgba(0,0,0,.06)':'0 4px 14px -4px rgba(168,85,247,.35)'};">
         <div style="font-size:11px;font-weight:600;color:${L?'#6b7280':'rgba(255,255,255,.85)'};letter-spacing:.3px;margin-bottom:8px;">복합수리 비율</div>
         <div class="sv-stat-val" style="font-size:30px;font-weight:800;letter-spacing:-.5px;line-height:1;">${complexPct}<span style="font-size:14px;font-weight:500;opacity:.8;margin-left:3px;">%</span></div>
         <div style="font-size:10px;opacity:.75;margin-top:4px;">${complexCnt}건 / ${totalCount}건</div>
@@ -4170,16 +4164,18 @@ function _startClientMode() {
     themeBtn.style.display = 'inline-flex';
     themeBtn.style.alignItems = 'center';
     // 저장된 테마 적용
-    const savedTheme = localStorage.getItem('svTheme');
+    const savedTheme = localStorage.getItem('svTheme') || localStorage.getItem('as-theme') || 'light';
     if(savedTheme === 'light') {
       window.svLightMode = true;
       shipviewTab.classList.add('sv-light');
       themeBtn.textContent = '☀️';
       document.body.style.background = '#d8dde6';
+      document.documentElement.setAttribute('data-theme', 'light');
     } else {
       window.svLightMode = false;
       themeBtn.textContent = '🌙';
       document.body.style.background = '#0d1117';
+      document.documentElement.setAttribute('data-theme', 'dark');
     }
   }
 
