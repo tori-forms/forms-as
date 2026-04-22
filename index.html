@@ -307,7 +307,9 @@ tr:hover td{background:var(--surface2);}
 .login-divider::before,.login-divider::after{content:'';flex:1;height:1px;background:var(--border);}
 .login-master-row{display:flex;gap:8px;}
 .login-master-row input{flex:1;}
-.current-user-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:var(--accent-bg);color:var(--accent-text);border-radius:99px;font-size:12px;font-weight:600;}
+.current-user-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:var(--accent-bg);color:var(--accent-text);border-radius:99px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;user-select:none;}
+.current-user-badge:hover{filter:brightness(1.1);transform:translateY(-1px);box-shadow:0 2px 6px rgba(0,0,0,.15);}
+.current-user-badge::after{content:'↩';margin-left:2px;opacity:.6;font-size:10px;}
 
 @keyframes confettiFall{0%{transform:translateY(0) rotate(0deg);opacity:1;}100%{transform:translateY(105vh) rotate(720deg);opacity:0;}}
 /* 축하 토스트 */
@@ -866,7 +868,7 @@ window.addEventListener('DOMContentLoaded', function(){
       <span id="sync-txt">연결 중...</span>
     </div>
     <span class="header-date" id="header-date"></span>
-    <span class="current-user-badge" id="current-user-badge" style="display:none;"></span>
+    <span class="current-user-badge" id="current-user-badge" style="display:none;" onclick="logout()" title="클릭하여 로그아웃"></span>
     <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="테마 전환"><span id="theme-icon">☀️</span></button>
     <button onclick="syncData()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:#fff;border-radius:6px;padding:5px 12px;font-size:13px;font-family:'Noto Sans KR',sans-serif;cursor:pointer;transition:background .15s;" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">🔄 새로고침</button>
   </div>
@@ -1972,8 +1974,8 @@ function getSvTheme() {
     // 내부 sub-card - 중간 회색
     statCard:     L ? '#edf0f5' : 'rgba(255,255,255,.07)',
     statBorder:   L ? '#c8d0da' : 'rgba(255,255,255,.1)',
-    // 월별 차트 카드
-    monthCardBg:  L ? '#ffffff' : 'linear-gradient(135deg,#0f172a 0%,#1e3a5f 60%,#1a2744 100%)',
+    // 월별 차트 카드 - 수리 항목 분포(cardBg)와 동일한 톤으로 통일
+    monthCardBg:  L ? '#ffffff' : 'linear-gradient(135deg,#0f172a 0%,#1e2d4a 40%,#162035 100%)',
     // 절감 카드 - 라이트: 일반 흰 카드 (내부 포인트 박스만 색상)
     savedBg1:     L ? '#ffffff' : 'linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%)',
     savedBg2:     L ? '#ffffff' : 'linear-gradient(135deg,#1a2744 0%,#1e4d3f 100%)',
@@ -2156,6 +2158,29 @@ function loginAs(name) {
   el.textContent = `${name}님, 안녕하세요! 👋\n${cheers[idx]}`;
   el.className = 'notif show';
   clearTimeout(nt); nt = setTimeout(()=>el.classList.remove('show'), 4500);
+}
+
+/* 로그아웃 - 현재 사용자 배지 클릭 시 실행 */
+function logout() {
+  if(!currentUser) return;
+  const who = isMaster ? '마스터' : currentUser;
+  if(!confirm(`${who}님, 로그아웃하시겠습니까?\n(다른 엔지니어로 전환됩니다)`)) return;
+  currentUser = null;
+  isMaster = false;
+  const badge = document.getElementById('current-user-badge');
+  if(badge) { badge.style.display = 'none'; badge.textContent = ''; }
+  // 엔지니어 선택 오버레이 다시 표시
+  const overlay = document.getElementById('login-overlay');
+  if(overlay) overlay.style.display = 'flex';
+  // 엔지니어 버튼 그리드 재빌드 (워커 목록 변경 대응)
+  buildLoginGrid();
+  // 관리자 전용 네비 숨기기
+  if(typeof updateAdminNav === 'function') updateAdminNav();
+  // 마스터 비밀번호 입력 초기화
+  const pw = document.getElementById('master-pw');
+  if(pw) pw.value = '';
+  const err = document.getElementById('login-error');
+  if(err) err.textContent = '';
 }
 async function loginMaster() {
   const pw = document.getElementById('master-pw').value;
@@ -5945,16 +5970,53 @@ function launchConfetti(count=120) {
 function showCheer(names) {
   // 여러 명 동시 처리
   const nameList = Array.isArray(names) ? names : [names];
-  const emojis = ['🎉','🏆','🥳','🎊','⭐','🔥'];
-  const msgs = ['목표 달성!','오늘의 목표 완료!','훌륭해요!','최고입니다!'];
+  const emojis = ['🎉','🏆','🥳','🎊','⭐','🔥','🚀','💫','✨','👏','💯','🎯','💪','🌟','🏅'];
+  // 축하 메시지 30종 - 매일 다른 메시지가 나오도록 날짜 기반 인덱싱
+  const msgs = [
+    '목표 달성! 대단해요 🎯',
+    '오늘의 목표 완료! 수고하셨습니다 🙌',
+    '훌륭해요! 역시 프로! 🏆',
+    '최고입니다! 박수 드려요 👏',
+    '완벽한 하루! 오늘도 한 건 해냈네요 ✨',
+    '목표 달성! 당신이 바로 MVP 💯',
+    '대박! 오늘도 해냈어요 🎊',
+    '성실함의 결과입니다, 진심으로 축하해요 🌟',
+    '쉬운 일이 아닌데 정말 멋져요 💪',
+    '오늘의 히어로는 당신! 🦸',
+    '짝짝짝! 기립박수 드립니다 👏',
+    '목표 달성, 그 자체가 실력이에요 🔥',
+    '오늘도 해냈다! 내일도 기대됩니다 🚀',
+    '꾸준함이 만든 결과, 멋집니다 📈',
+    '노력은 배신하지 않아요, 증명하셨네요 💎',
+    '완료! 이제 맛있는 거 드세요 🍚',
+    '목표 달성! 오늘은 칼퇴각 🏁',
+    '한 건 한 건이 다 소중한 기록이에요 💌',
+    '당신 덕에 팀이 빛납니다 ⭐',
+    '오늘도 최고의 실력! 존경합니다 🙏',
+    '목표 달성! 자신에게 박수 👍',
+    '이게 진짜 프로의 실력이죠 🎖️',
+    '수고 많으셨습니다, 오늘의 영웅! 🏅',
+    '달성! 뿌듯한 하루네요 🌈',
+    '해냈다! 모두가 당신을 응원합니다 🎈',
+    '목표 달성! 커피 한 잔 어때요? ☕',
+    '훌륭한 페이스! 이대로 쭉 가요 🏃',
+    '완료! 오늘 하루 정말 수고했어요 🌙',
+    '목표 달성, 그대가 자랑스럽습니다 🥇',
+    '내일도 이 기세로! 화이팅 🔋',
+  ];
+  const today = new Date();
+  const dateIdx = today.getFullYear() * 366 + today.getMonth() * 31 + today.getDate();
+  const msgIdx = dateIdx % msgs.length;
+  const emojiIdx = dateIdx % emojis.length;
+
   const el = document.getElementById('cheer-toast');
-  document.getElementById('cheer-emoji').textContent = emojis[Math.floor(Math.random()*emojis.length)];
+  document.getElementById('cheer-emoji').textContent = emojis[emojiIdx];
   // 여러 명이면 모두 표시
   const nameText = nameList.length === 1
     ? nameList[0] + '님'
     : nameList.map(n=>n+'님').join(', ');
   document.getElementById('cheer-name').textContent = nameText;
-  const msgBase = msgs[Math.floor(Math.random()*msgs.length)];
+  const msgBase = msgs[msgIdx];
   document.getElementById('cheer-msg').textContent = nameList.length > 1
     ? `${nameList.length}명 동시 목표 달성! ${msgBase}`
     : msgBase;
