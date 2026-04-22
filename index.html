@@ -3197,7 +3197,7 @@ function renderShipDashboard(list) {
         <!-- 건수 바 -->
         <div style="display:flex;align-items:center;gap:8px;">
           <div style="flex:1;background:${T.barBg2};border-radius:4px;height:4px;">
-            <div style="height:4px;background:rgba(255,255,255,.4);border-radius:4px;width:${countBarW}%;"></div>
+            <div style="height:4px;background:${L?'rgba(59,130,246,.55)':'rgba(148,163,184,.7)'};border-radius:4px;width:${countBarW}%;"></div>
           </div>
         </div>
       </div>
@@ -3633,10 +3633,10 @@ function renderShipAnalysis() {
       const lm2 = window.svLightMode;
       // 4단계 알파 — 대비 강하게. 라이트/다크 분리.
       const alphaLight = [0, 0.15, 0.38, 0.65, 0.92][tier];
-      const alphaDark  = [0, 0.45, 0.65, 0.85, 1.00][tier];
+      const alphaDark  = [0, 0.58, 0.75, 0.90, 1.00][tier];
       const tierAlpha = lm2 ? alphaLight : alphaDark;
       const bg = tier === 0
-        ? (lm2 ? 'rgba(37,99,235,.04)' : 'rgba(255,255,255,.05)')
+        ? (lm2 ? 'rgba(37,99,235,.04)' : 'rgba(255,255,255,.08)')
         : (lm2 ? `rgba(37,99,235,${tierAlpha})` : `rgba(99,102,241,${tierAlpha})`);
       // 텍스트 색: tier별 최적 대비
       let textColor;
@@ -4152,6 +4152,11 @@ function _startClientMode() {
 
   // 로그인 영역 숨기기
   document.querySelector('.header-right')?.style && (document.querySelector('.header-right').style.display = 'none');
+
+  // 고객사 모드: .main full width
+  const mainEl = document.querySelector('.main');
+  if(mainEl) { mainEl.style.maxWidth = 'none'; mainEl.style.padding = '0'; }
+  document.body.style.overflow = 'auto';
 
   // 모든 탭 숨기고 출고현황만 표시
   document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
