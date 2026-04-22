@@ -454,16 +454,28 @@ tr:hover td{background:var(--surface2);}
 }
 
 /* sv-dark-card 내부 stat card */
-#tab-shipview .sv-stat-card,
-.sv-stat-card{
+/* stat 카드 - 다크모드에서만 그라데이션 override */
+[data-theme="dark"] #tab-shipview .sv-stat-card,
+[data-theme="dark"] .sv-stat-card{
   background:var(--sv-surface2)!important;
   border:1px solid var(--sv-border)!important;
   color:var(--sv-text)!important;
   border-radius:var(--radius-md)!important;
 }
-#tab-shipview .sv-stat-main,#tab-shipview .sv-stat-val,
-.sv-stat-main,.sv-stat-val{color:var(--sv-text)!important;}
-#tab-shipview .sv-stat-label{color:var(--sv-text3)!important;}
+[data-theme="dark"] #tab-shipview .sv-stat-main,
+[data-theme="dark"] .sv-stat-main,
+[data-theme="dark"] .sv-stat-val{color:#fff!important;}
+/* 라이트모드 stat 카드 - 연한 색상 버전 */
+:root:not([data-theme="dark"]) .sv-stat-card{
+  border-radius:14px!important;
+  border:none!important;
+  filter:opacity(.92) saturate(.65) brightness(1.45);
+}
+:root:not([data-theme="dark"]) .sv-stat-card .sv-stat-main,
+:root:not([data-theme="dark"]) .sv-stat-card .sv-stat-val,
+:root:not([data-theme="dark"]) .sv-stat-card div{
+  color:#111827!important;
+}
 
 /* 분석 블록 */
 #tab-shipview #shipview-analysis > div,
@@ -4182,7 +4194,10 @@ function _startClientMode() {
   }
 
   // 데이터 로드 후 렌더
-  syncData().then(() => { setSvFilter('all', true); });
+  syncData().then(() => {
+    populateSvMfgOptions();
+    setSvFilter('all', true);
+  });
 }
 
 function exportShippingXlsx() {
@@ -4499,7 +4514,7 @@ function switchTab(name, btn) {
   if(name==='stock') { switchStockTab('inventory'); }
   if(name==='docs') renderDocs();
   if(name==='shipping') { initShipping(); }
-  if(name==='shipview') { setSvFilter('all', true); }
+  if(name==='shipview') { populateSvMfgOptions(); setSvFilter('all', true); }
   if(name==='exchange') { renderWorkerSel(); renderExchangeList(); setTimeout(excUpdatePreview, 0); }
   if(name==='admin') { switchAdminTab('workers'); }
 }
