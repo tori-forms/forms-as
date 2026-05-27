@@ -5812,16 +5812,9 @@ window.addEventListener('DOMContentLoaded', function(){
             <input type="time" id="ship-time" value="12:00" style="width:110px;height:38px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:14px;outline:none;" onchange="renderShipping()">
           </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">에이징 시간</label>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <input type="text" id="aging-hours" value="24" style="width:70px;text-align:center;" oninput="renderShipping()">
-            <span style="font-size:13px;color:var(--text2);">시간</span>
-          </div>
-        </div>
         <div class="form-group" style="flex:1;">
-          <label class="form-label">수리 마감 기준</label>
-          <div id="ship-deadline" style="font-size:13px;font-weight:600;color:var(--green);padding:8px 0;">-</div>
+          <label class="form-label">출고 대상</label>
+          <div id="ship-deadline" style="font-size:13px;font-weight:600;color:var(--green);padding:8px 0;">🔍 검수완료 상태인 건만 출고 가능합니다.</div>
         </div>
       </div>
     </div>
@@ -7015,12 +7008,20 @@ function loginAs(name) {
 
   document.getElementById('login-overlay').style.display = 'none';
   document.getElementById('current-user-badge').style.display = 'inline-flex';
-  document.getElementById('current-user-badge').textContent = (isAdmin ? '⚙️ ' : '👨‍🔧 ') + name;
+  // QC 사용자는 다른 아이콘 표시
+  const role = roleMap[name] || 'engineer';
+  let prefix = '👨‍🔧 ';
+  if(isAdmin) prefix = '⚙️ ';
+  else if(role === 'inspector') prefix = '🔍 ';
+  else if(role === 'both') prefix = '🔧+🔍 ';
+  document.getElementById('current-user-badge').textContent = prefix + name;
   // 관리자만 🔑 버튼 표시
   const cpwBtn = document.getElementById('change-pw-btn');
   if(cpwBtn) cpwBtn.style.display = isAdmin ? 'inline-flex' : 'none';
   renderWorkerSel();
   updateAdminNav();
+  // ⭐ v2.3: QC 권한자는 일부 탭만 보이게
+  applyQCMenuRestriction();
 
   // 매일 다른 응원 문구 — 일반 풀 + 요일 테마 + 계절/이벤트
   const msg = pickDailyCheer();
@@ -7029,8 +7030,8 @@ function loginAs(name) {
   el.className = `notif show`;
   clearTimeout(nt); nt = setTimeout(()=>el.classList.remove('show'), 4500);
 
-  // 엔지니어 로그인 시 내 대시보드 렌더 (탭 전환은 이미 위에서 처리됨)
-  if(!isAdmin) {
+  // 엔지니어 로그인 시 내 대시보드 렌더 (QC 전용은 위에서 이미 검수대기로 전환됨)
+  if(!isAdmin && role !== 'inspector') {
     renderMyDash();
   }
 }
@@ -7070,10 +7071,8 @@ async function loginMaster() {
 document.addEventListener('DOMContentLoaded', ()=>{
   const sd = document.getElementById('ship-date');
   const st = document.getElementById('ship-time');
-  const ah = document.getElementById('aging-hours');
   if(sd) sd.addEventListener('change', ()=>{ window._shipOk=null; window._shipHold=null; renderShipping(); });
   if(st) st.addEventListener('change', ()=>{ window._shipOk=null; window._shipHold=null; renderShipping(); });
-  if(ah) ah.addEventListener('input', ()=>{ window._shipOk=null; window._shipHold=null; renderShipping(); });
 });
 
 /* 삭제 권한 체크 */
@@ -7993,7 +7992,6 @@ async function submitInspect(entryId) {
 function renderShipping() {
   const dateVal = document.getElementById('ship-date')?.value;
   const timeVal = document.getElementById('ship-time')?.value || '12:00';
-  const agingH = Number(document.getElementById('aging-hours')?.value) || 24;
   const deadlineEl = document.getElementById('ship-deadline');
   const resultEl = document.getElementById('shipping-result');
 
@@ -8004,36 +8002,32 @@ function renderShipping() {
   }
 
   const shipDT = new Date(`${dateVal}T${timeVal}:00`);
-  const deadlineDT = new Date(shipDT.getTime() - agingH * 3600000);
   const fmt2 = n => String(n).padStart(2,'0');
   const fmtDT2 = d => `${d.getFullYear()}.${fmt2(d.getMonth()+1)}.${fmt2(d.getDate())} ${fmt2(d.getHours())}:${fmt2(d.getMinutes())}`;
 
-  if(deadlineEl) deadlineEl.textContent = `${fmtDT2(deadlineDT)} 이전 등록 → 출고 가능`;
+  if(deadlineEl) deadlineEl.innerHTML = `🔍 <strong>검수완료</strong> 상태인 건만 출고 가능 (${fmtDT2(shipDT)} 출고 예정)`;
 
   // 출고 완료된 시리얼
   const shippedSerials = new Set(shipHistory.map(h => String(h.serial)));
   // 교품 처리된 시리얼 (출고 목록에서 제외)
   const exchangedSerials = new Set((exchangeList||[]).map(x => String(x.serial)));
 
-  // _shipOk, _shipHold 초기화 (날짜/시간 변경 시 재분류)
+  // ⭐ v2.3: 에이징 24h 필터 제거. 검수완료 상태만 단일 기준으로 분류.
   if(!window._shipOk) {
     const ok = [], hold = [];
-    // Phase2: 검수완료(inspected) 상태인 건만 출고 대상.
-    // status가 빈 문자열인 기존 데이터(마이그레이션 이전)도 호환 위해 포함.
     entries.filter(e => {
       if(shippedSerials.has(String(e.serial))) return false;
       if(exchangedSerials.has(String(e.serial))) return false;
-      const s = String(e.status || '');
-      // 에이징 중/검수대기는 출고 불가
-      if(s === STATUS_AGING || s === STATUS_AGING_PASS) return false;
-      // 검수완료 또는 (구버전 빈 상태) 모두 허용
       return true;
     }).forEach(e => {
       const repairDT = new Date(e.date);
-      if(repairDT <= deadlineDT) {
+      const s = String(e.status || '');
+      // 검수완료 또는 (마이그레이션 이전 빈 상태) → 출고 가능
+      // 에이징 중 / 검수대기 / 불량 → 보류
+      if(s === STATUS_INSPECTED || s === '') {
         ok.push({ entry: e, repairDT });
       } else {
-        hold.push({ entry: e, repairDT, agingEndDT: new Date(repairDT.getTime() + agingH * 3600000) });
+        hold.push({ entry: e, repairDT, status: s });
       }
     });
     ok.sort((a,b) => b.repairDT - a.repairDT);
@@ -8057,12 +8051,12 @@ function renderShipping() {
     <div class="stat-card" style="border-left:4px solid var(--green);">
       <div class="stat-label">출고 가능</div>
       <div class="stat-val" style="color:var(--green);">${ok.length}<span style="font-size:14px;color:var(--text2);font-weight:400;">건</span></div>
-      <div class="stat-sub">${fmtDT2(deadlineDT)} 이전 등록</div>
+      <div class="stat-sub">🔍 검수완료 상태</div>
     </div>
     <div class="stat-card" style="border-left:4px solid var(--amber);">
-      <div class="stat-label">보류 (에이징 진행 중)</div>
+      <div class="stat-label">보류 (검수 진행 중)</div>
       <div class="stat-val" style="color:var(--amber);">${hold.length}<span style="font-size:14px;color:var(--text2);font-weight:400;">건</span></div>
-      <div class="stat-sub">${fmtDT2(deadlineDT)} 이후 등록</div>
+      <div class="stat-sub">에이징/검수대기/불량</div>
     </div>
     <div class="stat-card" style="border-left:4px solid #16a34a;">
       <div class="stat-label">출고 완료 (${dateVal})</div>
@@ -8107,20 +8101,31 @@ function renderShipping() {
   if(hold.length) {
     h += `<div class="card" style="padding:0;margin-bottom:12px;">
       <div style="padding:12px 18px;border-bottom:1px solid var(--border);">
-        <span style="font-size:13px;font-weight:700;color:var(--amber);">⚠️ 보류 - 에이징 진행 중 (${hold.length}건)</span>
+        <span style="font-size:13px;font-weight:700;color:var(--amber);">⚠️ 보류 - 검수 진행 중 (${hold.length}건)</span>
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>에이징 완료 예정</th><th>특이사항</th><th></th></tr></thead>
-        <tbody>${hold.map((x,i) => `<tr>
+        <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>현재 상태</th><th>특이사항</th><th></th></tr></thead>
+        <tbody>${hold.map((x,i) => {
+          const statusLabel = {
+            'aging': '🕐 에이징 중',
+            'aging_pass': '🔍 검수대기',
+            'defect': '🚨 불량처리'
+          }[x.status] || x.status || '-';
+          const statusColor = {
+            'aging': '#f59e0b',
+            'aging_pass': '#3b82f6',
+            'defect': '#dc2626'
+          }[x.status] || 'var(--text2)';
+          return `<tr>
           <td><span style="font-size:11px;font-weight:700;background:${x.entry.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.entry.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.entry.model||'-'}</span></td>
           <td class="mono">${x.entry.serial}</td>
           <td>${x.entry.worker}</td>
           <td>${workTags(x.entry.works)}</td>
           <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
-          <td style="font-size:11px;color:var(--amber-text);white-space:nowrap;">${fmtDT2(x.agingEndDT)}</td>
+          <td style="font-size:11px;font-weight:600;color:${statusColor};white-space:nowrap;">${statusLabel}</td>
           <td style="font-size:12px;color:${x.entry.note?'var(--amber-text)':'var(--text3)'};">${x.entry.note||'-'}</td>
           <td><button class="btn btn-sm btn-primary" onclick="moveToOk(${i})">출고 추가</button></td>
-        </tr>`).join('')}</tbody>
+        </tr>`}).join('')}</tbody>
       </table></div>
     </div>`;
   }
@@ -8260,11 +8265,9 @@ function excludeSelected() {
     .map(cb => parseInt(cb.dataset.idx))
     .sort((a,b) => b - a); // 뒤에서부터 제거
 
-  const agingH = Number(document.getElementById('aging-hours')?.value) || 24;
   checkedIdxs.forEach(i => {
     const item = window._shipOk.splice(i, 1)[0];
     if(item) {
-      item.agingEndDT = new Date(item.repairDT.getTime() + agingH * 3600000);
       window._shipHold.unshift(item);
     }
   });
@@ -10251,6 +10254,58 @@ function updateAdminNav() {
   const stockBtn = document.getElementById('nav-stock');
   if(stockBtn && currentUser) {
     stockBtn.style.display = 'inline-block';
+  }
+}
+
+// ⭐ v2.3: QC 전용 메뉴 제한
+// QC 역할 (inspector) 사용자에게는 일부 탭만 보이게 함
+// 'both' (겸직) 사용자는 모든 탭 표시 (엔지니어 + QC)
+function applyQCMenuRestriction() {
+  const role = roleMap[currentUser] || 'engineer';
+
+  // QC 전용 사용자가 아니면 아무것도 안 함 (모두 표시)
+  if(role !== 'inspector') return;
+  // 관리자는 권한 무관하게 모든 탭 표시
+  if(isAdmin) return;
+
+  // QC 전용으로 보이게 할 탭 ID들
+  const QC_VISIBLE_TABS = ['inspect', 'search', 'shipping'];
+
+  // 모든 nav-btn 순회
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    const onclick = btn.getAttribute('onclick') || '';
+    const match = onclick.match(/switchTab\('([^']+)'/);
+    if(!match) return;
+    const tabName = match[1];
+
+    // QC 가시 탭이 아니면 숨김 (admin 버튼은 이미 위에서 처리됨)
+    if(QC_VISIBLE_TABS.indexOf(tabName) === -1) {
+      btn.style.display = 'none';
+    } else {
+      btn.style.display = 'inline-block';
+    }
+  });
+
+  // 내 대시보드도 숨김 (QC는 본인 수리 실적 없음)
+  const myBtn = document.getElementById('nav-mydash');
+  if(myBtn) myBtn.style.display = 'none';
+  // 재고 관리 숨김
+  const stockBtn = document.getElementById('nav-stock');
+  if(stockBtn) stockBtn.style.display = 'none';
+
+  // 현재 활성 탭이 QC 가시 탭이 아니면 검수대기로 강제 전환
+  const activeBtn = document.querySelector('.nav-btn.active');
+  if(activeBtn) {
+    const onclick = activeBtn.getAttribute('onclick') || '';
+    const match = onclick.match(/switchTab\('([^']+)'/);
+    if(match && QC_VISIBLE_TABS.indexOf(match[1]) === -1) {
+      const inspectBtn = document.getElementById('nav-inspect');
+      if(inspectBtn) switchTab('inspect', inspectBtn);
+    }
+  } else {
+    // 활성 탭이 없으면 검수대기로
+    const inspectBtn = document.getElementById('nav-inspect');
+    if(inspectBtn) switchTab('inspect', inspectBtn);
   }
 }
 
