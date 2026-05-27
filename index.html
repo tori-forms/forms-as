@@ -6302,9 +6302,24 @@ function isKpiTarget(name) {
   if(!isActiveWorker(name)) return false;
   const tier = tierMap[name];
   if(tier === 'T1') return false; // T1은 자동 분배 제외
+  if(tier === 'T4') return false; // ⭐ v2.5: T4(대표/팀장)는 수리 KPI 분모 제외
+  const role = roleMap[name] || 'engineer';
+  if(role === 'inspector') return false; // ⭐ v2.5: QC 전용은 수리 안 함 → 제외
   // 개별 목표가 명시적으로 입력된 사람(0건 포함)은 자동 분배 분모에서 제외
   const manual = workerDailyTargets[name];
   if(manual !== undefined && manual !== null) return false;
+  return true;
+}
+
+// ⭐ v2.5 신규: 수리 활동 카운트 대상 여부 (KPI 외 통계용)
+// T4(대표/팀장)와 QC 전용 작업자는 엔지니어 합산에서 제외
+function isRepairEngineer(name) {
+  if(name === MASTER_NAME) return false;
+  if(!isActiveWorker(name)) return false;
+  const tier = tierMap[name];
+  if(tier === 'T4') return false;
+  const role = roleMap[name] || 'engineer';
+  if(role === 'inspector') return false;
   return true;
 }
 
@@ -7195,89 +7210,124 @@ function switchShippingSubtab(which) {
   }
 }
 
-// ⭐ v2.4 신규: 출고 목록 렌더 (shipHistory 전체 표시)
+// ⭐ v2.5: 출고 목록 렌더 (기존 출고 현황의 "출고 목록" 탭 스타일 그대로)
 function renderShippingList() {
   const el = document.getElementById('shipping-list-content');
   if(!el) return;
 
-  const list = (shipHistory || []).slice().sort((a,b) =>
-    new Date(b.shipDate) - new Date(a.shipDate)
-  );
+  const list = (shipHistory || []).slice();
 
   if(list.length === 0) {
-    el.innerHTML = `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
-      <div style="font-size:48px;margin-bottom:12px;">📭</div>
-      <div style="font-size:15px;">출고 완료된 내역이 없습니다.</div>
-    </div>`;
+    el.innerHTML = '<div class="empty" style="padding:40px;">출고 이력이 없습니다.</div>';
     return;
   }
 
-  // 날짜별 그룹
+  // 렌더링 전 현재 열려있는 그룹 ID 저장 (접힘 방지)
+  const openGroups = new Set(
+    [...el.querySelectorAll('[id^="shg-"]')]
+      .filter(g => g.style.display !== 'none')
+      .map(g => g.id)
+  );
+
+  // 날짜 그룹핑
   const groups = {};
   list.forEach(h => {
-    const d = shipDateKey(h.shipDate);
-    if(!groups[d]) groups[d] = [];
-    groups[d].push(h);
+    const key = shipDateKey(h.shipDate);
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(h);
   });
-  const dates = Object.keys(groups).sort((a,b) => b.localeCompare(a));
 
-  // 통계
-  const totalCount = list.length;
-  const todayKey = todayStr();
-  const todayCount = (groups[todayKey] || []).length;
-  const thisMonth = todayKey.slice(0, 7);
-  const monthCount = list.filter(h => shipDateKey(h.shipDate).startsWith(thisMonth)).length;
+  let html = '';
+  Object.keys(groups).sort((a,b) => b.localeCompare(a)).forEach(date => {
+    const gList = groups[date];
+    const totalFee = gList.reduce((s,x) => {
+      const e = entries.find(en => String(en.serial) === String(x.serial));
+      return s + (e ? Number(e.total) : 0);
+    }, 0);
+    const groupId = 'shg-' + date.replace(/-/g,'');
 
-  let html = `
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
-      <div class="card" style="padding:14px 16px;border-left:4px solid #16a34a;">
-        <div style="font-size:11px;color:var(--text2,#666);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">전체 출고</div>
-        <div style="font-size:24px;font-weight:700;margin-top:4px;">${totalCount}<span style="font-size:13px;color:var(--text2,#666);font-weight:400;">건</span></div>
-      </div>
-      <div class="card" style="padding:14px 16px;border-left:4px solid #3b82f6;">
-        <div style="font-size:11px;color:var(--text2,#666);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">이번 달</div>
-        <div style="font-size:24px;font-weight:700;margin-top:4px;color:#3b82f6;">${monthCount}<span style="font-size:13px;color:var(--text2,#666);font-weight:400;">건</span></div>
-      </div>
-      <div class="card" style="padding:14px 16px;border-left:4px solid #f59e0b;">
-        <div style="font-size:11px;color:var(--text2,#666);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">오늘</div>
-        <div style="font-size:24px;font-weight:700;margin-top:4px;color:#f59e0b;">${todayCount}<span style="font-size:13px;color:var(--text2,#666);font-weight:400;">건</span></div>
-      </div>
-    </div>
-  `;
+    // 기종별 / 수리항목별 카운트
+    const modelCount = {};
+    gList.forEach(x => {
+      const e = entries.find(en => String(en.serial) === String(x.serial));
+      const model = x.model || e?.model || '-';
+      modelCount[model] = (modelCount[model]||0) + 1;
+    });
 
-  dates.forEach(d => {
-    const items = groups[d];
-    html += `<div class="card" style="margin-bottom:10px;padding:0;overflow:hidden;">
-      <div style="padding:10px 16px;background:var(--bg2,#f9fafb);border-bottom:1px solid var(--border,#e5e7eb);display:flex;align-items:center;gap:12px;">
-        <span style="font-size:14px;font-weight:700;">📅 ${d}</span>
-        <span style="font-size:12px;color:var(--text2,#666);">${items.length}건</span>
-      </div>
-      <div class="table-wrap"><table style="font-size:13px;">
-        <thead><tr>
-          <th>시리얼</th>
-          <th>기종</th>
-          <th>엔지니어</th>
-          <th>수리 항목</th>
-          <th>출고 시각</th>
-        </tr></thead>
-        <tbody>`;
+    // 기종별 + 작업별 배지
+    const modelBadges = Object.entries(modelCount).map(([m,c]) => {
+      const mWorkCount = {};
+      gList.forEach(x => {
+        const e = entries.find(en => String(en.serial) === String(x.serial));
+        const model = x.model || e?.model || '-';
+        if(model !== m) return;
+        if(e) parseWorks(e.works).forEach(k => { mWorkCount[k] = (mWorkCount[k]||0)+1; });
+      });
+      const workDetail = Object.entries(mWorkCount).map(([k,wc]) => {
+        const w = WORKS[k]; if(!w) return '';
+        return `<span style="font-size:10px;font-weight:600;color:${w.tagColor};opacity:.85;">${w.tag} ${wc}</span>`;
+      }).join('<span style="color:#ccc;margin:0 2px;">·</span>');
+      return `<div style="display:inline-flex;align-items:center;gap:6px;background:${m==='S2PRO_N'?'#ede9fe':'#dbeafe'};border-radius:8px;padding:3px 10px;margin-right:6px;">
+        <span style="font-size:11px;font-weight:700;color:${m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};">${m} ${c}건</span>
+        ${workDetail ? `<span style="color:#ccc;">|</span><span style="font-size:10px;">${workDetail}</span>` : ''}
+      </div>`;
+    }).join('');
 
-    items.sort((a,b) => new Date(b.shipDate) - new Date(a.shipDate)).forEach(h => {
+    const isOpen = openGroups.has(groupId);
+
+    html += `<div style="margin-bottom:12px;">
+      <div class="date-group-header" style="cursor:pointer;user-select:none;flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px;" onclick="toggleShipListGroup('${groupId}')">
+        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+          <span class="date-group-title" style="font-size:14px;font-weight:700;">${formatShipDate(date)}</span>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span class="date-group-meta">${gList.length}건 · ${fmt(totalFee)}원</span>
+            <span style="font-size:14px;color:var(--text2);transition:transform .2s;display:inline-block;${isOpen?'transform:rotate(180deg);':''}" id="${groupId}-arrow">▼</span>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;width:100%;">${modelBadges}</div>
+      </div>
+      <div id="${groupId}" style="display:${isOpen?'block':'none'};margin-top:6px;">
+        <div class="table-wrap"><table style="font-size:13px;">
+          <thead><tr>
+            <th>시리얼</th>
+            <th>기종</th>
+            <th>엔지니어</th>
+            <th>수리 항목</th>
+            <th>출고 시각</th>
+          </tr></thead>
+          <tbody>`;
+
+    gList.sort((a,b) => new Date(b.shipDate) - new Date(a.shipDate)).forEach(h => {
+      const e = entries.find(en => String(en.serial) === String(h.serial));
       const shipFmt = h.shipDate ? new Date(h.shipDate).toLocaleString('ko-KR', {hour:'2-digit',minute:'2-digit'}) : '-';
-      const workerName = String(h.worker||'').split('::')[0];
+      const workerName = String(h.worker || e?.worker || '').split('::')[0];
+      const model = h.model || e?.model || '-';
+      const works = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k).join(' · ') : String(h.works||'').replace(/\|/g, ' · ');
       html += `<tr>
-        <td style="font-weight:600;font-family:monospace;">${escapeHtml(String(h.serial||''))}</td>
-        <td>${escapeHtml(String(h.model||''))}</td>
+        <td style="font-family:monospace;font-weight:600;">${escapeHtml(String(h.serial||''))}</td>
+        <td><span style="font-size:11px;font-weight:700;background:${model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${escapeHtml(model)}</span></td>
         <td>${escapeHtml(workerName)}</td>
-        <td style="font-size:12px;color:var(--text2);">${escapeHtml(String(h.works||'').replace(/\|/g,', '))}</td>
+        <td style="font-size:12px;color:var(--text2);">${works}</td>
         <td style="font-size:12px;">${shipFmt}</td>
       </tr>`;
     });
 
-    html += `</tbody></table></div></div>`;
+    html += `</tbody></table></div>
+      </div>
+    </div>`;
   });
 
   el.innerHTML = html;
+}
+
+// 출고 목록 그룹 토글
+function toggleShipListGroup(groupId) {
+  const g = document.getElementById(groupId);
+  const arrow = document.getElementById(groupId + '-arrow');
+  if(!g) return;
+  const willOpen = (g.style.display === 'none');
+  g.style.display = willOpen ? 'block' : 'none';
+  if(arrow) arrow.style.transform = willOpen ? 'rotate(180deg)' : 'rotate(0deg)';
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -10975,10 +11025,16 @@ function switchTab(name, btn) {
 }
 
 /* 체크박스 */
+// ⭐ v2.5: 수리 항목 표시 순서 (논배터리/배터리 먼저, 그 다음 PCB/패널/메인보드)
+const WORK_DISPLAY_ORDER = ['nonbat', 'battery', 'pcb', 'panel', 'board'];
+
 function buildChecks() {
   initPartQtys();
   const model = getModel();
-  document.getElementById('work-checks').innerHTML = Object.entries(WORKS).map(([k,v])=>{
+  const orderedEntries = WORK_DISPLAY_ORDER
+    .filter(k => WORKS[k])
+    .map(k => [k, WORKS[k]]);
+  document.getElementById('work-checks').innerHTML = orderedEntries.map(([k,v])=>{
     const visibleParts = (v.parts||[]).filter(p => !p.modelOnly || p.modelOnly === model);
     return `<label class="work-check" id="wc-${k}" style="cursor:pointer;">
       <input type="checkbox" value="${k}" style="margin-top:4px;accent-color:var(--accent);width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="toggleCheck('${k}');updatePP();renderPartQtys('${k}')">
@@ -11490,7 +11546,10 @@ function openEditModal(id) {
   }
   document.getElementById('edit-serial-label').textContent = `시리얼: ${e.serial}  |  엔지니어: ${e.worker}`;
   const ws = parseWorks(e.works);
-  document.getElementById('edit-work-checks').innerHTML = Object.entries(WORKS).map(([k,v])=>`
+  const orderedEditEntries = WORK_DISPLAY_ORDER
+    .filter(k => WORKS[k])
+    .map(k => [k, WORKS[k]]);
+  document.getElementById('edit-work-checks').innerHTML = orderedEditEntries.map(([k,v])=>`
     <label class="work-check ${ws.includes(k)?'checked':''}" id="ewc-${k}">
       <input type="checkbox" value="${k}" ${ws.includes(k)?'checked':''} onchange="document.getElementById('ewc-${k}').classList.toggle('checked',this.checked);updateEditPP()">
       <div><div class="work-check-name">${v.label}</div><div class="work-check-price">${fmt(v.price)}원</div></div>
@@ -11678,8 +11737,8 @@ async function renderSummary() {
   const rev = list.reduce((s,e)=>s+Number(e.total),0);
 
   const dailyTarget = await getDailyTarget(sel);
-  // MASTER 제외 모든 작업자
-  const activeWorkers = workers.filter(w => w !== MASTER_NAME && isActiveWorker(w));
+  // ⭐ v2.5: MASTER + T4 + QC 전용 제외한 실제 수리 엔지니어만 카운트
+  const activeWorkers = workers.filter(isRepairEngineer);
   // 개인별 목표: 개별 입력 우선, T1 기본 0, T2~T4 자동
   const personalTarget = (w) => getPersonalDailyTarget(w, dailyTarget);
   // "목표 달성 엔지니어"는 목표 있는 사람만 카운트 (일관성)
@@ -12421,7 +12480,7 @@ async function renderReport() {
   const [y, m] = monthVal.split('-').map(Number);
   const monthKPI = kpiMap[monthVal] || 0;
   const monthEntries = entries.filter(e => String(e.date).startsWith(monthVal));
-  const activeWorkers = workers.filter(w => w !== MASTER_NAME && isActiveWorker(w));
+  const activeWorkers = workers.filter(isRepairEngineer);
   const kpiTargetCount = getKpiTargetCount();
   const wd = monthKPI ? await getWorkdays(y, m) : 0;
   const dailyTarget = monthKPI && wd && kpiTargetCount ? Math.ceil(monthKPI / wd / kpiTargetCount) : 0;
@@ -12528,7 +12587,7 @@ function exportReportCSV() {
   const [y, m] = monthVal.split('-').map(Number);
   const monthKPI = kpiMap[monthVal] || 0;
   const monthEntries = entries.filter(e => String(e.date).startsWith(monthVal));
-  const activeWorkers = workers.filter(w => w !== MASTER_NAME && isActiveWorker(w));
+  const activeWorkers = workers.filter(isRepairEngineer);
   const totalDone = monthEntries.length;
   const totalRev = monthEntries.reduce((s,e)=>s+Number(e.total),0);
   const pct = monthKPI ? Math.min(100, Math.round(totalDone/monthKPI*100)) : 0;
@@ -12582,7 +12641,7 @@ function renderKPIList(listId = 'kpi-list') {
   keys.forEach(async k => {
     const [y,m] = k.split('-').map(Number);
     const wd = await getWorkdays(y, m);
-    const ac = workers.filter(w=>w!==MASTER_NAME).length;
+    const ac = workers.filter(isRepairEngineer).length;
     const daily = ac ? Math.ceil(kpiMap[k]/wd/ac) : 0;
     const el2 = document.getElementById('wd-'+k.replace('-','_'));
     if(el2) el2.textContent = `평일 ${wd}일 · 1인 하루 ${daily}건`;
@@ -12596,7 +12655,7 @@ async function updateKPIPreview() {
   if(!monthVal || !kpiVal){ el.textContent=''; return; }
   const [y,m] = monthVal.split('-').map(Number);
   const wd = await getWorkdays(y, m);
-  const ac = workers.filter(w=>w!==MASTER_NAME).length;
+  const ac = workers.filter(isRepairEngineer).length;
   const daily = ac && wd ? Math.ceil(kpiVal/wd/ac) : 0;
   el.textContent = `→ 평일 ${wd}일 기준 · 작업자 ${ac}명 · 1인 하루 목표 ${daily}건`;
 }
