@@ -5298,7 +5298,7 @@ window.addEventListener('DOMContentLoaded', function(){
         <strong>📋 에이징 안내</strong><br>
         • 수리 등록 시 자동으로 24시간 에이징이 시작됩니다.<br>
         • 24시간 경과 후 <strong>"검수대기로 이동"</strong> 버튼이 활성화됩니다.<br>
-        • 에이징 중 불량 발견 시 <strong>"부품 추가"</strong> 버튼으로 부품을 추가하고 에이징을 재시작할 수 있습니다.
+        • 에이징 중에도 <strong>"부품 추가"</strong>는 가능하며, 에이징 시간은 그대로 유지됩니다.
       </div>
     </div>
     <div id="aging-list"></div>
@@ -5329,7 +5329,7 @@ window.addEventListener('DOMContentLoaded', function(){
       <div class="card" style="padding:14px 18px;margin-bottom:16px;background:linear-gradient(135deg,#dbeafe,#bfdbfe);border-color:#3b82f6;">
         <div style="font-size:13px;color:#1e3a8a;line-height:1.6;">
           <strong>📋 검수 안내</strong><br>
-          • <strong>검수 권한</strong>: 티어 T3 이상 또는 검수자(inspector) 역할을 가진 작업자<br>
+          • <strong>QC 권한</strong>: 티어 T3 이상 또는 QC 역할을 가진 작업자<br>
           • <strong>검수완료</strong>: 출고관리로 이동되어 출고 가능합니다.<br>
           • <strong>불량</strong>: 🚨 불량처리 탭으로 이동. 담당 엔지니어가 재작업 후 검수대기로 복귀.
         </div>
@@ -6819,9 +6819,50 @@ function buildLoginGrid() {
     grid.innerHTML = '<div style="grid-column:1/-1;color:var(--text3);font-size:13px;">등록된 엔지니어가 없습니다.</div>';
     return;
   }
-  grid.innerHTML = workers.filter(w => !_isAdminUser(w)).map(w =>
-    `<button class="login-btn" onclick="loginAs('${w}')">${w}${tierBadge(tierMap[w]||'')}</button>`
-  ).join('');
+  // 관리자 제외 + QC 분리
+  const nonAdmins = workers.filter(w => !_isAdminUser(w));
+  const qcMembers = nonAdmins.filter(w => {
+    const r = roleMap[w] || 'engineer';
+    return r === 'inspector' || r === 'both';
+  });
+  const engineers = nonAdmins.filter(w => {
+    const r = roleMap[w] || 'engineer';
+    return r === 'engineer';
+  });
+
+  let html = '';
+
+  // 엔지니어 섹션
+  if(engineers.length > 0) {
+    html += `<div style="grid-column:1/-1;font-size:11px;font-weight:700;color:var(--text2,#666);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;margin-top:4px;display:flex;align-items:center;gap:8px;">
+      <span style="flex:1;height:1px;background:var(--border2,#d1d5db);"></span>
+      <span>🔧 엔지니어</span>
+      <span style="flex:1;height:1px;background:var(--border2,#d1d5db);"></span>
+    </div>`;
+    html += engineers.map(w =>
+      `<button class="login-btn" onclick="loginAs('${w}')">${w}${tierBadge(tierMap[w]||'')}</button>`
+    ).join('');
+  }
+
+  // QC팀 섹션 (별도 그룹)
+  if(qcMembers.length > 0) {
+    html += `<div style="grid-column:1/-1;font-size:11px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:0.5px;margin-top:12px;margin-bottom:4px;display:flex;align-items:center;gap:8px;">
+      <span style="flex:1;height:1px;background:#10b981;opacity:0.3;"></span>
+      <span>🔍 QC 팀</span>
+      <span style="flex:1;height:1px;background:#10b981;opacity:0.3;"></span>
+    </div>`;
+    html += qcMembers.map(w => {
+      const role = roleMap[w] || 'engineer';
+      const badge = role === 'both' ? '🔧+🔍' : '🔍';
+      return `<button class="login-btn" onclick="loginAs('${w}')" style="border-color:#10b981;background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(16,185,129,0.03));">${w}<span style="display:inline-block;padding:2px 6px;border-radius:6px;background:#10b981;color:#fff;font-size:10px;font-weight:600;margin-left:4px;">${badge}</span>${tierBadge(tierMap[w]||'')}</button>`;
+    }).join('');
+  }
+
+  if(!html) {
+    html = '<div style="grid-column:1/-1;color:var(--text3);font-size:13px;">등록된 작업자가 없습니다.</div>';
+  }
+
+  grid.innerHTML = html;
 }
 
 // 관리자 3명 그리드 빌드
@@ -7132,16 +7173,14 @@ function getDefectEntries() {
 }
 
 // ── 🕐 에이징 중 탭 렌더 ────────────────────────────────────────
+// 펼친 엔지니어 추적 (탭 떠나도 유지)
+window._agingExpandedWorkers = window._agingExpandedWorkers || new Set();
+
 function renderAging() {
   const el = document.getElementById('aging-list');
   if(!el) return;
 
-  const list = getAgingEntries()
-    .sort((a,b) => {
-      const sa = new Date(a.agingStart || a.date || 0).getTime();
-      const sb = new Date(b.agingStart || b.date || 0).getTime();
-      return sb - sa;
-    });
+  const list = getAgingEntries();
 
   if(list.length === 0) {
     el.innerHTML = `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
@@ -7151,52 +7190,158 @@ function renderAging() {
     return;
   }
 
-  let html = `<div class="card" style="padding:0;overflow:hidden;">
-    <div class="table-wrap"><table style="font-size:13px;">
-      <thead><tr>
-        <th>시리얼</th>
-        <th>기종</th>
-        <th>작업자</th>
-        <th>작업</th>
-        <th>에이징 시작</th>
-        <th>남은 시간</th>
-        <th>상태</th>
-        <th style="text-align:center;">동작</th>
-      </tr></thead>
-      <tbody>`;
-
+  // 엔지니어별 그룹화
+  const groups = {};
   list.forEach(e => {
-    const c = calcAging(e.agingStart);
-    const works = (e.works||[]).map(w => WORKS[w]?.label || w).join(', ');
-    const passed = c.isPassed;
-    const startFmt = e.agingStart ? new Date(e.agingStart).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
-
-    html += `<tr data-aging-row data-entry-id="${e.id}">
-      <td style="font-weight:600;">${escapeHtml(e.serial)}</td>
-      <td>${escapeHtml(e.model||'')}</td>
-      <td>${escapeHtml(String(e.worker||'').split('::')[0])}</td>
-      <td style="font-size:12px;color:var(--text2);">${escapeHtml(works)}</td>
-      <td style="font-size:12px;">${startFmt}</td>
-      <td>
-        <span data-aging-remaining data-aging-start="${escapeHtml(e.agingStart||'')}"
-              style="font-family:'SF Mono','Monaco',monospace;font-size:14px;font-weight:700;color:${passed?'#10b981':'#f59e0b'};">
-          ${fmtRemaining(c.remaining)}
-        </span>
-      </td>
-      <td>
-        <span data-aging-badge style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;color:#fff;background:${passed?'#10b981':'#f59e0b'};">
-          ${passed ? '✅ 에이징 완료' : '🕐 진행 중'}
-        </span>
-      </td>
-      <td style="text-align:center;white-space:nowrap;">
-        <button class="btn btn-secondary" onclick="openAddPartsModal('${e.id}')" style="height:30px;padding:0 10px;font-size:12px;">🔧 부품 추가</button>
-        <button data-move-inspect-btn class="btn btn-primary" onclick="moveToInspect('${e.id}')" style="height:30px;padding:0 10px;font-size:12px;margin-left:4px;" ${passed?'':'disabled'}>→ 검수대기</button>
-      </td>
-    </tr>`;
+    const w = String(e.worker||'미정').split('::')[0];
+    if(!groups[w]) groups[w] = [];
+    groups[w].push(e);
   });
 
-  html += `</tbody></table></div></div>`;
+  // 본인이 위, 그 외는 건수 많은 순 → 가나다순
+  const workerNames = Object.keys(groups).sort((a,b) => {
+    if(a === currentUser) return -1;
+    if(b === currentUser) return 1;
+    const ca = groups[a].length;
+    const cb = groups[b].length;
+    if(ca !== cb) return cb - ca; // 건수 많은 순
+    return a.localeCompare(b, 'ko');
+  });
+
+  // 본인은 자동 펼침 (초기 1회만)
+  if(currentUser && groups[currentUser] && !window._agingInitialExpanded) {
+    window._agingExpandedWorkers.add(currentUser);
+    window._agingInitialExpanded = true;
+  }
+
+  // 전체 통계
+  const totalCount = list.length;
+  const passedCount = list.filter(e => calcAging(e.agingStart).isPassed).length;
+  const inProgressCount = totalCount - passedCount;
+
+  let html = `
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+    <div class="card" style="padding:14px 16px;border-left:4px solid #f59e0b;">
+      <div style="font-size:11px;color:var(--text2,#666);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">전체 에이징</div>
+      <div style="font-size:24px;font-weight:700;margin-top:4px;">${totalCount}<span style="font-size:13px;color:var(--text2,#666);font-weight:400;">건</span></div>
+    </div>
+    <div class="card" style="padding:14px 16px;border-left:4px solid #f59e0b;">
+      <div style="font-size:11px;color:var(--text2,#666);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">🕐 진행 중</div>
+      <div style="font-size:24px;font-weight:700;margin-top:4px;color:#f59e0b;">${inProgressCount}<span style="font-size:13px;color:var(--text2,#666);font-weight:400;">건</span></div>
+    </div>
+    <div class="card" style="padding:14px 16px;border-left:4px solid #10b981;">
+      <div style="font-size:11px;color:var(--text2,#666);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">✅ 에이징 완료</div>
+      <div style="font-size:24px;font-weight:700;margin-top:4px;color:#10b981;">${passedCount}<span style="font-size:13px;color:var(--text2,#666);font-weight:400;">건</span></div>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:12px;">
+    <button class="btn btn-secondary" onclick="agingExpandAll()" style="height:32px;padding:0 12px;font-size:12px;">▼ 전체 펼치기</button>
+    <button class="btn btn-secondary" onclick="agingCollapseAll()" style="height:32px;padding:0 12px;font-size:12px;">▶ 전체 접기</button>
+  </div>`;
+
+  // 엔지니어별 카드
+  workerNames.forEach(worker => {
+    const items = groups[worker].sort((a,b) => {
+      // 에이징 완료 먼저, 그 다음 시작 시각 빠른 순
+      const ca = calcAging(a.agingStart);
+      const cb = calcAging(b.agingStart);
+      if(ca.isPassed !== cb.isPassed) return ca.isPassed ? -1 : 1;
+      return ca.remaining - cb.remaining;
+    });
+
+    const isMe = worker === currentUser;
+    const isExpanded = window._agingExpandedWorkers.has(worker);
+    const workerPassed = items.filter(e => calcAging(e.agingStart).isPassed).length;
+    const workerInProgress = items.length - workerPassed;
+    const tier = tierMap[worker] || '';
+
+    html += `<div class="card" style="margin-bottom:10px;padding:0;overflow:hidden;${isMe?'border:2px solid #f59e0b;':''}">
+      <div onclick="toggleAgingWorker('${escapeHtml(worker)}')" style="cursor:pointer;padding:14px 18px;background:${isMe?'linear-gradient(135deg,#fef3c7,#fde68a)':'var(--bg2,#f9fafb)'};display:flex;align-items:center;gap:12px;user-select:none;transition:background .15s;" onmouseover="this.style.filter='brightness(0.97)'" onmouseout="this.style.filter=''">
+        <span style="font-size:14px;color:var(--text2,#666);font-family:monospace;width:18px;display:inline-block;text-align:center;">${isExpanded?'▼':'▶'}</span>
+        <span style="font-size:15px;font-weight:700;">${isMe?'👤 ':''}${escapeHtml(worker)}</span>
+        ${tier ? `<span style="background:var(--accent-bg,#dbeafe);color:var(--accent,#3b82f6);padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">${tier}</span>` : ''}
+        ${isMe ? '<span style="background:#f59e0b;color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">본인</span>' : ''}
+        <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+          ${workerInProgress > 0 ? `<span style="background:#f59e0b;color:#fff;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;">🕐 ${workerInProgress}</span>` : ''}
+          ${workerPassed > 0 ? `<span style="background:#10b981;color:#fff;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;">✅ ${workerPassed}</span>` : ''}
+          <span style="background:var(--bg,#fff);border:1px solid var(--border2,#d1d5db);padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;color:var(--text,#000);">총 ${items.length}건</span>
+        </span>
+      </div>
+      <div style="display:${isExpanded?'block':'none'};">
+        <div class="table-wrap"><table style="font-size:13px;">
+          <thead><tr>
+            <th>시리얼</th>
+            <th>기종</th>
+            <th>작업</th>
+            <th>에이징 시작</th>
+            <th>남은 시간</th>
+            <th>상태</th>
+            <th style="text-align:center;">동작</th>
+          </tr></thead>
+          <tbody>`;
+
+    items.forEach(e => {
+      const c = calcAging(e.agingStart);
+      const works = (e.works||[]).map(w => WORKS[w]?.label || w).join(', ');
+      const passed = c.isPassed;
+      const startFmt = e.agingStart ? new Date(e.agingStart).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
+
+      html += `<tr data-aging-row data-entry-id="${e.id}">
+        <td style="font-weight:600;">${escapeHtml(e.serial)}</td>
+        <td>${escapeHtml(e.model||'')}</td>
+        <td style="font-size:12px;color:var(--text2);">${escapeHtml(works)}</td>
+        <td style="font-size:12px;">${startFmt}</td>
+        <td>
+          <span data-aging-remaining data-aging-start="${escapeHtml(e.agingStart||'')}"
+                style="font-family:'SF Mono','Monaco',monospace;font-size:14px;font-weight:700;color:${passed?'#10b981':'#f59e0b'};">
+            ${fmtRemaining(c.remaining)}
+          </span>
+        </td>
+        <td>
+          <span data-aging-badge style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;color:#fff;background:${passed?'#10b981':'#f59e0b'};">
+            ${passed ? '✅ 에이징 완료' : '🕐 진행 중'}
+          </span>
+        </td>
+        <td style="text-align:center;white-space:nowrap;">
+          <button class="btn btn-secondary" onclick="openAddPartsModal('${e.id}')" style="height:30px;padding:0 10px;font-size:12px;">🔧 부품 추가</button>
+          <button data-move-inspect-btn class="btn btn-primary" onclick="moveToInspect('${e.id}')" style="height:30px;padding:0 10px;font-size:12px;margin-left:4px;" ${passed?'':'disabled'}>→ 검수대기</button>
+        </td>
+      </tr>`;
+    });
+
+    html += `</tbody></table></div>
+      </div>
+    </div>`;
+  });
+
   el.innerHTML = html;
+}
+
+// 엔지니어 그룹 펼치기/접기 토글
+function toggleAgingWorker(worker) {
+  if(window._agingExpandedWorkers.has(worker)) {
+    window._agingExpandedWorkers.delete(worker);
+  } else {
+    window._agingExpandedWorkers.add(worker);
+  }
+  renderAging();
+}
+
+// 전체 펼치기
+function agingExpandAll() {
+  const list = getAgingEntries();
+  list.forEach(e => {
+    const w = String(e.worker||'미정').split('::')[0];
+    window._agingExpandedWorkers.add(w);
+  });
+  renderAging();
+}
+
+// 전체 접기
+function agingCollapseAll() {
+  window._agingExpandedWorkers.clear();
+  window._agingInitialExpanded = false; // 다음에 들어가도 자동 펼침 안 됨
+  renderAging();
 }
 
 // 검수대기로 이동
@@ -7268,22 +7413,10 @@ function openAddPartsModal(entryId) {
           <input type="number" id="add-part-qty" value="1" min="1" max="20" style="width:100%;height:38px;padding:0 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--bg,#fff);color:var(--text,#000);">
         </div>
 
-        <div style="margin-bottom:14px;">
-          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;">에이징 처리 방식 선택</label>
-          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:2px solid #3b82f6;border-radius:8px;cursor:pointer;background:#eff6ff;margin-bottom:8px;" onclick="document.getElementById('aging-keep').checked=true;updateAgingChoice()">
-            <input type="radio" name="aging-choice" id="aging-keep" value="keep" checked style="margin-top:2px;accent-color:#3b82f6;">
-            <div style="flex:1;">
-              <div style="font-weight:600;font-size:13px;color:#1e3a8a;">🕐 에이징 시간 유지</div>
-              <div style="font-size:11px;color:#1e40af;margin-top:2px;">단순 부품 추가/교체. 남은 시간이 그대로 유지됩니다.</div>
-            </div>
-          </label>
-          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:2px solid var(--border2,#d1d5db);border-radius:8px;cursor:pointer;background:transparent;" onclick="document.getElementById('aging-restart').checked=true;updateAgingChoice()">
-            <input type="radio" name="aging-choice" id="aging-restart" value="restart" style="margin-top:2px;accent-color:#f59e0b;">
-            <div style="flex:1;">
-              <div style="font-weight:600;font-size:13px;">🔄 에이징 24시간 재시작</div>
-              <div style="font-size:11px;color:var(--text2,#666);margin-top:2px;">불량 발견으로 부품 교체. 에이징이 처음부터 다시 시작됩니다.</div>
-            </div>
-          </label>
+        <div style="margin-bottom:14px;padding:12px;background:#dbeafe;border-radius:8px;font-size:12px;color:#1e3a8a;line-height:1.6;">
+          <strong>ℹ️ 안내</strong><br>
+          • 부품 추가 시 <strong>에이징 시간은 유지</strong>됩니다 (재시작 X).<br>
+          • 재고에서 자동 차감되며, 사용 이력이 기록됩니다.
         </div>
 
         <div style="margin-bottom:8px;">
@@ -7301,26 +7434,6 @@ function openAddPartsModal(entryId) {
   document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
-function updateAgingChoice() {
-  // 라디오 변경 시 카드 색상 업데이트
-  const keep = document.getElementById('aging-keep');
-  const restart = document.getElementById('aging-restart');
-  if(!keep || !restart) return;
-  const keepLbl = keep.closest('label');
-  const restartLbl = restart.closest('label');
-  if(keep.checked) {
-    keepLbl.style.borderColor = '#3b82f6';
-    keepLbl.style.background = '#eff6ff';
-    restartLbl.style.borderColor = 'var(--border2,#d1d5db)';
-    restartLbl.style.background = 'transparent';
-  } else {
-    keepLbl.style.borderColor = 'var(--border2,#d1d5db)';
-    keepLbl.style.background = 'transparent';
-    restartLbl.style.borderColor = '#f59e0b';
-    restartLbl.style.background = '#fffbeb';
-  }
-}
-
 function closeAddPartsModal() {
   const m = document.getElementById('add-parts-modal');
   if(m) m.remove();
@@ -7329,7 +7442,6 @@ function closeAddPartsModal() {
 async function submitAddParts(entryId) {
   const partName = document.getElementById('add-part-name')?.value;
   const qty = Number(document.getElementById('add-part-qty')?.value) || 1;
-  const choice = document.querySelector('[name="aging-choice"]:checked')?.value || 'keep';
   const note = (document.getElementById('add-part-note')?.value || '').trim();
   if(!partName) { notify('부품을 선택하세요.', 'error'); return; }
 
@@ -7373,19 +7485,13 @@ async function submitAddParts(entryId) {
       worker: currentUser || ''
     });
 
-    // 에이징 재시작 여부 선택
-    if(choice === 'restart') {
-      await gasCall({action:'restartAging', id: entryId});
-      e.agingStart = new Date().toISOString();
-    }
-
-    // 로컬 갱신
+    // 로컬 갱신 (에이징 시간 유지)
     e.parts = newParts;
     e.note = newNote;
-    e.status = STATUS_AGING; // 에이징 상태 유지
+    // status, agingStart는 그대로 둔다 (재시작 X)
 
     closeAddPartsModal();
-    notify(choice === 'restart' ? '부품 추가 완료. 에이징이 재시작되었습니다.' : '부품 추가 완료. 에이징 시간 유지.');
+    notify('부품 추가 완료. 에이징 시간은 유지됩니다.');
     renderAging();
   } catch(err) {
     notify('실패: ' + (err.message||err), 'error');
@@ -7401,14 +7507,14 @@ function renderInspect() {
       const role = roleMap[currentUser] || 'engineer';
       const tier = tierMap[currentUser] || '';
       let label = '';
-      if(role === 'inspector') label = '🔍 검수자';
-      else if(role === 'both') label = '🔍 검수자+엔지니어';
-      else label = `🔍 검수 권한 (${tier})`;
+      if(role === 'inspector') label = '🔍 QC';
+      else if(role === 'both') label = '🔍 QC + 엔지니어';
+      else label = `🔍 QC 권한 (${tier})`;
       badge.textContent = label;
       badge.style.background = '#10b981';
       badge.style.color = '#fff';
     } else {
-      badge.textContent = '👁️ 조회 전용 (검수 권한 없음)';
+      badge.textContent = '👁️ 조회 전용 (QC 권한 없음)';
       badge.style.background = '#e5e7eb';
       badge.style.color = '#6b7280';
     }
@@ -7724,7 +7830,7 @@ function openInspectModal(entryId, initResult) {
   const e = entries.find(x => String(x.id) === String(entryId));
   if(!e) return;
   if(!canInspect(currentUser)) {
-    notify('검수 권한이 없습니다 (T3 이상 또는 검수자만 가능).', 'error');
+    notify('QC 권한이 없습니다 (T3 이상 또는 QC만 가능).', 'error');
     return;
   }
 
@@ -12535,9 +12641,9 @@ function renderWorkers() {
           <option value="">파트 없음</option>
           ${allowedParts.map(([v,l])=>`<option value="${v}" ${part===v?'selected':''}>${l}</option>`).join('')}
         </select>
-        <select onchange="saveWorkerRole('${w}',this.value)" title="역할 (검수 권한)" style="height:30px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:${(roleMap[w]||'engineer')!=='engineer'?'#d1fae5':''};">
+        <select onchange="saveWorkerRole('${w}',this.value)" title="역할 (QC 권한)" style="height:30px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:${(roleMap[w]||'engineer')!=='engineer'?'#d1fae5':''};">
           <option value="engineer" ${(roleMap[w]||'engineer')==='engineer'?'selected':''}>🔧 엔지니어</option>
-          <option value="inspector" ${roleMap[w]==='inspector'?'selected':''}>🔍 검수자</option>
+          <option value="inspector" ${roleMap[w]==='inspector'?'selected':''}>🔍 QC</option>
           <option value="both" ${roleMap[w]==='both'?'selected':''}>🔧+🔍 겸직</option>
         </select>
 <input type="number" min="0" step="1" placeholder="자동" value="${dtVal!==undefined&&dtVal!==null?dtVal:''}" onchange="saveWorkerDailyTarget('${w}',this.value)" title="일일 목표 (비우면 자동 분배)" style="width:64px;height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);text-align:right;" />
@@ -12677,7 +12783,7 @@ async function saveWorkerRole(name, role) {
   try {
     await gasCall({action:'saveWorkers', workers: serializeWorkers()});
     renderWorkers();
-    const roleLabel = {engineer:'🔧 엔지니어', inspector:'🔍 검수자', both:'🔧+🔍 겸직'}[role] || '엔지니어';
+    const roleLabel = {engineer:'🔧 엔지니어', inspector:'🔍 QC', both:'🔧+🔍 겸직'}[role] || '엔지니어';
     notify(`${name}의 역할이 ${roleLabel}(으)로 변경되었습니다.`);
   } catch {
     roleMap[name] = oldRole || 'engineer';
