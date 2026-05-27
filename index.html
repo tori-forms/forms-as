@@ -4196,7 +4196,14 @@ textarea{padding:10px 12px;border:1px solid var(--border2);border-radius:var(--r
 textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.12);}
 textarea::placeholder{color:var(--text3);}
 
-.work-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;margin-top:4px;}
+.work-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:4px;}
+/* ⭐ v2.6: 수리 항목 배치 — 1행: 논배/배터리(3칸씩), 2행: PCB/패널/메인보드(2칸씩) */
+.work-check.wc-row1{grid-column:span 3;}
+.work-check.wc-row2{grid-column:span 2;}
+@media (max-width: 720px) {
+  .work-grid{grid-template-columns:1fr 1fr;}
+  .work-check.wc-row1, .work-check.wc-row2{grid-column:span 1;}
+}
 .work-check{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;transition:all .15s;user-select:none;}
 .work-check:hover{border-color:var(--accent);background:var(--accent-bg);}
 .work-check input[type=checkbox]{margin-top:2px;accent-color:var(--accent);width:15px;height:15px;flex-shrink:0;cursor:pointer;}
@@ -4475,6 +4482,7 @@ tr:hover td{background:var(--surface2);}
   .stat-grid{grid-template-columns:1fr 1fr;}
   .card{padding:14px;}
   .work-grid{grid-template-columns:1fr 1fr;}
+  .work-check.wc-row1, .work-check.wc-row2{grid-column:span 1!important;}
   .table-wrap{font-size:12px;}
   th,td{padding:7px 8px;}
   .btn{height:36px;padding:0 14px;}
@@ -5675,22 +5683,29 @@ window.addEventListener('DOMContentLoaded', function(){
 
       <div class="form-group" style="margin-top:4px;">
         <label class="form-label">수리 항목 (복수 선택 가능)</label>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:8px;" id="exc-works-wrap">
+        <!-- ⭐ v2.6: 2행+3행 레이아웃, 라벨 잘림 제거 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;margin-bottom:10px;">
           <label class="work-check exc-wc" id="exc-wc-nonbat" style="cursor:pointer;">
             <input type="checkbox" value="nonbat" checked="" style="margin-top:4px;accent-color:#ea580c;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
-            <div style="flex:1;"><div class="work-check-name">논배터리 작업</div><div class="work-check-price">18,700원</div></div>
+            <div style="flex:1;min-width:0;"><div class="work-check-name">논배터리 작업</div><div class="work-check-price">18,700원</div></div>
           </label>
+          <label class="work-check exc-wc" id="exc-wc-battery" style="cursor:pointer;">
+            <input type="checkbox" value="battery" style="margin-top:4px;accent-color:#0891b2;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
+            <div style="flex:1;min-width:0;"><div class="work-check-name">배터리 교체</div><div class="work-check-price">0원</div></div>
+          </label>
+        </div>
+        <div class="exc-work-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;" id="exc-works-wrap">
           <label class="work-check exc-wc" id="exc-wc-pcb" style="cursor:pointer;">
             <input type="checkbox" value="pcb" checked="" style="margin-top:4px;accent-color:#2563eb;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
-            <div style="flex:1;"><div class="work-check-name">PCB 교체 (+S/N 라이팅)</div><div class="work-check-price">15,180원</div></div>
+            <div style="flex:1;min-width:0;"><div class="work-check-name">PCB 교체 (+S/N 라이팅)</div><div class="work-check-price">15,180원</div></div>
           </label>
           <label class="work-check exc-wc" id="exc-wc-panel" style="cursor:pointer;">
             <input type="checkbox" value="panel" checked="" style="margin-top:4px;accent-color:#16a34a;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
-            <div style="flex:1;"><div class="work-check-name">일체형 패널 교체 (액정 보호필름 부착)</div><div class="work-check-price">10,450원</div></div>
+            <div style="flex:1;min-width:0;"><div class="work-check-name">일체형 패널 교체 (액정 보호필름 부착)</div><div class="work-check-price">10,450원</div></div>
           </label>
           <label class="work-check exc-wc" id="exc-wc-board" style="cursor:pointer;">
             <input type="checkbox" value="board" style="margin-top:4px;accent-color:#7c3aed;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
-            <div style="flex:1;"><div class="work-check-name">메인보드 부분 수리 (충전단자 포함)</div><div class="work-check-price">10,450원</div></div>
+            <div style="flex:1;min-width:0;"><div class="work-check-name">메인보드 부분 수리 (충전단자 포함)</div><div class="work-check-price">10,450원</div></div>
           </label>
         </div>
       </div>
@@ -7175,7 +7190,7 @@ function initShipping() {
   switchShippingSubtab('process');
 }
 
-// ⭐ v2.4 신규: 출고관리 서브탭 전환
+// ⭐ v2.6: 출고관리 서브탭 전환
 function switchShippingSubtab(which) {
   const processBtn = document.getElementById('shipping-subtab-process');
   const listBtn = document.getElementById('shipping-subtab-list');
@@ -7193,7 +7208,6 @@ function switchShippingSubtab(which) {
     listBtn.style.fontWeight = '600';
     if(processPanel) processPanel.style.display = 'block';
     if(listPanel) listPanel.style.display = 'none';
-    // 액션 버튼(엑셀/완료) 표시
     if(actionBtns) actionBtns.style.display = 'flex';
   } else {
     listBtn.style.borderBottomColor = 'var(--accent,#3b82f6)';
@@ -7204,10 +7218,60 @@ function switchShippingSubtab(which) {
     processBtn.style.fontWeight = '600';
     if(processPanel) processPanel.style.display = 'none';
     if(listPanel) listPanel.style.display = 'block';
-    // 액션 버튼 숨김 (목록 모드에서는 불필요)
     if(actionBtns) actionBtns.style.display = 'none';
-    renderShippingList();
+    // ⭐ 출고 현황 DOM을 출고 목록 패널로 이동 + 출고 목록 탭 강제 활성화
+    relocateShipviewToShippingList();
+    // 출고 목록 서브탭 강제 활성화 후 렌더
+    setTimeout(() => {
+      if(typeof switchSvTab === 'function') switchSvTab('list');
+      if(typeof setSvFilter === 'function') setSvFilter('all', true);
+    }, 50);
   }
+}
+
+// ⭐ v2.6: 출고 현황 DOM을 출고 관리 > 출고 목록 패널로 이동
+function relocateShipviewToShippingList() {
+  const targetPanel = document.getElementById('shipping-list-content');
+  const shipviewSection = document.getElementById('tab-shipview');
+  if(!targetPanel || !shipviewSection) return;
+  // 이미 다른 곳에 이동되어 있는지 확인
+  if(targetPanel.dataset.relocated === '1') return;
+  // 관리자 패널에 있다면 거기서 가져와야 함
+  const adminPanel = document.getElementById('admin-shipview');
+  if(adminPanel && adminPanel.dataset.relocated === '1') {
+    // 관리자에서 출고관리로 이동
+    while(adminPanel.firstChild) {
+      targetPanel.appendChild(adminPanel.firstChild);
+    }
+    adminPanel.dataset.relocated = '0';
+  } else {
+    // tab-shipview에서 처음 이동
+    while(shipviewSection.firstChild) {
+      targetPanel.appendChild(shipviewSection.firstChild);
+    }
+  }
+  targetPanel.dataset.relocated = '1';
+}
+
+// ⭐ v2.6: 출고 현황 DOM을 관리자로 이동 (반대 방향)
+function relocateShipviewToAdmin() {
+  const adminPanel = document.getElementById('admin-shipview');
+  const shipviewSection = document.getElementById('tab-shipview');
+  if(!adminPanel || !shipviewSection) return;
+  if(adminPanel.dataset.relocated === '1') return;
+  // 출고 관리 > 출고 목록에 있다면 가져옴
+  const shippingListPanel = document.getElementById('shipping-list-content');
+  if(shippingListPanel && shippingListPanel.dataset.relocated === '1') {
+    while(shippingListPanel.firstChild) {
+      adminPanel.appendChild(shippingListPanel.firstChild);
+    }
+    shippingListPanel.dataset.relocated = '0';
+  } else {
+    while(shipviewSection.firstChild) {
+      adminPanel.appendChild(shipviewSection.firstChild);
+    }
+  }
+  adminPanel.dataset.relocated = '1';
 }
 
 // ⭐ v2.5: 출고 목록 렌더 (기존 출고 현황의 "출고 목록" 탭 스타일 그대로)
@@ -7229,37 +7293,37 @@ function renderShippingList() {
       .map(g => g.id)
   );
 
-  // 날짜 그룹핑
+  // 날짜 그룹핑 (전역 인덱스 유지 — cancelSelectedShip이 shipHistory[idx]로 접근하기 때문)
   const groups = {};
-  list.forEach(h => {
+  list.forEach((h, idx) => {
     const key = shipDateKey(h.shipDate);
     if(!groups[key]) groups[key] = [];
-    groups[key].push(h);
+    groups[key].push({ h, idx });
   });
 
   let html = '';
   Object.keys(groups).sort((a,b) => b.localeCompare(a)).forEach(date => {
     const gList = groups[date];
-    const totalFee = gList.reduce((s,x) => {
-      const e = entries.find(en => String(en.serial) === String(x.serial));
+    const totalFee = gList.reduce((s, item) => {
+      const e = entries.find(en => String(en.serial) === String(item.h.serial));
       return s + (e ? Number(e.total) : 0);
     }, 0);
     const groupId = 'shg-' + date.replace(/-/g,'');
 
     // 기종별 / 수리항목별 카운트
     const modelCount = {};
-    gList.forEach(x => {
-      const e = entries.find(en => String(en.serial) === String(x.serial));
-      const model = x.model || e?.model || '-';
+    gList.forEach(item => {
+      const e = entries.find(en => String(en.serial) === String(item.h.serial));
+      const model = item.h.model || e?.model || '-';
       modelCount[model] = (modelCount[model]||0) + 1;
     });
 
     // 기종별 + 작업별 배지
     const modelBadges = Object.entries(modelCount).map(([m,c]) => {
       const mWorkCount = {};
-      gList.forEach(x => {
-        const e = entries.find(en => String(en.serial) === String(x.serial));
-        const model = x.model || e?.model || '-';
+      gList.forEach(item => {
+        const e = entries.find(en => String(en.serial) === String(item.h.serial));
+        const model = item.h.model || e?.model || '-';
         if(model !== m) return;
         if(e) parseWorks(e.works).forEach(k => { mWorkCount[k] = (mWorkCount[k]||0)+1; });
       });
@@ -7287,8 +7351,17 @@ function renderShippingList() {
         <div style="display:flex;flex-wrap:wrap;gap:4px;width:100%;">${modelBadges}</div>
       </div>
       <div id="${groupId}" style="display:${isOpen?'block':'none'};margin-top:6px;">
+        <!-- 상단 액션 바 -->
+        <div style="padding:8px 14px;background:var(--bg2,#f9fafb);border-radius:6px 6px 0 0;display:flex;align-items:center;gap:10px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+            <input type="checkbox" onchange="toggleShipListGroupAll('${groupId}', this.checked)" style="accent-color:var(--accent);cursor:pointer;">
+            <span>전체선택</span>
+          </label>
+          <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();cancelSelectedShip('${groupId}')" style="height:28px;padding:0 12px;font-size:12px;">선택 출고 취소</button>
+        </div>
         <div class="table-wrap"><table style="font-size:13px;">
           <thead><tr>
+            <th style="width:36px;"></th>
             <th>시리얼</th>
             <th>기종</th>
             <th>엔지니어</th>
@@ -7297,20 +7370,25 @@ function renderShippingList() {
           </tr></thead>
           <tbody>`;
 
-    gList.sort((a,b) => new Date(b.shipDate) - new Date(a.shipDate)).forEach(h => {
-      const e = entries.find(en => String(en.serial) === String(h.serial));
-      const shipFmt = h.shipDate ? new Date(h.shipDate).toLocaleString('ko-KR', {hour:'2-digit',minute:'2-digit'}) : '-';
-      const workerName = String(h.worker || e?.worker || '').split('::')[0];
-      const model = h.model || e?.model || '-';
-      const works = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k).join(' · ') : String(h.works||'').replace(/\|/g, ' · ');
-      html += `<tr>
-        <td style="font-family:monospace;font-weight:600;">${escapeHtml(String(h.serial||''))}</td>
-        <td><span style="font-size:11px;font-weight:700;background:${model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${escapeHtml(model)}</span></td>
-        <td>${escapeHtml(workerName)}</td>
-        <td style="font-size:12px;color:var(--text2);">${works}</td>
-        <td style="font-size:12px;">${shipFmt}</td>
-      </tr>`;
-    });
+    gList
+      .sort((a,b) => new Date(b.h.shipDate) - new Date(a.h.shipDate))
+      .forEach(item => {
+        const h = item.h;
+        const idx = item.idx;
+        const e = entries.find(en => String(en.serial) === String(h.serial));
+        const shipFmt = h.shipDate ? new Date(h.shipDate).toLocaleString('ko-KR', {hour:'2-digit',minute:'2-digit'}) : '-';
+        const workerName = String(h.worker || e?.worker || '').split('::')[0];
+        const model = h.model || e?.model || '-';
+        const works = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k).join(' · ') : String(h.works||'').replace(/\|/g, ' · ');
+        html += `<tr>
+          <td style="text-align:center;"><input type="checkbox" class="sv-check" data-group="${groupId}" data-idx="${idx}" style="accent-color:var(--accent);cursor:pointer;"></td>
+          <td style="font-family:monospace;font-weight:600;">${escapeHtml(String(h.serial||''))}</td>
+          <td><span style="font-size:11px;font-weight:700;background:${model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${escapeHtml(model)}</span></td>
+          <td>${escapeHtml(workerName)}</td>
+          <td style="font-size:12px;color:var(--text2);">${works}</td>
+          <td style="font-size:12px;">${shipFmt}</td>
+        </tr>`;
+      });
 
     html += `</tbody></table></div>
       </div>
@@ -7328,6 +7406,11 @@ function toggleShipListGroup(groupId) {
   const willOpen = (g.style.display === 'none');
   g.style.display = willOpen ? 'block' : 'none';
   if(arrow) arrow.style.transform = willOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+
+// 출고 목록 그룹 전체 선택
+function toggleShipListGroupAll(groupId, checked) {
+  document.querySelectorAll(`.sv-check[data-group="${groupId}"]`).forEach(cb => cb.checked = checked);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -10040,7 +10123,9 @@ async function cancelSelectedShip(groupId) {
       window._shipHold = null;
       await syncData(true);
       notify(`${items.length}건 출고 취소되었습니다.`);
-      renderShipview();
+      // ⭐ v2.6: 출고관리 안의 출고 목록 / 관리자의 출고 현황 모두 갱신
+      if(typeof renderShippingList === 'function') renderShippingList();
+      if(typeof renderShipview === 'function') renderShipview();
     },
     '출고 취소',
     'btn-danger'
@@ -10281,20 +10366,6 @@ function switchAdminTab(tab) {
     loadPriceSettings();
     setTimeout(renderModelPartsTable, 50);
   }
-}
-
-// ⭐ v2.4: 출고 현황 DOM을 관리자 안으로 이동 (최초 1회만 실행)
-function relocateShipviewToAdmin() {
-  const adminPanel = document.getElementById('admin-shipview');
-  const shipviewSection = document.getElementById('tab-shipview');
-  if(!adminPanel || !shipviewSection) return;
-  // 이미 이동했으면 스킵
-  if(adminPanel.dataset.relocated === '1') return;
-  // tab-shipview의 자식들을 admin-shipview로 이동
-  while(shipviewSection.firstChild) {
-    adminPanel.appendChild(shipviewSection.firstChild);
-  }
-  adminPanel.dataset.relocated = '1';
 }
 
 // Admin 탭은 기존 탭 DOM을 직접 이동해서 렌더
@@ -11027,43 +11098,58 @@ function switchTab(name, btn) {
 /* 체크박스 */
 // ⭐ v2.5: 수리 항목 표시 순서 (논배터리/배터리 먼저, 그 다음 PCB/패널/메인보드)
 const WORK_DISPLAY_ORDER = ['nonbat', 'battery', 'pcb', 'panel', 'board'];
+// ⭐ v2.6: 행 분리 (1행: 논배터리/배터리, 2행: PCB/패널/메인보드)
+const WORK_ROW1 = ['nonbat', 'battery'];
+const WORK_ROW2 = ['pcb', 'panel', 'board'];
+
+function _renderWorkCheckHTML(k, v, model) {
+  const visibleParts = (v.parts||[]).filter(p => !p.modelOnly || p.modelOnly === model);
+  return `<label class="work-check" id="wc-${k}" style="cursor:pointer;">
+    <input type="checkbox" value="${k}" style="margin-top:4px;accent-color:var(--accent);width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="toggleCheck('${k}');updatePP();renderPartQtys('${k}')">
+    <div style="flex:1;">
+      <div class="work-check-name">${v.label}</div>
+      <div class="work-check-price">${fmt(v.price)}원</div>
+      ${visibleParts.length > 0 ? `<div style="margin-top:8px;">
+        <button type="button" id="parts-toggle-${k}" onclick="togglePartsSection('${k}')" style="font-size:11px;color:var(--text2);background:none;border:1px solid var(--border2);border-radius:4px;padding:3px 8px;cursor:pointer;display:none;">
+          ▼ 부품 보기 (${visibleParts.length}개)
+        </button>
+      </div>` : ''}
+      <div id="parts-${k}" style="display:none;margin-top:10px;border-top:1px dashed var(--border2);padding-top:10px;">
+        ${visibleParts.map(p=>`
+          <div class="part-qty-row">
+            <span style="color:var(--text2);">${p.name}${p.modelOnly?` <span style="font-size:10px;color:var(--accent);">(${p.modelOnly})</span>`:''}</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <button class="qty-btn" type="button" onclick="event.preventDefault();event.stopPropagation();changeQty('${k}','${p.name}',-1)">−</button>
+              <span class="qty-num" id="qty-${k}-${p.name.replace(/[^a-zA-Z0-9]/g,'_')}">${p.qty}</span>
+              <button class="qty-btn" type="button" onclick="event.preventDefault();event.stopPropagation();changeQty('${k}','${p.name}',1)">+</button>
+            </div>
+          </div>`).join('')}
+        <div id="extra-parts-${k}"></div>
+        <div style="margin-top:8px;">
+          <button type="button" onclick="event.preventDefault();event.stopPropagation();addExtraPart('${k}')" style="font-size:11px;color:var(--accent);background:none;border:1px dashed var(--accent);border-radius:4px;padding:3px 8px;cursor:pointer;">+ 부품 추가</button>
+        </div>
+      </div>
+    </div>
+  </label>`;
+}
 
 function buildChecks() {
   initPartQtys();
   const model = getModel();
-  const orderedEntries = WORK_DISPLAY_ORDER
+  // 1행: 논배터리, 배터리 (2칸)
+  const row1Html = WORK_ROW1
     .filter(k => WORKS[k])
-    .map(k => [k, WORKS[k]]);
-  document.getElementById('work-checks').innerHTML = orderedEntries.map(([k,v])=>{
-    const visibleParts = (v.parts||[]).filter(p => !p.modelOnly || p.modelOnly === model);
-    return `<label class="work-check" id="wc-${k}" style="cursor:pointer;">
-      <input type="checkbox" value="${k}" style="margin-top:4px;accent-color:var(--accent);width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="toggleCheck('${k}');updatePP();renderPartQtys('${k}')">
-      <div style="flex:1;">
-        <div class="work-check-name">${v.label}</div>
-        <div class="work-check-price">${fmt(v.price)}원</div>
-        ${visibleParts.length > 0 ? `<div style="margin-top:8px;">
-          <button type="button" id="parts-toggle-${k}" onclick="togglePartsSection('${k}')" style="font-size:11px;color:var(--text2);background:none;border:1px solid var(--border2);border-radius:4px;padding:3px 8px;cursor:pointer;display:none;">
-            ▼ 부품 보기 (${visibleParts.length}개)
-          </button>
-        </div>` : ''}
-        <div id="parts-${k}" style="display:none;margin-top:10px;border-top:1px dashed var(--border2);padding-top:10px;">
-          ${visibleParts.map(p=>`
-            <div class="part-qty-row">
-              <span style="color:var(--text2);">${p.name}${p.modelOnly?` <span style="font-size:10px;color:var(--accent);">(${p.modelOnly})</span>`:''}</span>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <button class="qty-btn" type="button" onclick="event.preventDefault();event.stopPropagation();changeQty('${k}','${p.name}',-1)">−</button>
-                <span class="qty-num" id="qty-${k}-${p.name.replace(/[^a-zA-Z0-9]/g,'_')}">${p.qty}</span>
-                <button class="qty-btn" type="button" onclick="event.preventDefault();event.stopPropagation();changeQty('${k}','${p.name}',1)">+</button>
-              </div>
-            </div>`).join('')}
-          <div id="extra-parts-${k}"></div>
-          <div style="margin-top:8px;">
-            <button type="button" onclick="event.preventDefault();event.stopPropagation();addExtraPart('${k}')" style="font-size:11px;color:var(--accent);background:none;border:1px dashed var(--accent);border-radius:4px;padding:3px 8px;cursor:pointer;">+ 부품 추가</button>
-          </div>
-        </div>
-      </div>
-    </label>`;
-  }).join('');
+    .map(k => _renderWorkCheckHTML(k, WORKS[k], model))
+    .join('');
+  // 2행: PCB, 패널, 메인보드 (3칸)
+  const row2Html = WORK_ROW2
+    .filter(k => WORKS[k])
+    .map(k => _renderWorkCheckHTML(k, WORKS[k], model))
+    .join('');
+  document.getElementById('work-checks').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">${row1Html}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">${row2Html}</div>
+  `;
 }
 const toggleCheck = k => {
   const checked = document.querySelector(`#wc-${k} input`).checked;
@@ -11187,21 +11273,26 @@ function clearChecks() {
 function renderWorkerSel() {
   const s = document.getElementById('sel-worker');
   const es = document.getElementById('exc-worker');
+  // ⭐ v2.6: 수리 등록 셀렉트는 QC 전용 작업자 제외 (수리 안 함)
+  const repairableWorkers = workers.filter(w => {
+    const r = roleMap[w] || 'engineer';
+    return r !== 'inspector'; // QC 전용 제외, engineer/both는 포함
+  });
   [s, es].forEach(sel => {
     if(!sel) return;
     // 최민규(마스터)만 모든 엔지니어 선택 가능 (대리 등록용)
     // 서승주/이권우 포함 나머지는 본인 이름만
     if(currentUser === MASTER_NAME) {
       const cur = sel.value;
-      sel.innerHTML = workers.map(w=>`<option value="${w}">${w}</option>`).join('');
-      if(workers.includes(cur)) sel.value = cur;
+      sel.innerHTML = repairableWorkers.map(w=>`<option value="${w}">${w}</option>`).join('');
+      if(repairableWorkers.includes(cur)) sel.value = cur;
       sel.disabled = false;
     } else if(currentUser) {
       sel.innerHTML = `<option value="${currentUser}">${currentUser}</option>`;
       sel.value = currentUser;
       sel.disabled = true;
     } else {
-      sel.innerHTML = workers.map(w=>`<option value="${w}">${w}</option>`).join('');
+      sel.innerHTML = repairableWorkers.map(w=>`<option value="${w}">${w}</option>`).join('');
       sel.disabled = false;
     }
   });
@@ -11549,11 +11640,14 @@ function openEditModal(id) {
   const orderedEditEntries = WORK_DISPLAY_ORDER
     .filter(k => WORKS[k])
     .map(k => [k, WORKS[k]]);
-  document.getElementById('edit-work-checks').innerHTML = orderedEditEntries.map(([k,v])=>`
-    <label class="work-check ${ws.includes(k)?'checked':''}" id="ewc-${k}">
+  document.getElementById('edit-work-checks').innerHTML = orderedEditEntries.map(([k,v])=>{
+    const rowClass = WORK_ROW_CLASS[k] || '';
+    return `
+    <label class="work-check ${rowClass} ${ws.includes(k)?'checked':''}" id="ewc-${k}">
       <input type="checkbox" value="${k}" ${ws.includes(k)?'checked':''} onchange="document.getElementById('ewc-${k}').classList.toggle('checked',this.checked);updateEditPP()">
       <div><div class="work-check-name">${v.label}</div><div class="work-check-price">${fmt(v.price)}원</div></div>
-    </label>`).join('');
+    </label>`;
+  }).join('');
   document.getElementById('edit-note').value = e.note || '';
   renderEditParts(ws);
   updateEditPP();
