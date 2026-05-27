@@ -4478,7 +4478,6 @@ tr:hover td{background:var(--surface2);}
   .stat-grid{grid-template-columns:1fr 1fr;}
   .card{padding:14px;}
   .work-grid{grid-template-columns:1fr 1fr;}
-  .work-check.wc-row1, .work-check.wc-row2{grid-column:span 1!important;}
   .table-wrap{font-size:12px;}
   th,td{padding:7px 8px;}
   .btn{height:36px;padding:0 14px;}
@@ -5220,7 +5219,7 @@ window.addEventListener('DOMContentLoaded', function(){
       </div>
       <div class="form-group" style="margin-bottom:16px;">
         <label class="form-label">수리 항목 (복수 선택 가능)</label>
-        <div class="work-grid" id="work-checks"></div>
+        <div id="work-checks" style="margin-top:4px;"></div>
       </div>
       <div class="form-group" style="margin-bottom:16px;">
         <label class="form-label">특이사항 <span style="color:var(--text3);font-weight:400;">(선택)</span></label>
@@ -6090,7 +6089,7 @@ window.addEventListener('DOMContentLoaded', function(){
     <div style="overflow-y:auto;flex:1;padding:20px 24px;">
       <div class="form-group" style="margin-bottom:14px;">
         <label class="form-label">수리 항목</label>
-        <div class="work-grid" id="edit-work-checks"></div>
+        <div id="edit-work-checks" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:4px;"></div>
       </div>
       <div class="form-group" style="margin-bottom:20px;">
         <label class="form-label">특이사항 <span style="color:var(--text3);font-weight:400;">(선택)</span></label>
@@ -11132,6 +11131,35 @@ function switchTab(name, btn) {
   if(name==='admin') { switchAdminTab('workers'); }
   if(name==='aging') { renderAging(); startAgingTimer(); } else { stopAgingTimer(); }
   if(name==='inspect') { renderInspect(); }
+
+  // ⭐ v2.9: 데이터 변동이 잦은 탭은 백그라운드에서 silent 동기화 후 재렌더
+  // (즉시 로컬 데이터로 렌더 후, 백그라운드에서 서버 최신 데이터 가져오면 다시 렌더)
+  const AUTO_REFRESH_TABS = ['mydash','summary','history','aging','inspect','shipping','exchange'];
+  if(AUTO_REFRESH_TABS.indexOf(name) !== -1) {
+    _autoRefreshOnTabSwitch(name);
+  }
+}
+
+// ⭐ v2.9: 탭 진입 시 백그라운드 동기화 + 재렌더
+// 너무 자주 호출되지 않도록 디바운스 (직전 호출 후 1초 이내 재호출 차단)
+let _lastTabSyncAt = 0;
+async function _autoRefreshOnTabSwitch(name) {
+  const now = Date.now();
+  if(now - _lastTabSyncAt < 1000) return; // 1초 내 중복 방지
+  _lastTabSyncAt = now;
+  try {
+    await syncData(true); // silent 모드 (알림 없음)
+    // 동기화 후 해당 탭 다시 렌더
+    if(name==='summary') renderSummary();
+    if(name==='mydash') renderMyDash && renderMyDash();
+    if(name==='history') renderHistory();
+    if(name==='aging') renderAging && renderAging();
+    if(name==='inspect') renderInspect && renderInspect();
+    if(name==='shipping') { window._shipOk=null; window._shipHold=null; renderShipping(); renderShipHistory(); }
+    if(name==='exchange') renderExchangeList && renderExchangeList();
+  } catch {
+    // silent fail
+  }
 }
 
 /* 체크박스 */
@@ -11175,20 +11203,20 @@ function _renderWorkCheckHTML(k, v, model) {
 function buildChecks() {
   initPartQtys();
   const model = getModel();
-  // 1행: 논배터리, 배터리 (2칸, 각 50%)
+  // 1행: 논배터리, 배터리 (2칸)
   const row1Html = WORK_ROW1
     .filter(k => WORKS[k])
     .map(k => _renderWorkCheckHTML(k, WORKS[k], model))
     .join('');
-  // 2행: PCB, 패널, 메인보드 (3칸, 각 33%)
+  // 2행: PCB, 패널, 메인보드 (3칸)
   const row2Html = WORK_ROW2
     .filter(k => WORKS[k])
     .map(k => _renderWorkCheckHTML(k, WORKS[k], model))
     .join('');
-  // ⭐ v2.7: 카드가 좁아지지 않게 minmax 사용 + 행 간격
+  // ⭐ v2.8: 컨테이너에 명시적 block + 두 행 그리드 분리
   document.getElementById('work-checks').innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(2,minmax(200px,1fr));gap:10px;margin-bottom:10px;">${row1Html}</div>
-    <div style="display:grid;grid-template-columns:repeat(3,minmax(200px,1fr));gap:10px;">${row2Html}</div>
+    <div class="work-row-1" style="display:grid !important;grid-template-columns:1fr 1fr !important;gap:10px;margin-bottom:10px;">${row1Html}</div>
+    <div class="work-row-2" style="display:grid !important;grid-template-columns:1fr 1fr 1fr !important;gap:10px;">${row2Html}</div>
   `;
 }
 const toggleCheck = k => {
