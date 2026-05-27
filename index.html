@@ -5169,14 +5169,13 @@ window.addEventListener('DOMContentLoaded', function(){
   <button class="nav-btn" id="nav-mydash" onclick="switchTab('mydash',this)" style="display:none;">✨ 내 대시보드</button>
   <button class="nav-btn active" onclick="switchTab('input',this)">🔧 수리 등록</button>
   <button class="nav-btn" onclick="switchTab('exchange',this)">💸 교품 처리</button>
+  <button class="nav-btn" id="nav-aging" onclick="switchTab('aging',this)">🕐 에이징</button>
+  <button class="nav-btn" id="nav-inspect" onclick="switchTab('inspect',this)">🔍 검수대기</button>
   <button class="nav-btn" onclick="switchTab('summary',this)">📊 일일 현황</button>
   <button class="nav-btn" onclick="switchTab('history',this)">📋 전체 기록</button>
-  <button class="nav-btn" id="nav-aging" onclick="switchTab('aging',this)">🕐 에이징 중</button>
-  <button class="nav-btn" id="nav-inspect" onclick="switchTab('inspect',this)">🔍 검수대기</button>
   <button class="nav-btn" onclick="switchTab('search',this)">🔍 시리얼 조회</button>
   <button class="nav-btn" onclick="switchTab('docs',this)">📚 교육 자료</button>
   <button class="nav-btn" onclick="switchTab('shipping',this)">🚚 출고 관리</button>
-  <button class="nav-btn client-only-tab" onclick="switchTab('shipview',this)">📈 출고 현황</button>
   <button class="nav-btn" id="nav-stock" onclick="switchTab('stock',this)" style="display:none;">📦 재고 관리</button>
   <button class="nav-btn admin-only-tab" id="nav-admin" onclick="switchTab('admin',this)" style="display:none;border-left:1px solid var(--border);">⚙️ 관리자</button>
 </nav>
@@ -5540,6 +5539,7 @@ window.addEventListener('DOMContentLoaded', function(){
       <button id="admtab-workers" onclick="switchAdminTab('workers')" class="admin-sub-btn active-admin-tab" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--accent);">👥 엔지니어 관리</button>
       <button id="admtab-kpi" onclick="switchAdminTab('kpi')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">📊 KPI 설정</button>
       <button id="admtab-report" onclick="switchAdminTab('report')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">📈 실적 리포트</button>
+      <button id="admtab-shipview" onclick="switchAdminTab('shipview')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">📈 출고 현황</button>
       <button id="admtab-stock" onclick="switchAdminTab('stock')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">📦 재고 관리</button>
       <button id="admtab-price" onclick="switchAdminTab('price')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">💰 단가 설정</button>
     </div>
@@ -5583,6 +5583,8 @@ window.addEventListener('DOMContentLoaded', function(){
         </div>
         <div id="report-content2"></div>
       </div>
+    <!-- v2.4: 출고 현황 (구 tab-shipview 콘텐츠가 동적으로 이동됨) -->
+    <div id="admin-shipview" style="display:none;"></div>
     <div id="admin-stock" style="display:none;">
         <div id="stock-content2"></div>
       </div>
@@ -5797,33 +5799,54 @@ window.addEventListener('DOMContentLoaded', function(){
   <div id="tab-shipping" class="section">
     <div class="section-header">
       <span class="section-title">📦 출고 관리</span>
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;gap:8px;" id="shipping-action-buttons">
         <button class="btn btn-sm" onclick="exportShippingXlsx()" id="shipping-export-btn" style="display:none;">엑셀 내보내기</button>
         <button class="btn btn-sm btn-primary" onclick="completeShipping()" id="shipping-complete-btn" style="display:none;">✅ 출고 완료 처리</button>
       </div>
     </div>
-    <div class="card">
-      <div class="card-title">출고 기준 설정</div>
-      <div class="form-row" style="align-items:flex-end;gap:16px;">
-        <div class="form-group">
-          <label class="form-label">출고 날짜</label>
-          <input type="date" id="ship-date" style="width:180px;" onchange="renderShipping()">
+
+    <!-- 서브탭 네비게이션 -->
+    <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--border,#e5e7eb);">
+      <button id="shipping-subtab-process" onclick="switchShippingSubtab('process')" style="padding:10px 18px;background:none;border:none;border-bottom:3px solid var(--accent,#3b82f6);color:var(--accent,#3b82f6);font-weight:700;font-size:14px;cursor:pointer;margin-bottom:-2px;font-family:inherit;">
+        🚚 출고 처리
+      </button>
+      <button id="shipping-subtab-list" onclick="switchShippingSubtab('list')" style="padding:10px 18px;background:none;border:none;border-bottom:3px solid transparent;color:var(--text2,#666);font-weight:600;font-size:14px;cursor:pointer;margin-bottom:-2px;font-family:inherit;">
+        📋 출고 목록
+      </button>
+    </div>
+
+    <!-- 서브탭 A: 출고 처리 -->
+    <div id="shipping-subpanel-process">
+      <div class="card">
+        <div class="card-title">출고 기준 설정</div>
+        <div class="form-row" style="align-items:flex-end;gap:16px;">
+          <div class="form-group">
+            <label class="form-label">출고 날짜</label>
+            <input type="date" id="ship-date" style="width:180px;" onchange="renderShipping()">
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">출고 대상</label>
+            <div id="ship-deadline" style="font-size:13px;font-weight:600;color:var(--green);padding:8px 0;">🔍 검수완료 상태인 건만 출고 가능합니다.</div>
+          </div>
         </div>
-        <div class="form-group" style="flex:1;">
-          <label class="form-label">출고 대상</label>
-          <div id="ship-deadline" style="font-size:13px;font-weight:600;color:var(--green);padding:8px 0;">🔍 검수완료 상태인 건만 출고 가능합니다.</div>
+      </div>
+      <div id="shipping-result"></div>
+
+      <!-- 출고 이력 -->
+      <div style="margin-top:24px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <span style="font-size:16px;font-weight:700;">📋 최근 출고 이력</span>
+        </div>
+        <div id="ship-history-content">
+          <div class="empty" style="padding:20px;">출고 완료 후 이력이 표시됩니다.</div>
         </div>
       </div>
     </div>
-    <div id="shipping-result"></div>
 
-    <!-- 출고 이력 -->
-    <div style="margin-top:24px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <span style="font-size:16px;font-weight:700;">📋 출고 이력</span>
-      </div>
-      <div id="ship-history-content">
-        <div class="empty" style="padding:20px;">출고 완료 후 이력이 표시됩니다.</div>
+    <!-- 서브탭 B: 출고 목록 (구 출고 현황 콘텐츠) -->
+    <div id="shipping-subpanel-list" style="display:none;">
+      <div id="shipping-list-content">
+        <!-- renderShippingListInline()로 채워짐 -->
       </div>
     </div>
   </div>
@@ -5879,21 +5902,25 @@ window.addEventListener('DOMContentLoaded', function(){
     <div id="login-step-1">
       <div class="login-title">로그인</div>
       <div class="login-sub">역할을 선택해주세요</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:24px;">
-        <button class="role-btn" onclick="showLoginEngineer()" style="padding:24px 8px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;transition:all .15s;font-size:14px;font-weight:600;">
+      <!-- 1행: 엔지니어 / QC (2칸) -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:24px;">
+        <button class="role-btn" onclick="showLoginEngineer()" style="padding:24px 12px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;transition:all .15s;font-size:14px;font-weight:600;">
           <span style="font-size:32px;line-height:1;">🔧</span>
           엔지니어
-          <span class="role-sub" style="font-size:10px;font-weight:400;">이름 클릭</span>
+          <span class="role-sub" style="font-size:11px;font-weight:400;">이름 클릭으로 진입</span>
         </button>
-        <button class="role-btn" onclick="showLoginQC()" style="padding:24px 8px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;transition:all .15s;font-size:14px;font-weight:600;border-color:#10b981;color:#10b981;">
+        <button class="role-btn" onclick="showLoginQC()" style="padding:24px 12px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;transition:all .15s;font-size:14px;font-weight:600;border-color:#10b981;color:#10b981;">
           <span style="font-size:32px;line-height:1;">🔍</span>
           QC
-          <span class="role-sub" style="font-size:10px;font-weight:400;color:inherit;opacity:0.8;">품질 검수</span>
+          <span class="role-sub" style="font-size:11px;font-weight:400;color:inherit;opacity:0.8;">품질 검수</span>
         </button>
-        <button class="role-btn" onclick="showLoginAdmin()" style="padding:24px 8px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;transition:all .15s;font-size:14px;font-weight:600;">
-          <span style="font-size:32px;line-height:1;">⚙️</span>
-          관리자
-          <span class="role-sub" style="font-size:10px;font-weight:400;">비밀번호 필요</span>
+      </div>
+      <!-- 2행: 관리자 (전체 폭) -->
+      <div style="margin-top:12px;">
+        <button class="role-btn" onclick="showLoginAdmin()" style="width:100%;padding:18px 12px;border-radius:14px;cursor:pointer;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:12px;transition:all .15s;font-size:14px;font-weight:600;">
+          <span style="font-size:24px;line-height:1;">⚙️</span>
+          <span>관리자</span>
+          <span class="role-sub" style="font-size:11px;font-weight:400;">비밀번호 필요</span>
         </button>
       </div>
     </div>
@@ -7129,6 +7156,128 @@ function initShipping() {
   // syncData가 완료된 후 렌더 (shipHistory 보장)
   renderShipping();
   renderShipHistory();
+  // 초기 진입 시 출고 처리 서브탭 활성화
+  switchShippingSubtab('process');
+}
+
+// ⭐ v2.4 신규: 출고관리 서브탭 전환
+function switchShippingSubtab(which) {
+  const processBtn = document.getElementById('shipping-subtab-process');
+  const listBtn = document.getElementById('shipping-subtab-list');
+  const processPanel = document.getElementById('shipping-subpanel-process');
+  const listPanel = document.getElementById('shipping-subpanel-list');
+  const actionBtns = document.getElementById('shipping-action-buttons');
+  if(!processBtn || !listBtn) return;
+
+  if(which === 'process') {
+    processBtn.style.borderBottomColor = 'var(--accent,#3b82f6)';
+    processBtn.style.color = 'var(--accent,#3b82f6)';
+    processBtn.style.fontWeight = '700';
+    listBtn.style.borderBottomColor = 'transparent';
+    listBtn.style.color = 'var(--text2,#666)';
+    listBtn.style.fontWeight = '600';
+    if(processPanel) processPanel.style.display = 'block';
+    if(listPanel) listPanel.style.display = 'none';
+    // 액션 버튼(엑셀/완료) 표시
+    if(actionBtns) actionBtns.style.display = 'flex';
+  } else {
+    listBtn.style.borderBottomColor = 'var(--accent,#3b82f6)';
+    listBtn.style.color = 'var(--accent,#3b82f6)';
+    listBtn.style.fontWeight = '700';
+    processBtn.style.borderBottomColor = 'transparent';
+    processBtn.style.color = 'var(--text2,#666)';
+    processBtn.style.fontWeight = '600';
+    if(processPanel) processPanel.style.display = 'none';
+    if(listPanel) listPanel.style.display = 'block';
+    // 액션 버튼 숨김 (목록 모드에서는 불필요)
+    if(actionBtns) actionBtns.style.display = 'none';
+    renderShippingList();
+  }
+}
+
+// ⭐ v2.4 신규: 출고 목록 렌더 (shipHistory 전체 표시)
+function renderShippingList() {
+  const el = document.getElementById('shipping-list-content');
+  if(!el) return;
+
+  const list = (shipHistory || []).slice().sort((a,b) =>
+    new Date(b.shipDate) - new Date(a.shipDate)
+  );
+
+  if(list.length === 0) {
+    el.innerHTML = `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
+      <div style="font-size:48px;margin-bottom:12px;">📭</div>
+      <div style="font-size:15px;">출고 완료된 내역이 없습니다.</div>
+    </div>`;
+    return;
+  }
+
+  // 날짜별 그룹
+  const groups = {};
+  list.forEach(h => {
+    const d = shipDateKey(h.shipDate);
+    if(!groups[d]) groups[d] = [];
+    groups[d].push(h);
+  });
+  const dates = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+
+  // 통계
+  const totalCount = list.length;
+  const todayKey = todayStr();
+  const todayCount = (groups[todayKey] || []).length;
+  const thisMonth = todayKey.slice(0, 7);
+  const monthCount = list.filter(h => shipDateKey(h.shipDate).startsWith(thisMonth)).length;
+
+  let html = `
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+      <div class="card" style="padding:14px 16px;border-left:4px solid #16a34a;">
+        <div style="font-size:11px;color:var(--text2,#666);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">전체 출고</div>
+        <div style="font-size:24px;font-weight:700;margin-top:4px;">${totalCount}<span style="font-size:13px;color:var(--text2,#666);font-weight:400;">건</span></div>
+      </div>
+      <div class="card" style="padding:14px 16px;border-left:4px solid #3b82f6;">
+        <div style="font-size:11px;color:var(--text2,#666);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">이번 달</div>
+        <div style="font-size:24px;font-weight:700;margin-top:4px;color:#3b82f6;">${monthCount}<span style="font-size:13px;color:var(--text2,#666);font-weight:400;">건</span></div>
+      </div>
+      <div class="card" style="padding:14px 16px;border-left:4px solid #f59e0b;">
+        <div style="font-size:11px;color:var(--text2,#666);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">오늘</div>
+        <div style="font-size:24px;font-weight:700;margin-top:4px;color:#f59e0b;">${todayCount}<span style="font-size:13px;color:var(--text2,#666);font-weight:400;">건</span></div>
+      </div>
+    </div>
+  `;
+
+  dates.forEach(d => {
+    const items = groups[d];
+    html += `<div class="card" style="margin-bottom:10px;padding:0;overflow:hidden;">
+      <div style="padding:10px 16px;background:var(--bg2,#f9fafb);border-bottom:1px solid var(--border,#e5e7eb);display:flex;align-items:center;gap:12px;">
+        <span style="font-size:14px;font-weight:700;">📅 ${d}</span>
+        <span style="font-size:12px;color:var(--text2,#666);">${items.length}건</span>
+      </div>
+      <div class="table-wrap"><table style="font-size:13px;">
+        <thead><tr>
+          <th>시리얼</th>
+          <th>기종</th>
+          <th>엔지니어</th>
+          <th>수리 항목</th>
+          <th>출고 시각</th>
+        </tr></thead>
+        <tbody>`;
+
+    items.sort((a,b) => new Date(b.shipDate) - new Date(a.shipDate)).forEach(h => {
+      const shipFmt = h.shipDate ? new Date(h.shipDate).toLocaleString('ko-KR', {hour:'2-digit',minute:'2-digit'}) : '-';
+      const workerName = String(h.worker||'').split('::')[0];
+      html += `<tr>
+        <td style="font-weight:600;font-family:monospace;">${escapeHtml(String(h.serial||''))}</td>
+        <td>${escapeHtml(String(h.model||''))}</td>
+        <td>${escapeHtml(workerName)}</td>
+        <td style="font-size:12px;color:var(--text2);">${escapeHtml(String(h.works||'').replace(/\|/g,', '))}</td>
+        <td style="font-size:12px;">${shipFmt}</td>
+      </tr>`;
+    });
+
+    html += `</tbody></table></div></div>`;
+  });
+
+  el.innerHTML = html;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -10034,7 +10183,7 @@ function exportShippingXlsx() {
 
 /* ===== 관리자 서브탭 ===== */
 function switchAdminTab(tab) {
-  const tabs = ['workers','kpi','report','stock','price'];
+  const tabs = ['workers','kpi','report','shipview','stock','price'];
 
   // 서브탭 버튼 활성화
   tabs.forEach(t => {
@@ -10047,7 +10196,7 @@ function switchAdminTab(tab) {
   });
 
   // 모든 기존 탭 숨기기 (admin 내부용)
-  ['admin-workers','admin-kpi','admin-report','admin-stock','admin-price'].forEach(id => {
+  ['admin-workers','admin-kpi','admin-report','admin-shipview','admin-stock','admin-price'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.display = 'none';
   });
@@ -10071,11 +10220,31 @@ function switchAdminTab(tab) {
     if(rm && !rm.value) rm.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
     renderReportInto('report-content2', document.getElementById('report-month2')?.value);
   }
+  if(tab === 'shipview') {
+    // ⭐ v2.4: 관리자 안에서 출고 현황 렌더
+    // 기존 tab-shipview DOM을 admin-shipview로 이동(최초 1회만)하고 렌더
+    relocateShipviewToAdmin();
+    setSvFilter('all', true);
+  }
   if(tab === 'stock') renderStockInto('stock-content2');
   if(tab === 'price') {
     loadPriceSettings();
     setTimeout(renderModelPartsTable, 50);
   }
+}
+
+// ⭐ v2.4: 출고 현황 DOM을 관리자 안으로 이동 (최초 1회만 실행)
+function relocateShipviewToAdmin() {
+  const adminPanel = document.getElementById('admin-shipview');
+  const shipviewSection = document.getElementById('tab-shipview');
+  if(!adminPanel || !shipviewSection) return;
+  // 이미 이동했으면 스킵
+  if(adminPanel.dataset.relocated === '1') return;
+  // tab-shipview의 자식들을 admin-shipview로 이동
+  while(shipviewSection.firstChild) {
+    adminPanel.appendChild(shipviewSection.firstChild);
+  }
+  adminPanel.dataset.relocated = '1';
 }
 
 // Admin 탭은 기존 탭 DOM을 직접 이동해서 렌더
