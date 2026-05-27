@@ -5806,11 +5806,8 @@ window.addEventListener('DOMContentLoaded', function(){
       <div class="card-title">출고 기준 설정</div>
       <div class="form-row" style="align-items:flex-end;gap:16px;">
         <div class="form-group">
-          <label class="form-label">출고 날짜/시간</label>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <input type="date" id="ship-date" style="width:160px;" onchange="renderShipping()">
-            <input type="time" id="ship-time" value="12:00" style="width:110px;height:38px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:14px;outline:none;" onchange="renderShipping()">
-          </div>
+          <label class="form-label">출고 날짜</label>
+          <input type="date" id="ship-date" style="width:180px;" onchange="renderShipping()">
         </div>
         <div class="form-group" style="flex:1;">
           <label class="form-label">출고 대상</label>
@@ -5882,25 +5879,38 @@ window.addEventListener('DOMContentLoaded', function(){
     <div id="login-step-1">
       <div class="login-title">로그인</div>
       <div class="login-sub">역할을 선택해주세요</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:24px;">
-        <button class="role-btn" onclick="showLoginEngineer()" style="padding:28px 12px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:10px;transition:all .15s;font-size:15px;font-weight:600;">
-          <span style="font-size:36px;line-height:1;">👥</span>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:24px;">
+        <button class="role-btn" onclick="showLoginEngineer()" style="padding:24px 8px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;transition:all .15s;font-size:14px;font-weight:600;">
+          <span style="font-size:32px;line-height:1;">🔧</span>
           엔지니어
-          <span class="role-sub" style="font-size:11px;font-weight:400;">이름 클릭으로 진입</span>
+          <span class="role-sub" style="font-size:10px;font-weight:400;">이름 클릭</span>
         </button>
-        <button class="role-btn" onclick="showLoginAdmin()" style="padding:28px 12px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:10px;transition:all .15s;font-size:15px;font-weight:600;">
-          <span style="font-size:36px;line-height:1;">⚙️</span>
+        <button class="role-btn" onclick="showLoginQC()" style="padding:24px 8px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;transition:all .15s;font-size:14px;font-weight:600;border-color:#10b981;color:#10b981;">
+          <span style="font-size:32px;line-height:1;">🔍</span>
+          QC
+          <span class="role-sub" style="font-size:10px;font-weight:400;color:inherit;opacity:0.8;">품질 검수</span>
+        </button>
+        <button class="role-btn" onclick="showLoginAdmin()" style="padding:24px 8px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;transition:all .15s;font-size:14px;font-weight:600;">
+          <span style="font-size:32px;line-height:1;">⚙️</span>
           관리자
-          <span class="role-sub" style="font-size:11px;font-weight:400;">비밀번호 필요</span>
+          <span class="role-sub" style="font-size:10px;font-weight:400;">비밀번호 필요</span>
         </button>
       </div>
     </div>
 
     <!-- Step 2A: 엔지니어 로그인 -->
     <div id="login-step-engineer" style="display:none;">
-      <div class="login-title">엔지니어 로그인</div>
+      <div class="login-title">🔧 엔지니어 로그인</div>
       <div class="login-sub">본인 이름을 선택해주세요</div>
       <div class="login-grid" id="login-grid"></div>
+      <button class="login-back-btn" onclick="showLoginStep1()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>뒤로</button>
+    </div>
+
+    <!-- Step 2C: QC 로그인 (신규) -->
+    <div id="login-step-qc" style="display:none;">
+      <div class="login-title" style="color:#10b981;">🔍 QC 로그인</div>
+      <div class="login-sub">본인 이름을 선택해주세요</div>
+      <div class="login-grid" id="qc-login-grid"></div>
       <button class="login-back-btn" onclick="showLoginStep1()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>뒤로</button>
     </div>
 
@@ -6812,50 +6822,43 @@ function buildLoginGrid() {
     grid.innerHTML = '<div style="grid-column:1/-1;color:var(--text3);font-size:13px;">등록된 엔지니어가 없습니다.</div>';
     return;
   }
-  // 관리자 제외 + QC 분리
-  const nonAdmins = workers.filter(w => !_isAdminUser(w));
-  const qcMembers = nonAdmins.filter(w => {
+  // 관리자 제외 + 엔지니어/겸직만 표시 (QC 전용은 별도)
+  const list = workers.filter(w => {
+    if(_isAdminUser(w)) return false;
+    const r = roleMap[w] || 'engineer';
+    return r === 'engineer' || r === 'both';
+  });
+  if(!list.length) {
+    grid.innerHTML = '<div style="grid-column:1/-1;color:var(--text3);font-size:13px;">등록된 엔지니어가 없습니다.</div>';
+    return;
+  }
+  grid.innerHTML = list.map(w => {
+    const r = roleMap[w] || 'engineer';
+    const badge = (r === 'both')
+      ? `<span style="display:inline-block;padding:2px 6px;border-radius:6px;background:#10b981;color:#fff;font-size:10px;font-weight:600;margin-left:4px;">🔧+🔍</span>`
+      : '';
+    return `<button class="login-btn" onclick="loginAs('${w}')">${w}${tierBadge(tierMap[w]||'')}${badge}</button>`;
+  }).join('');
+}
+
+// ⭐ v2.3 신규: QC 전용 로그인 그리드 (inspector 또는 both)
+function buildQCGrid() {
+  const grid = document.getElementById('qc-login-grid');
+  if(!grid) return;
+  const list = workers.filter(w => {
+    if(_isAdminUser(w)) return false;
     const r = roleMap[w] || 'engineer';
     return r === 'inspector' || r === 'both';
   });
-  const engineers = nonAdmins.filter(w => {
+  if(!list.length) {
+    grid.innerHTML = '<div style="grid-column:1/-1;color:var(--text3);font-size:13px;text-align:center;padding:20px;">등록된 QC 인원이 없습니다.<br><span style="font-size:11px;">관리자 → 작업자 관리에서 역할을 QC로 변경하세요.</span></div>';
+    return;
+  }
+  grid.innerHTML = list.map(w => {
     const r = roleMap[w] || 'engineer';
-    return r === 'engineer';
-  });
-
-  let html = '';
-
-  // 엔지니어 섹션
-  if(engineers.length > 0) {
-    html += `<div style="grid-column:1/-1;font-size:11px;font-weight:700;color:var(--text2,#666);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;margin-top:4px;display:flex;align-items:center;gap:8px;">
-      <span style="flex:1;height:1px;background:var(--border2,#d1d5db);"></span>
-      <span>🔧 엔지니어</span>
-      <span style="flex:1;height:1px;background:var(--border2,#d1d5db);"></span>
-    </div>`;
-    html += engineers.map(w =>
-      `<button class="login-btn" onclick="loginAs('${w}')">${w}${tierBadge(tierMap[w]||'')}</button>`
-    ).join('');
-  }
-
-  // QC팀 섹션 (별도 그룹)
-  if(qcMembers.length > 0) {
-    html += `<div style="grid-column:1/-1;font-size:11px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:0.5px;margin-top:12px;margin-bottom:4px;display:flex;align-items:center;gap:8px;">
-      <span style="flex:1;height:1px;background:#10b981;opacity:0.3;"></span>
-      <span>🔍 QC 팀</span>
-      <span style="flex:1;height:1px;background:#10b981;opacity:0.3;"></span>
-    </div>`;
-    html += qcMembers.map(w => {
-      const role = roleMap[w] || 'engineer';
-      const badge = role === 'both' ? '🔧+🔍' : '🔍';
-      return `<button class="login-btn" onclick="loginAs('${w}')" style="border-color:#10b981;background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(16,185,129,0.03));">${w}<span style="display:inline-block;padding:2px 6px;border-radius:6px;background:#10b981;color:#fff;font-size:10px;font-weight:600;margin-left:4px;">${badge}</span>${tierBadge(tierMap[w]||'')}</button>`;
-    }).join('');
-  }
-
-  if(!html) {
-    html = '<div style="grid-column:1/-1;color:var(--text3);font-size:13px;">등록된 작업자가 없습니다.</div>';
-  }
-
-  grid.innerHTML = html;
+    const badgeIcon = (r === 'both') ? '🔧+🔍' : '🔍';
+    return `<button class="login-btn" onclick="loginAs('${w}')" style="border-color:#10b981;background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(16,185,129,0.03));">${w}<span style="display:inline-block;padding:2px 6px;border-radius:6px;background:#10b981;color:#fff;font-size:10px;font-weight:600;margin-left:4px;">${badgeIcon}</span>${tierBadge(tierMap[w]||'')}</button>`;
+  }).join('');
 }
 
 // 관리자 3명 그리드 빌드
@@ -6882,6 +6885,8 @@ function showLoginStep1() {
   document.getElementById('login-step-1').style.display = 'block';
   document.getElementById('login-step-engineer').style.display = 'none';
   document.getElementById('login-step-admin').style.display = 'none';
+  const qcStep = document.getElementById('login-step-qc');
+  if(qcStep) qcStep.style.display = 'none';
   document.getElementById('login-error').textContent = '';
   _selectedAdminName = null;
 }
@@ -6890,13 +6895,27 @@ function showLoginEngineer() {
   document.getElementById('login-step-1').style.display = 'none';
   document.getElementById('login-step-engineer').style.display = 'block';
   document.getElementById('login-step-admin').style.display = 'none';
+  const qcStep = document.getElementById('login-step-qc');
+  if(qcStep) qcStep.style.display = 'none';
   buildLoginGrid();
+}
+
+// ⭐ v2.3 신규: QC 로그인 단계
+function showLoginQC() {
+  document.getElementById('login-step-1').style.display = 'none';
+  document.getElementById('login-step-engineer').style.display = 'none';
+  document.getElementById('login-step-admin').style.display = 'none';
+  const qcStep = document.getElementById('login-step-qc');
+  if(qcStep) qcStep.style.display = 'block';
+  buildQCGrid();
 }
 
 function showLoginAdmin() {
   document.getElementById('login-step-1').style.display = 'none';
   document.getElementById('login-step-engineer').style.display = 'none';
   document.getElementById('login-step-admin').style.display = 'block';
+  const qcStep = document.getElementById('login-step-qc');
+  if(qcStep) qcStep.style.display = 'none';
   buildAdminGrid();
   document.getElementById('admin-selected-name').textContent = '선택된 관리자: —';
   document.getElementById('master-pw').value = '';
@@ -7020,7 +7039,10 @@ function loginAs(name) {
   if(cpwBtn) cpwBtn.style.display = isAdmin ? 'inline-flex' : 'none';
   renderWorkerSel();
   updateAdminNav();
-  // ⭐ v2.3: QC 권한자는 일부 탭만 보이게
+  // ⭐ v2.3: 메뉴 가시성 처리
+  // (1) 모든 탭을 일단 복원 (이전 QC 세션 잔재 제거)
+  restoreFullMenu();
+  // (2) QC 전용이면 다시 제한 적용
   applyQCMenuRestriction();
 
   // 매일 다른 응원 문구 — 일반 풀 + 요일 테마 + 계절/이벤트
@@ -7070,9 +7092,7 @@ async function loginMaster() {
 // master-pw Enter 처리는 HTML onkeydown으로 이동
 document.addEventListener('DOMContentLoaded', ()=>{
   const sd = document.getElementById('ship-date');
-  const st = document.getElementById('ship-time');
   if(sd) sd.addEventListener('change', ()=>{ window._shipOk=null; window._shipHold=null; renderShipping(); });
-  if(st) st.addEventListener('change', ()=>{ window._shipOk=null; window._shipHold=null; renderShipping(); });
 });
 
 /* 삭제 권한 체크 */
@@ -7991,7 +8011,6 @@ async function submitInspect(entryId) {
 
 function renderShipping() {
   const dateVal = document.getElementById('ship-date')?.value;
-  const timeVal = document.getElementById('ship-time')?.value || '12:00';
   const deadlineEl = document.getElementById('ship-deadline');
   const resultEl = document.getElementById('shipping-result');
 
@@ -8001,11 +8020,12 @@ function renderShipping() {
     return;
   }
 
-  const shipDT = new Date(`${dateVal}T${timeVal}:00`);
+  // 출고일 = 선택한 날짜의 자정(시간 없이 날짜만)
+  const shipDT = new Date(`${dateVal}T00:00:00`);
   const fmt2 = n => String(n).padStart(2,'0');
-  const fmtDT2 = d => `${d.getFullYear()}.${fmt2(d.getMonth()+1)}.${fmt2(d.getDate())} ${fmt2(d.getHours())}:${fmt2(d.getMinutes())}`;
+  const fmtDT2 = d => `${d.getFullYear()}.${fmt2(d.getMonth()+1)}.${fmt2(d.getDate())}`;
 
-  if(deadlineEl) deadlineEl.innerHTML = `🔍 <strong>검수완료</strong> 상태인 건만 출고 가능 (${fmtDT2(shipDT)} 출고 예정)`;
+  if(deadlineEl) deadlineEl.innerHTML = `🔍 <strong>검수완료</strong> 상태인 건만 출고 가능 (출고일: ${fmtDT2(shipDT)})`;
 
   // 출고 완료된 시리얼
   const shippedSerials = new Set(shipHistory.map(h => String(h.serial)));
@@ -8300,9 +8320,12 @@ function completeShipping() {
   if(!targets.length) { notify('출고할 항목이 없습니다.', 'error'); return; }
 
   const dateVal = document.getElementById('ship-date').value;
-  const timeVal = document.getElementById('ship-time').value || '12:00';
+  // 출고 시각은 처리 시점의 실시간으로 기록
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const timeVal = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
   const shipDTStr = `${dateVal}T${timeVal}:00`;
-  const shipLabel = `${dateVal} ${timeVal}`;
+  const shipLabel = `${dateVal}`;
 
   const isAllMode = checkedBoxes.length === 0;
   openModal(
@@ -10260,12 +10283,15 @@ function updateAdminNav() {
 // ⭐ v2.3: QC 전용 메뉴 제한
 // QC 역할 (inspector) 사용자에게는 일부 탭만 보이게 함
 // 'both' (겸직) 사용자는 모든 탭 표시 (엔지니어 + QC)
+// 'engineer' (일반 엔지니어) 사용자는 모든 탭 표시
 function applyQCMenuRestriction() {
   const role = roleMap[currentUser] || 'engineer';
 
-  // QC 전용 사용자가 아니면 아무것도 안 함 (모두 표시)
+  // ⭐ 명시적 체크: inspector만 제한, 그 외는 모두 풀 메뉴
+  // - engineer: 그대로 → 제한 없음
+  // - both: 겸직 → 제한 없음 (엔지니어 일도 해야함)
+  // - admin: 관리자 → 제한 없음
   if(role !== 'inspector') return;
-  // 관리자는 권한 무관하게 모든 탭 표시
   if(isAdmin) return;
 
   // QC 전용으로 보이게 할 탭 ID들
@@ -10278,7 +10304,6 @@ function applyQCMenuRestriction() {
     if(!match) return;
     const tabName = match[1];
 
-    // QC 가시 탭이 아니면 숨김 (admin 버튼은 이미 위에서 처리됨)
     if(QC_VISIBLE_TABS.indexOf(tabName) === -1) {
       btn.style.display = 'none';
     } else {
@@ -10286,10 +10311,9 @@ function applyQCMenuRestriction() {
     }
   });
 
-  // 내 대시보드도 숨김 (QC는 본인 수리 실적 없음)
+  // 내 대시보드, 재고 관리 명시적 숨김
   const myBtn = document.getElementById('nav-mydash');
   if(myBtn) myBtn.style.display = 'none';
-  // 재고 관리 숨김
   const stockBtn = document.getElementById('nav-stock');
   if(stockBtn) stockBtn.style.display = 'none';
 
@@ -10303,10 +10327,19 @@ function applyQCMenuRestriction() {
       if(inspectBtn) switchTab('inspect', inspectBtn);
     }
   } else {
-    // 활성 탭이 없으면 검수대기로
     const inspectBtn = document.getElementById('nav-inspect');
     if(inspectBtn) switchTab('inspect', inspectBtn);
   }
+}
+
+// ⭐ v2.3: 일반 메뉴 복원 (엔지니어/겸직/관리자 로그인 시)
+// 이전 세션에서 QC가 로그인했다가 다른 사람이 로그인하는 경우 대비
+function restoreFullMenu() {
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    // admin 탭과 mydash는 별도 로직이 처리하므로 건드리지 않음
+    if(btn.id === 'nav-admin' || btn.id === 'nav-mydash' || btn.id === 'nav-stock') return;
+    btn.style.display = 'inline-block';
+  });
 }
 
 
