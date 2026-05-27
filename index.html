@@ -5304,24 +5304,52 @@ window.addEventListener('DOMContentLoaded', function(){
     <div id="aging-list"></div>
   </div>
 
-  <!-- 🔍 검수대기 (Phase2 신규) -->
+  <!-- 🔍 검수대기 (Phase2 신규) - 서브탭 구조 -->
   <div id="tab-inspect" class="section">
     <div class="section-header">
-      <span class="section-title">🔍 검수대기 수리건</span>
+      <span class="section-title">🔍 검수 관리</span>
       <div style="display:flex;gap:8px;align-items:center;">
         <span id="inspect-permission-badge" style="font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;"></span>
         <button class="btn btn-secondary" onclick="renderInspect()" style="height:34px;padding:0 12px;font-size:13px;">↻ 새로고침</button>
       </div>
     </div>
-    <div class="card" style="padding:14px 18px;margin-bottom:16px;background:linear-gradient(135deg,#dbeafe,#bfdbfe);border-color:#3b82f6;">
-      <div style="font-size:13px;color:#1e3a8a;line-height:1.6;">
-        <strong>📋 검수 안내</strong><br>
-        • <strong>검수 권한</strong>: 티어 T3 이상 또는 검수자(inspector) 역할을 가진 작업자<br>
-        • <strong>검수완료</strong>: 출고관리로 이동되어 출고 가능합니다.<br>
-        • <strong>불량</strong>: 6가지 유형 중 다중 선택 가능. 불량 처리 시 에이징부터 재시작됩니다.
-      </div>
+
+    <!-- 서브탭 네비게이션 -->
+    <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--border,#e5e7eb);">
+      <button id="inspect-subtab-wait" onclick="switchInspectSubtab('wait')" style="padding:10px 18px;background:none;border:none;border-bottom:3px solid var(--accent,#3b82f6);color:var(--accent,#3b82f6);font-weight:700;font-size:14px;cursor:pointer;margin-bottom:-2px;font-family:inherit;">
+        🔍 검수대기 <span id="inspect-wait-count" style="background:#3b82f6;color:#fff;padding:1px 8px;border-radius:999px;font-size:11px;margin-left:4px;">0</span>
+      </button>
+      <button id="inspect-subtab-defect" onclick="switchInspectSubtab('defect')" style="padding:10px 18px;background:none;border:none;border-bottom:3px solid transparent;color:var(--text2,#666);font-weight:600;font-size:14px;cursor:pointer;margin-bottom:-2px;font-family:inherit;">
+        🚨 불량처리 <span id="inspect-defect-count" style="background:#ef4444;color:#fff;padding:1px 8px;border-radius:999px;font-size:11px;margin-left:4px;">0</span>
+      </button>
     </div>
-    <div id="inspect-list"></div>
+
+    <!-- 검수대기 서브탭 -->
+    <div id="inspect-subpanel-wait">
+      <div class="card" style="padding:14px 18px;margin-bottom:16px;background:linear-gradient(135deg,#dbeafe,#bfdbfe);border-color:#3b82f6;">
+        <div style="font-size:13px;color:#1e3a8a;line-height:1.6;">
+          <strong>📋 검수 안내</strong><br>
+          • <strong>검수 권한</strong>: 티어 T3 이상 또는 검수자(inspector) 역할을 가진 작업자<br>
+          • <strong>검수완료</strong>: 출고관리로 이동되어 출고 가능합니다.<br>
+          • <strong>불량</strong>: 🚨 불량처리 탭으로 이동. 담당 엔지니어가 재작업 후 검수대기로 복귀.
+        </div>
+      </div>
+      <div id="inspect-list"></div>
+    </div>
+
+    <!-- 불량처리 서브탭 -->
+    <div id="inspect-subpanel-defect" style="display:none;">
+      <div class="card" style="padding:14px 18px;margin-bottom:16px;background:linear-gradient(135deg,#fee2e2,#fecaca);border-color:#dc2626;">
+        <div style="font-size:13px;color:#991b1b;line-height:1.6;">
+          <strong>🚨 불량처리 안내</strong><br>
+          • 검수 단계에서 불량으로 판정된 수리건들입니다.<br>
+          • <strong>담당 엔지니어</strong>가 재작업을 진행한 후 <strong>"재작업 완료"</strong> 버튼을 누릅니다.<br>
+          • 재작업 완료 시 <strong>에이징 없이 바로 검수대기</strong>로 복귀됩니다.<br>
+          • <span style="color:#dc2626;font-weight:600;">⚠️ 3일 이상 대기 시 빨간색 강조 표시</span>
+        </div>
+      </div>
+      <div id="defect-list"></div>
+    </div>
   </div>
 
   <!-- 시리얼 조회 -->
@@ -6162,6 +6190,7 @@ let serverTimeOffset = 0; // 서버-클라이언트 시간 차이 (ms)
 const STATUS_AGING = 'aging';
 const STATUS_AGING_PASS = 'aging_pass';
 const STATUS_INSPECTED = 'inspected';
+const STATUS_DEFECT = 'defect';  // ⭐ 불량 발견 - 재작업 대기
 const STATUS_SHIPPED = 'shipped';
 
 // === 검수 시스템: 불량 유형 ===
@@ -7077,25 +7106,28 @@ function stopAgingTimer() {
   }
 }
 
-// 에이징 중인 entries 필터 (status === 'aging')
+// 에이징 중인 entries 필터 (status === 'aging'만 명시적으로)
 function getAgingEntries() {
   return entries.filter(e => {
     const s = String(e.status || '');
-    // 출고완료/검수완료/검수대기 제외, 그 외(에이징/빈값) 모두 표시
-    return s !== STATUS_INSPECTED && s !== STATUS_SHIPPED && s !== STATUS_AGING_PASS;
+    return s === STATUS_AGING;
   });
 }
 
-// 검수대기 entries (status === 'aging_pass' 또는 24h 통과한 aging)
+// 검수대기 entries (status === 'aging_pass')
+// 에이징 통과는 사용자가 직접 버튼 눌러서 'aging_pass'로 옮긴 건만 표시
 function getInspectWaitingEntries() {
   return entries.filter(e => {
     const s = String(e.status || '');
-    if(s === STATUS_AGING_PASS) return true;
-    if(s === STATUS_AGING) {
-      const c = calcAging(e.agingStart);
-      return c.isPassed;
-    }
-    return false;
+    return s === STATUS_AGING_PASS;
+  });
+}
+
+// 불량 처리 대기 entries (status === 'defect')
+function getDefectEntries() {
+  return entries.filter(e => {
+    const s = String(e.status || '');
+    return s === STATUS_DEFECT;
   });
 }
 
@@ -7195,45 +7227,98 @@ function openAddPartsModal(entryId) {
   const model = e.model || '';
   const visibleWorks = Object.entries(WORKS);
 
-  // 사용 가능한 부품 목록 수집
-  let partsOptions = '';
+  // 사용 가능한 부품 목록 수집 (중복 제거)
+  const partsSet = new Set();
   visibleWorks.forEach(([wk, wv]) => {
     (wv.parts||[]).forEach(p => {
       if(p.modelOnly && p.modelOnly !== model) return;
-      partsOptions += `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`;
+      partsSet.add(p.name);
     });
   });
+  const partsOptions = Array.from(partsSet)
+    .map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+    .join('');
 
-  const modalHtml = `<div id="add-parts-modal" class="modal-backdrop" style="display:flex;">
-    <div class="modal" style="max-width:480px;">
-      <div class="modal-header">
-        <span>🔧 부품 추가</span>
-        <button class="modal-close" onclick="closeAddPartsModal()">×</button>
+  const c = calcAging(e.agingStart);
+  const remainStr = fmtRemaining(c.remaining);
+
+  const modalHtml = `
+  <div id="add-parts-modal" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:var(--bg,#fff);color:var(--text,#000);max-width:520px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;max-height:90vh;display:flex;flex-direction:column;">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border,#e5e7eb);display:flex;justify-content:space-between;align-items:center;background:var(--bg2,#f9fafb);">
+        <span style="font-size:16px;font-weight:700;">🔧 부품 추가</span>
+        <button onclick="closeAddPartsModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text2,#666);width:32px;height:32px;border-radius:6px;">×</button>
       </div>
-      <div class="modal-body" style="padding:20px;">
-        <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px;font-size:13px;">
-          <strong>${escapeHtml(e.serial)}</strong> (${escapeHtml(e.model||'')})
+      <div style="padding:20px;overflow-y:auto;">
+        <div style="margin-bottom:14px;padding:12px;background:var(--bg2,#f9fafb);border-radius:8px;font-size:13px;line-height:1.6;">
+          <strong>${escapeHtml(e.serial)}</strong> (${escapeHtml(e.model||'')})<br>
+          <span style="color:var(--text2,#666);">담당: ${escapeHtml(String(e.worker||'').split('::')[0])}</span><br>
+          <span style="color:var(--text2,#666);">에이징 남은 시간: <strong style="font-family:monospace;color:#f59e0b;">${remainStr}</strong></span>
         </div>
-        <div class="form-group" style="margin-bottom:12px;">
-          <label class="form-label">추가할 부품</label>
-          <select id="add-part-name" style="width:100%;">${partsOptions}</select>
+
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">추가할 부품</label>
+          <select id="add-part-name" style="width:100%;height:38px;padding:0 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--bg,#fff);color:var(--text,#000);">
+            ${partsOptions}
+          </select>
         </div>
-        <div class="form-group" style="margin-bottom:12px;">
-          <label class="form-label">수량</label>
-          <input type="number" id="add-part-qty" value="1" min="1" max="20" style="width:100%;">
+
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">수량</label>
+          <input type="number" id="add-part-qty" value="1" min="1" max="20" style="width:100%;height:38px;padding:0 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--bg,#fff);color:var(--text,#000);">
         </div>
-        <div style="padding:10px;background:#fef3c7;border-radius:8px;font-size:12px;color:#92400e;">
-          ⚠️ 부품 추가 시 에이징 시간이 <strong>24시간부터 다시 시작</strong>됩니다.
+
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;">에이징 처리 방식 선택</label>
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:2px solid #3b82f6;border-radius:8px;cursor:pointer;background:#eff6ff;margin-bottom:8px;" onclick="document.getElementById('aging-keep').checked=true;updateAgingChoice()">
+            <input type="radio" name="aging-choice" id="aging-keep" value="keep" checked style="margin-top:2px;accent-color:#3b82f6;">
+            <div style="flex:1;">
+              <div style="font-weight:600;font-size:13px;color:#1e3a8a;">🕐 에이징 시간 유지</div>
+              <div style="font-size:11px;color:#1e40af;margin-top:2px;">단순 부품 추가/교체. 남은 시간이 그대로 유지됩니다.</div>
+            </div>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:2px solid var(--border2,#d1d5db);border-radius:8px;cursor:pointer;background:transparent;" onclick="document.getElementById('aging-restart').checked=true;updateAgingChoice()">
+            <input type="radio" name="aging-choice" id="aging-restart" value="restart" style="margin-top:2px;accent-color:#f59e0b;">
+            <div style="flex:1;">
+              <div style="font-weight:600;font-size:13px;">🔄 에이징 24시간 재시작</div>
+              <div style="font-size:11px;color:var(--text2,#666);margin-top:2px;">불량 발견으로 부품 교체. 에이징이 처음부터 다시 시작됩니다.</div>
+            </div>
+          </label>
+        </div>
+
+        <div style="margin-bottom:8px;">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">메모 (선택)</label>
+          <textarea id="add-part-note" rows="2" placeholder="예: 서브보드 1차 교체, 디스플레이 케이블 추가..." style="width:100%;padding:8px 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg,#fff);color:var(--text,#000);resize:vertical;"></textarea>
         </div>
       </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeAddPartsModal()">취소</button>
-        <button class="btn btn-primary" onclick="submitAddParts('${entryId}')">추가 + 에이징 재시작</button>
+      <div style="padding:14px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--bg2,#f9fafb);">
+        <button onclick="closeAddPartsModal()" style="padding:0 18px;height:38px;border:1px solid var(--border2,#d1d5db);background:var(--bg,#fff);color:var(--text,#000);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
+        <button onclick="submitAddParts('${entryId}')" style="padding:0 18px;height:38px;border:none;background:#3b82f6;color:#fff;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">부품 추가</button>
       </div>
     </div>
   </div>`;
 
   document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function updateAgingChoice() {
+  // 라디오 변경 시 카드 색상 업데이트
+  const keep = document.getElementById('aging-keep');
+  const restart = document.getElementById('aging-restart');
+  if(!keep || !restart) return;
+  const keepLbl = keep.closest('label');
+  const restartLbl = restart.closest('label');
+  if(keep.checked) {
+    keepLbl.style.borderColor = '#3b82f6';
+    keepLbl.style.background = '#eff6ff';
+    restartLbl.style.borderColor = 'var(--border2,#d1d5db)';
+    restartLbl.style.background = 'transparent';
+  } else {
+    keepLbl.style.borderColor = 'var(--border2,#d1d5db)';
+    keepLbl.style.background = 'transparent';
+    restartLbl.style.borderColor = '#f59e0b';
+    restartLbl.style.background = '#fffbeb';
+  }
 }
 
 function closeAddPartsModal() {
@@ -7244,6 +7329,8 @@ function closeAddPartsModal() {
 async function submitAddParts(entryId) {
   const partName = document.getElementById('add-part-name')?.value;
   const qty = Number(document.getElementById('add-part-qty')?.value) || 1;
+  const choice = document.querySelector('[name="aging-choice"]:checked')?.value || 'keep';
+  const note = (document.getElementById('add-part-note')?.value || '').trim();
   if(!partName) { notify('부품을 선택하세요.', 'error'); return; }
 
   const e = entries.find(x => String(x.id) === String(entryId));
@@ -7253,10 +7340,16 @@ async function submitAddParts(entryId) {
   const newParts = {...(e.parts||{})};
   newParts[partName] = (Number(newParts[partName])||0) + qty;
 
+  // 기존 노트에 메모 추가
+  let newNote = e.note || '';
+  if(note) {
+    newNote = newNote ? `${newNote}\n[부품추가] ${note}` : `[부품추가] ${note}`;
+  }
+
   try {
     notifyPersist('처리 중...');
 
-    // 부품 정보 edit + 에이징 재시작
+    // 부품 정보 edit
     const partsStr = Object.entries(newParts)
       .map(([k,v]) => `${encodeURIComponent(k)}=${v}`)
       .join('|');
@@ -7265,7 +7358,7 @@ async function submitAddParts(entryId) {
       action:'edit', id: entryId,
       works: (e.works||[]).join(','),
       total: e.total,
-      note: e.note||'',
+      note: newNote,
       parts: partsStr
     });
 
@@ -7275,32 +7368,32 @@ async function submitAddParts(entryId) {
       logId: 'L' + Date.now() + Math.random().toString(36).slice(2,6),
       partId: '', partName: partName,
       type: 'out', qty: qty,
-      note: `에이징 중 부품 추가 (${e.serial})`,
+      note: `에이징 중 부품 추가 (${e.serial})${note?' - '+note:''}`,
       date: new Date().toISOString(),
       worker: currentUser || ''
     });
 
-    // 에이징 재시작
-    await gasCall({action:'restartAging', id: entryId});
+    // 에이징 재시작 여부 선택
+    if(choice === 'restart') {
+      await gasCall({action:'restartAging', id: entryId});
+      e.agingStart = new Date().toISOString();
+    }
 
     // 로컬 갱신
     e.parts = newParts;
-    e.status = STATUS_AGING;
-    e.agingStart = new Date().toISOString();
+    e.note = newNote;
+    e.status = STATUS_AGING; // 에이징 상태 유지
 
     closeAddPartsModal();
-    notify('부품 추가 완료. 에이징이 재시작되었습니다.');
+    notify(choice === 'restart' ? '부품 추가 완료. 에이징이 재시작되었습니다.' : '부품 추가 완료. 에이징 시간 유지.');
     renderAging();
   } catch(err) {
     notify('실패: ' + (err.message||err), 'error');
   }
 }
 
-// ── 🔍 검수대기 탭 렌더 ────────────────────────────────────────
+// ── 🔍 검수대기 탭 렌더 (서브탭 통합 진입점) ────────────────────
 function renderInspect() {
-  const el = document.getElementById('inspect-list');
-  if(!el) return;
-
   // 권한 배지 표시
   const badge = document.getElementById('inspect-permission-badge');
   if(badge) {
@@ -7321,11 +7414,65 @@ function renderInspect() {
     }
   }
 
+  // 카운트 업데이트
+  const waitCount = getInspectWaitingEntries().length;
+  const defectCount = getDefectEntries().length;
+  const wcEl = document.getElementById('inspect-wait-count');
+  const dcEl = document.getElementById('inspect-defect-count');
+  if(wcEl) wcEl.textContent = waitCount;
+  if(dcEl) dcEl.textContent = defectCount;
+
+  // 현재 활성 서브탭에 따라 렌더
+  const waitPanel = document.getElementById('inspect-subpanel-wait');
+  const isDefectActive = waitPanel && waitPanel.style.display === 'none';
+  if(isDefectActive) {
+    renderDefectList();
+  } else {
+    renderInspectWaitList();
+  }
+}
+
+// 서브탭 전환
+function switchInspectSubtab(which) {
+  const waitBtn = document.getElementById('inspect-subtab-wait');
+  const defectBtn = document.getElementById('inspect-subtab-defect');
+  const waitPanel = document.getElementById('inspect-subpanel-wait');
+  const defectPanel = document.getElementById('inspect-subpanel-defect');
+  if(!waitBtn || !defectBtn || !waitPanel || !defectPanel) return;
+
+  if(which === 'wait') {
+    waitBtn.style.borderBottomColor = 'var(--accent,#3b82f6)';
+    waitBtn.style.color = 'var(--accent,#3b82f6)';
+    waitBtn.style.fontWeight = '700';
+    defectBtn.style.borderBottomColor = 'transparent';
+    defectBtn.style.color = 'var(--text2,#666)';
+    defectBtn.style.fontWeight = '600';
+    waitPanel.style.display = 'block';
+    defectPanel.style.display = 'none';
+    renderInspectWaitList();
+  } else {
+    defectBtn.style.borderBottomColor = '#dc2626';
+    defectBtn.style.color = '#dc2626';
+    defectBtn.style.fontWeight = '700';
+    waitBtn.style.borderBottomColor = 'transparent';
+    waitBtn.style.color = 'var(--text2,#666)';
+    waitBtn.style.fontWeight = '600';
+    waitPanel.style.display = 'none';
+    defectPanel.style.display = 'block';
+    renderDefectList();
+  }
+}
+
+// 검수대기 리스트 렌더
+function renderInspectWaitList() {
+  const el = document.getElementById('inspect-list');
+  if(!el) return;
+
   const list = getInspectWaitingEntries()
     .sort((a,b) => {
       const sa = new Date(a.agingStart || a.date || 0).getTime();
       const sb = new Date(b.agingStart || b.date || 0).getTime();
-      return sa - sb; // 오래된 것부터
+      return sa - sb;
     });
 
   if(list.length === 0) {
@@ -7381,6 +7528,197 @@ function renderInspect() {
   el.innerHTML = html;
 }
 
+// 🚨 불량처리 리스트 렌더 (담당자별 그룹화)
+function renderDefectList() {
+  const el = document.getElementById('defect-list');
+  if(!el) return;
+
+  const list = getDefectEntries();
+
+  if(list.length === 0) {
+    el.innerHTML = `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
+      <div style="font-size:48px;margin-bottom:12px;">✨</div>
+      <div style="font-size:15px;">불량 처리 중인 수리건이 없습니다.</div>
+      <div style="font-size:12px;margin-top:6px;color:var(--text2,#999);">검수에서 불량으로 판정된 건이 여기에 표시됩니다.</div>
+    </div>`;
+    return;
+  }
+
+  // 담당자별 그룹화
+  const groups = {};
+  list.forEach(e => {
+    const worker = String(e.worker||'미정').split('::')[0];
+    if(!groups[worker]) groups[worker] = [];
+    groups[worker].push(e);
+  });
+
+  // 담당자별 정렬: 본인이 위, 그 외 알파벳순
+  const workerNames = Object.keys(groups).sort((a,b) => {
+    if(a === currentUser) return -1;
+    if(b === currentUser) return 1;
+    return a.localeCompare(b);
+  });
+
+  let html = '';
+  workerNames.forEach(worker => {
+    const items = groups[worker].sort((a,b) => {
+      const sa = new Date(a.agingStart||0).getTime();
+      const sb = new Date(b.agingStart||0).getTime();
+      return sa - sb; // 오래된 것 위로
+    });
+
+    const isMe = worker === currentUser;
+    const myCanRework = isMe || isFullAdmin(); // 본인 또는 T4만 재작업 완료 처리
+
+    html += `<div class="card" style="margin-bottom:12px;padding:0;overflow:hidden;">
+      <div style="padding:12px 16px;background:${isMe?'#fef3c7':'var(--bg2,#f9fafb)'};border-bottom:1px solid var(--border,#e5e7eb);display:flex;align-items:center;gap:10px;">
+        <span style="font-size:15px;font-weight:700;">${isMe?'👤 ':'🔧 '}${escapeHtml(worker)}</span>
+        ${isMe ? '<span style="background:#f59e0b;color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">담당 본인</span>' : ''}
+        <span style="font-size:12px;color:var(--text2,#666);">${items.length}건</span>
+      </div>
+      <div class="table-wrap"><table style="font-size:13px;">
+        <thead><tr>
+          <th>시리얼</th>
+          <th>기종</th>
+          <th>작업</th>
+          <th>불량 발견</th>
+          <th>경과</th>
+          <th>불량 내용</th>
+          <th style="text-align:center;">처리</th>
+        </tr></thead>
+        <tbody>`;
+
+    items.forEach(e => {
+      const works = (e.works||[]).map(w => WORKS[w]?.label || w).join(', ');
+      const defectMs = e.agingStart ? new Date(e.agingStart).getTime() : 0;
+      const elapsedMs = Math.max(0, nowMs() - defectMs);
+      const elapsedDays = Math.floor(elapsedMs / 86400000);
+      const elapsedHours = Math.floor((elapsedMs % 86400000) / 3600000);
+      const isOld = elapsedDays >= 3;
+      const defectFmt = defectMs ? new Date(defectMs).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
+
+      // 가장 최근 검수 이력 찾기
+      const lastInspection = inspections
+        .filter(ins => String(ins.repairId) === String(e.id) && ins.result === 'fail')
+        .sort((a,b) => new Date(b.inspectedAt) - new Date(a.inspectedAt))[0];
+      let defectInfo = '-';
+      if(lastInspection) {
+        const types = (lastInspection.defectTypes||[]).map(k => DEFECT_TYPES[k] || k).join(', ');
+        const reason = lastInspection.defectReason ? `<br><span style="color:var(--text2,#666);font-size:11px;">${escapeHtml(lastInspection.defectReason)}</span>` : '';
+        defectInfo = `<span style="color:#dc2626;font-size:12px;">${escapeHtml(types)}</span>${reason}`;
+      }
+
+      html += `<tr style="${isOld?'background:#fef2f2;':''}">
+        <td style="font-weight:600;">${escapeHtml(e.serial)}${isOld?' 🚨':''}</td>
+        <td>${escapeHtml(e.model||'')}</td>
+        <td style="font-size:12px;color:var(--text2);">${escapeHtml(works)}</td>
+        <td style="font-size:12px;">${defectFmt}</td>
+        <td style="font-size:12px;color:${isOld?'#dc2626':'var(--text2)'};font-weight:${isOld?'700':'400'};">
+          ${elapsedDays > 0 ? `${elapsedDays}일 ${elapsedHours}시간` : `${elapsedHours}시간`}
+        </td>
+        <td>${defectInfo}</td>
+        <td style="text-align:center;white-space:nowrap;">
+          <button class="btn btn-secondary" onclick="openAddPartsModal('${e.id}')" style="height:28px;padding:0 10px;font-size:11px;">🔧 부품 추가</button>
+          ${myCanRework
+            ? `<button class="btn btn-primary" onclick="openReworkModal('${e.id}')" style="height:28px;padding:0 10px;font-size:11px;background:#10b981;margin-left:4px;">✅ 재작업 완료</button>`
+            : `<span style="font-size:11px;color:var(--text2);">담당자만 처리</span>`}
+        </td>
+      </tr>`;
+    });
+
+    html += `</tbody></table></div></div>`;
+  });
+
+  el.innerHTML = html;
+}
+
+// 재작업 완료 모달
+function openReworkModal(entryId) {
+  const e = entries.find(x => String(x.id) === String(entryId));
+  if(!e) return;
+
+  const originalWorker = String(e.worker||'').split('::')[0];
+  const isMe = originalWorker === currentUser;
+  if(!isMe && !isFullAdmin()) {
+    notify(`담당 엔지니어(${originalWorker})만 재작업 완료 처리할 수 있습니다.`, 'error');
+    return;
+  }
+
+  const modalHtml = `
+  <div id="rework-modal" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:var(--bg,#fff);color:var(--text,#000);max-width:500px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border,#e5e7eb);display:flex;justify-content:space-between;align-items:center;background:var(--bg2,#f9fafb);">
+        <span style="font-size:16px;font-weight:700;">✅ 재작업 완료</span>
+        <button onclick="closeReworkModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text2,#666);">×</button>
+      </div>
+      <div style="padding:20px;">
+        <div style="margin-bottom:14px;padding:12px;background:var(--bg2,#f9fafb);border-radius:8px;font-size:13px;line-height:1.6;">
+          <strong>${escapeHtml(e.serial)}</strong> (${escapeHtml(e.model||'')})<br>
+          <span style="color:var(--text2,#666);">담당: ${escapeHtml(originalWorker)}</span>
+        </div>
+
+        <div style="margin-bottom:12px;padding:12px;background:#d1fae5;border-radius:8px;font-size:12px;color:#065f46;line-height:1.6;">
+          ✅ 재작업 완료 시 <strong>에이징 없이 바로 검수대기</strong>로 복귀됩니다.<br>
+          재검수를 받게 됩니다.
+        </div>
+
+        <div style="margin-bottom:8px;">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">재작업 내용 (선택)</label>
+          <textarea id="rework-note" rows="3" placeholder="예: 서브보드 추가 교체, 펌웨어 재설치, 외관 케이스 교체..." style="width:100%;padding:8px 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg,#fff);color:var(--text,#000);resize:vertical;"></textarea>
+        </div>
+      </div>
+      <div style="padding:14px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--bg2,#f9fafb);">
+        <button onclick="closeReworkModal()" style="padding:0 18px;height:38px;border:1px solid var(--border2,#d1d5db);background:var(--bg,#fff);color:var(--text,#000);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
+        <button id="rework-submit-btn" onclick="submitRework('${entryId}')" style="padding:0 18px;height:38px;border:none;background:#10b981;color:#fff;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">검수대기로 복귀</button>
+      </div>
+    </div>
+  </div>`;
+
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function closeReworkModal() {
+  const m = document.getElementById('rework-modal');
+  if(m) m.remove();
+}
+
+async function submitRework(entryId) {
+  const e = entries.find(x => String(x.id) === String(entryId));
+  if(!e) return;
+
+  const note = (document.getElementById('rework-note')?.value || '').trim();
+  const originalWorker = String(e.worker||'').split('::')[0];
+
+  if(!confirm(`${e.serial} 재작업 완료 처리하시겠습니까?\n검수대기로 바로 복귀됩니다.`)) return;
+
+  try {
+    const btn = document.getElementById('rework-submit-btn');
+    if(btn) { btn.disabled = true; btn.textContent = '처리 중...'; }
+
+    await gasCall({
+      action: 'completeRework',
+      id: entryId,
+      serial: e.serial || '',
+      model: e.model || '',
+      worker: originalWorker,
+      reworker: currentUser || '',
+      reworkNote: note
+    });
+
+    // 로컬 갱신
+    e.status = STATUS_AGING_PASS;
+    e.agingStart = new Date().toISOString();
+
+    closeReworkModal();
+    notify('✅ 재작업 완료. 검수대기로 복귀되었습니다.');
+    renderInspect();
+  } catch(err) {
+    notify('처리 실패: ' + (err.message||err), 'error');
+    const btn = document.getElementById('rework-submit-btn');
+    if(btn) { btn.disabled = false; btn.textContent = '검수대기로 복귀'; }
+  }
+}
+
 // ── 검수 모달 ────────────────────────────────────────
 function openInspectModal(entryId, initResult) {
   const e = entries.find(x => String(x.id) === String(entryId));
@@ -7393,53 +7731,55 @@ function openInspectModal(entryId, initResult) {
   const isFail = initResult === 'fail';
 
   const defectCheckboxes = Object.entries(DEFECT_TYPES).map(([k,v]) =>
-    `<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--border2);border-radius:8px;cursor:pointer;font-size:13px;transition:all .15s;" onmouseover="this.style.borderColor='#3b82f6';this.style.background='#eff6ff'" onmouseout="this.style.borderColor='var(--border2)';this.style.background=''">
-      <input type="checkbox" class="defect-cb" value="${k}" style="accent-color:#dc2626;width:16px;height:16px;">
-      <span>${v}</span>
+    `<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--border2,#d1d5db);border-radius:8px;cursor:pointer;font-size:13px;transition:all .15s;background:var(--bg,#fff);" onmouseover="this.style.borderColor='#dc2626'" onmouseout="this.style.borderColor='var(--border2,#d1d5db)'">
+      <input type="checkbox" class="defect-cb" value="${k}" style="accent-color:#dc2626;width:16px;height:16px;cursor:pointer;">
+      <span style="color:var(--text,#000);">${v}</span>
     </label>`
   ).join('');
 
-  const modalHtml = `<div id="inspect-modal" class="modal-backdrop" style="display:flex;">
-    <div class="modal" style="max-width:560px;">
-      <div class="modal-header">
-        <span>🔍 검수 처리: ${escapeHtml(e.serial)}</span>
-        <button class="modal-close" onclick="closeInspectModal()">×</button>
+  const modalHtml = `
+  <div id="inspect-modal" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:var(--bg,#fff);color:var(--text,#000);max-width:600px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;max-height:90vh;display:flex;flex-direction:column;">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border,#e5e7eb);display:flex;justify-content:space-between;align-items:center;background:var(--bg2,#f9fafb);">
+        <span style="font-size:16px;font-weight:700;">🔍 검수 처리: ${escapeHtml(e.serial)}</span>
+        <button onclick="closeInspectModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text2,#666);width:32px;height:32px;border-radius:6px;">×</button>
       </div>
-      <div class="modal-body" style="padding:20px;">
-        <div style="margin-bottom:14px;padding:10px;background:var(--bg2);border-radius:8px;font-size:13px;line-height:1.6;">
+      <div style="padding:20px;overflow-y:auto;">
+        <div style="margin-bottom:14px;padding:12px;background:var(--bg2,#f9fafb);border-radius:8px;font-size:13px;line-height:1.6;">
           <strong>${escapeHtml(e.serial)}</strong> (${escapeHtml(e.model||'')})<br>
-          <span style="color:var(--text2);">등록자: ${escapeHtml(String(e.worker||'').split('::')[0])}</span>
+          <span style="color:var(--text2,#666);">등록자: ${escapeHtml(String(e.worker||'').split('::')[0])}</span>
         </div>
 
-        <div style="margin-bottom:14px;">
-          <label class="form-label">검수 결과 선택</label>
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;">검수 결과 선택</label>
           <div style="display:flex;gap:8px;">
-            <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:2px solid ${isFail?'var(--border2)':'#10b981'};border-radius:10px;cursor:pointer;background:${isFail?'transparent':'#d1fae5'};transition:all .15s;" onclick="toggleInspectResult('pass')">
-              <input type="radio" name="inspect-result" value="pass" ${!isFail?'checked':''} style="accent-color:#10b981;">
+            <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:2px solid ${isFail?'var(--border2,#d1d5db)':'#10b981'};border-radius:10px;cursor:pointer;background:${isFail?'transparent':'#d1fae5'};transition:all .15s;" onclick="toggleInspectResult('pass')">
+              <input type="radio" name="inspect-result" value="pass" ${!isFail?'checked':''} style="accent-color:#10b981;cursor:pointer;">
               <span style="font-weight:600;color:#065f46;">✅ 검수완료</span>
             </label>
-            <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:2px solid ${isFail?'#dc2626':'var(--border2)'};border-radius:10px;cursor:pointer;background:${isFail?'#fee2e2':'transparent'};transition:all .15s;" onclick="toggleInspectResult('fail')">
-              <input type="radio" name="inspect-result" value="fail" ${isFail?'checked':''} style="accent-color:#dc2626;">
+            <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:2px solid ${isFail?'#dc2626':'var(--border2,#d1d5db)'};border-radius:10px;cursor:pointer;background:${isFail?'#fee2e2':'transparent'};transition:all .15s;" onclick="toggleInspectResult('fail')">
+              <input type="radio" name="inspect-result" value="fail" ${isFail?'checked':''} style="accent-color:#dc2626;cursor:pointer;">
               <span style="font-weight:600;color:#991b1b;">❌ 불량</span>
             </label>
           </div>
         </div>
 
         <div id="defect-section" style="display:${isFail?'block':'none'};">
-          <label class="form-label">불량 유형 (다중 선택 가능)</label>
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;">불량 유형 (다중 선택 가능)</label>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
             ${defectCheckboxes}
           </div>
-          <label class="form-label">상세 사유</label>
-          <textarea id="defect-reason" rows="3" placeholder="구체적인 불량 내용을 입력하세요..." style="width:100%;font-family:inherit;font-size:13px;"></textarea>
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">상세 사유</label>
+          <textarea id="defect-reason" rows="3" placeholder="구체적인 불량 내용을 입력하세요..." style="width:100%;padding:8px 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg,#fff);color:var(--text,#000);resize:vertical;"></textarea>
           <div style="margin-top:10px;padding:10px;background:#fef3c7;border-radius:8px;font-size:12px;color:#92400e;">
-            ⚠️ 불량 처리 시 에이징부터 재시작됩니다.
+            ⚠️ 불량 처리 시 <strong>"🚨 불량처리" 탭</strong>으로 이동됩니다.<br>
+            담당 엔지니어(${escapeHtml(String(e.worker||'').split('::')[0])})가 재작업 후 검수대기로 복귀시킵니다.
           </div>
         </div>
       </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeInspectModal()">취소</button>
-        <button class="btn btn-primary" id="inspect-submit-btn" onclick="submitInspect('${entryId}')">검수 처리</button>
+      <div style="padding:14px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--bg2,#f9fafb);">
+        <button onclick="closeInspectModal()" style="padding:0 18px;height:38px;border:1px solid var(--border2,#d1d5db);background:var(--bg,#fff);color:var(--text,#000);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
+        <button id="inspect-submit-btn" onclick="submitInspect('${entryId}')" style="padding:0 18px;height:38px;border:none;background:#3b82f6;color:#fff;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">검수 처리</button>
       </div>
     </div>
   </div>`;
@@ -7487,9 +7827,10 @@ async function submitInspect(entryId) {
     }
   }
 
+  const originalWorker = String(e.worker||'').split('::')[0];
   const confirmMsg = result === 'pass'
     ? `${e.serial} 검수완료 처리하시겠습니까?\n(출고관리로 이동됩니다)`
-    : `${e.serial} 불량 처리하시겠습니까?\n(에이징부터 재시작됩니다)`;
+    : `${e.serial} 불량 처리하시겠습니까?\n\n📋 담당 엔지니어 "${originalWorker}"에게 재작업이 배정됩니다.\n불량처리 탭에서 확인하세요.`;
   if(!confirm(confirmMsg)) return;
 
   try {
@@ -7501,7 +7842,7 @@ async function submitInspect(entryId) {
       repairId: entryId,
       serial: e.serial || '',
       model: e.model || '',
-      registrant: String(e.worker||'').split('::')[0],
+      registrant: originalWorker,
       inspector: currentUser || '',
       result: result,
       defectTypes: JSON.stringify(defectTypes),
@@ -7512,22 +7853,25 @@ async function submitInspect(entryId) {
     if(result === 'pass') {
       e.status = STATUS_INSPECTED;
     } else {
-      e.status = STATUS_AGING;
-      e.agingStart = new Date().toISOString();
+      // ⭐ 불량 → defect 상태로 (에이징 X)
+      e.status = STATUS_DEFECT;
+      e.agingStart = new Date().toISOString(); // 불량 발견 시각 = 재작업 대기 시작
     }
     inspections.push({
       qualityId: 'Q'+Date.now(),
       repairId: entryId,
       serial: e.serial,
       model: e.model,
-      registrant: String(e.worker||'').split('::')[0],
+      registrant: originalWorker,
       inspector: currentUser,
       inspectedAt: new Date().toISOString(),
       result, defectTypes, defectReason
     });
 
     closeInspectModal();
-    notify(result === 'pass' ? '✅ 검수완료 처리되었습니다.' : '❌ 불량 처리되었습니다. 에이징 재시작.');
+    notify(result === 'pass'
+      ? '✅ 검수완료 처리되었습니다.'
+      : `❌ 불량 처리되었습니다. ${originalWorker}님에게 재작업 배정.`);
     renderInspect();
   } catch(err) {
     notify('처리 실패: ' + (err.message||err), 'error');
