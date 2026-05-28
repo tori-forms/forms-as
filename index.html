@@ -6599,6 +6599,8 @@ function renderAll() {
   if(tab?.includes('에이징')) { try { renderAging && renderAging(); } catch {} }
   if(tab?.includes('검수대기') || tab?.includes('검수 관리')) { try { renderInspect && renderInspect(); } catch {} }
 }
+// ⭐ v2.11: 자동 동기화 30초 주기 유지
+// (GAS 과부하 원인이던 '탭 클릭마다 동기화'는 제거됨)
 setInterval(()=>syncData(true), 30000);
 
 /* 날짜 바 */
@@ -11132,35 +11134,6 @@ function switchTab(name, btn) {
   if(name==='admin') { switchAdminTab('workers'); }
   if(name==='aging') { renderAging(); startAgingTimer(); } else { stopAgingTimer(); }
   if(name==='inspect') { renderInspect(); }
-
-  // ⭐ v2.9: 데이터 변동이 잦은 탭은 백그라운드에서 silent 동기화 후 재렌더
-  // (즉시 로컬 데이터로 렌더 후, 백그라운드에서 서버 최신 데이터 가져오면 다시 렌더)
-  const AUTO_REFRESH_TABS = ['mydash','summary','history','aging','inspect','shipping','exchange'];
-  if(AUTO_REFRESH_TABS.indexOf(name) !== -1) {
-    _autoRefreshOnTabSwitch(name);
-  }
-}
-
-// ⭐ v2.9: 탭 진입 시 백그라운드 동기화 + 재렌더
-// 너무 자주 호출되지 않도록 디바운스 (직전 호출 후 1초 이내 재호출 차단)
-let _lastTabSyncAt = 0;
-async function _autoRefreshOnTabSwitch(name) {
-  const now = Date.now();
-  if(now - _lastTabSyncAt < 1000) return; // 1초 내 중복 방지
-  _lastTabSyncAt = now;
-  try {
-    await syncData(true); // silent 모드 (알림 없음)
-    // 동기화 후 해당 탭 다시 렌더
-    if(name==='summary') renderSummary();
-    if(name==='mydash') renderMyDash && renderMyDash();
-    if(name==='history') renderHistory();
-    if(name==='aging') renderAging && renderAging();
-    if(name==='inspect') renderInspect && renderInspect();
-    if(name==='shipping') { window._shipOk=null; window._shipHold=null; renderShipping(); renderShipHistory(); }
-    if(name==='exchange') renderExchangeList && renderExchangeList();
-  } catch {
-    // silent fail
-  }
 }
 
 /* 체크박스 */
