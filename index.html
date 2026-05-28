@@ -6402,7 +6402,7 @@ function gasCall(params) {
     const qs = Object.entries({...params, callback:cb})
       .map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
     const s = document.createElement('script');
-    const timer = setTimeout(()=>{ cleanup(); reject(new Error('timeout')); }, 20000);
+    const timer = setTimeout(()=>{ cleanup(); reject(new Error('timeout')); }, 30000);
     window[cb] = data => { cleanup(); resolve(data); };
     s.onerror = ()=>{ cleanup(); reject(new Error('error')); };
     s.src = GAS + '?' + qs;
@@ -6430,7 +6430,15 @@ function setSyncStatus(state) {
 }
 
 /* 전체 로드 */
+let _syncInProgress = false;
 async function syncData(silent=false) {
+  // ⭐ v2.12: 중복 실행 방지 — 이전 syncData가 진행 중이면 스킵
+  // (30초 타이머 + 수동 + 데이터변경 후 호출이 겹쳐서 GAS 동시 요청 폭주하는 것 방지)
+  if(_syncInProgress) {
+    if(!silent) notify('이미 동기화 중입니다. 잠시만 기다려주세요.');
+    return;
+  }
+  _syncInProgress = true;
   setSyncStatus('loading');
   if(!silent) notifyPersist('데이터 불러오는 중...');
   try {
@@ -6563,6 +6571,9 @@ async function syncData(silent=false) {
     console.error('[syncData] error stack:', err?.stack);
     setSyncStatus('error');
     if(!silent) notify('서버 연결 실패. 인터넷을 확인하세요.','error');
+  } finally {
+    // ⭐ v2.12: 동기화 완료 후 플래그 해제 (성공/실패 무관)
+    _syncInProgress = false;
   }
 }
 function renderAll() {
