@@ -10161,9 +10161,10 @@ async function cancelSelectedShip(groupId) {
       window._shipHold = null;
       await syncData(true);
       notify(`${items.length}건 출고 취소되었습니다.`);
-      // ⭐ v2.6: 출고관리 안의 출고 목록 / 관리자의 출고 현황 모두 갱신
-      if(typeof renderShippingList === 'function') renderShippingList();
+      // ⭐ v2.9: 출고 현황 갱신 (출고 목록 = 출고 현황 DOM이므로 renderShipview만 호출)
       if(typeof renderShipview === 'function') renderShipview();
+      // 출고 처리 화면도 갱신 (출고 취소된 건이 다시 출고 가능 목록에 표시될 수 있음)
+      if(typeof renderShipping === 'function') renderShipping();
     },
     '출고 취소',
     'btn-danger'
@@ -11711,9 +11712,8 @@ function openEditModal(id) {
     .filter(k => WORKS[k])
     .map(k => [k, WORKS[k]]);
   document.getElementById('edit-work-checks').innerHTML = orderedEditEntries.map(([k,v])=>{
-    const rowClass = WORK_ROW_CLASS[k] || '';
     return `
-    <label class="work-check ${rowClass} ${ws.includes(k)?'checked':''}" id="ewc-${k}">
+    <label class="work-check ${ws.includes(k)?'checked':''}" id="ewc-${k}">
       <input type="checkbox" value="${k}" ${ws.includes(k)?'checked':''} onchange="document.getElementById('ewc-${k}').classList.toggle('checked',this.checked);updateEditPP()">
       <div><div class="work-check-name">${v.label}</div><div class="work-check-price">${fmt(v.price)}원</div></div>
     </label>`;
