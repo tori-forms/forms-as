@@ -153,7 +153,7 @@ tr:hover td{background:var(--surface2);}
 .worker-block-revenue{font-size:14px;font-weight:600;color:var(--accent);font-family:'JetBrains Mono',monospace;}
 
 .search-result-item{border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin-top:12px;background:var(--surface);}
-.search-serial{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:600;}
+.search-serial{font-size:16px;font-weight:700;color:var(--text);letter-spacing:-0.2px;}
 .search-worker{font-size:13px;color:var(--accent);font-weight:600;}
 
 .worker-mgmt-item{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;background:var(--surface);}
@@ -2380,6 +2380,9 @@ async function syncData(silent=false) {
       let model = e.model || detectModel(String(e.serial));
       if(model === 'S2') model = 'S2_N';
       if(model === 'S2PRO') model = 'S2PRO_N';
+      // ⭐ v2.23: 시트에 잘못 변환된 모델명 자동 복구 (S2PRON → S2PRO_N, S2N → S2_N)
+      if(model === 'S2PRON') model = 'S2PRO_N';
+      if(model === 'S2N') model = 'S2_N';
       return {...e, model, parts};
     });
     // workers: 'name::T2::part::status::dailyTarget::role' 형식 지원
@@ -3292,7 +3295,7 @@ function renderShippingList() {
     const modelCount = {};
     gList.forEach(item => {
       const e = findEntryBySerial(item.h.serial);
-      const model = item.h.model || e?.model || '-';
+      const model = normalizeModel(item.h.model || e?.model || '-');
       modelCount[model] = (modelCount[model]||0) + 1;
     });
 
@@ -3301,7 +3304,7 @@ function renderShippingList() {
       const mWorkCount = {};
       gList.forEach(item => {
         const e = findEntryBySerial(item.h.serial);
-        const model = item.h.model || e?.model || '-';
+        const model = normalizeModel(item.h.model || e?.model || '-');
         if(model !== m) return;
         if(e) parseWorks(e.works).forEach(k => { mWorkCount[k] = (mWorkCount[k]||0)+1; });
       });
@@ -3356,7 +3359,7 @@ function renderShippingList() {
         const e = findEntryBySerial(h.serial);
         const shipFmt = h.shipDate ? new Date(h.shipDate).toLocaleString('ko-KR', {hour:'2-digit',minute:'2-digit'}) : '-';
         const workerName = String(h.worker || e?.worker || '').split('::')[0];
-        const model = h.model || e?.model || '-';
+        const model = normalizeModel(h.model || e?.model || '-');
         const works = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k).join(' · ') : String(h.works||'').replace(/\|/g, ' · ');
         html += `<tr>
           <td style="text-align:center;"><input type="checkbox" class="sv-check" data-group="${groupId}" data-idx="${idx}" style="accent-color:var(--accent);cursor:pointer;"></td>
@@ -3947,68 +3950,51 @@ function switchDefectView(mode) {
   renderDefectList();
 }
 
-// ⭐ v2.22: 전체 품질 이력 렌더 (불량 + 재작업 완료) — 시리얼당 1회 카운트, 엔지니어별 그룹
+// ⭐ v2.23: 전체 품질 이력 렌더 (불량 발생 시리얼만, 시리얼당 1건, 첫 불량 메모만)
 function renderQualityHistory() {
   const el = document.getElementById('defect-list');
   if(!el) return;
 
-  // inspections 중 fail 또는 rework_done만
-  const list = (inspections||[]).filter(insp => {
-    return insp.result === 'fail' || insp.result === 'rework_done';
-  });
+  // 불량(fail) 이력만 추출 (재작업 이력은 표시 안 함)
+  const failList = (inspections||[]).filter(insp => insp.result === 'fail');
 
-  if(list.length === 0) {
+  if(failList.length === 0) {
     el.innerHTML = `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
       <div style="font-size:48px;margin-bottom:12px;">📋</div>
-      <div style="font-size:15px;">품질 이력이 없습니다.</div>
-      <div style="font-size:12px;margin-top:6px;color:var(--text2,#999);">불량으로 판정되거나 재작업 완료된 건이 여기에 표시됩니다.</div>
+      <div style="font-size:15px;">불량 이력이 없습니다.</div>
+      <div style="font-size:12px;margin-top:6px;color:var(--text2,#999);">불량으로 판정된 건이 여기에 표시됩니다.</div>
     </div>`;
     return;
   }
 
-  // 시리얼별 묶기 (이력 흐름 추적용)
-  const bySerial = {};
-  list.forEach(insp => {
+  // 시리얼별로 첫 불량 이력만 추출 (시간순 가장 빠른 것)
+  const firstFailBySerial = {};
+  failList.forEach(insp => {
     const sn = String(insp.serial || '');
-    if(!bySerial[sn]) bySerial[sn] = [];
-    bySerial[sn].push(insp);
+    if(!firstFailBySerial[sn]) {
+      firstFailBySerial[sn] = insp;
+    } else {
+      const existingTime = new Date(firstFailBySerial[sn].inspectedAt || 0).getTime();
+      const currentTime = new Date(insp.inspectedAt || 0).getTime();
+      if(currentTime < existingTime) {
+        firstFailBySerial[sn] = insp;
+      }
+    }
   });
 
-  // ⭐ v2.22: 시리얼당 통계 산정 (재발생해도 1회만 카운트)
-  const serials = Object.keys(bySerial);
-  let resolvedCount = 0; // 재작업 완료된 시리얼 수
-  let inProgressCount = 0; // 진행 중 시리얼 수 (마지막 상태가 fail)
-  const serialSummary = {}; // 시리얼별 요약 (담당 엔지니어, 최근 상태, 모델)
+  const uniqueSerials = Object.keys(firstFailBySerial);
+  const totalDefectSerials = uniqueSerials.length;
 
-  serials.forEach(sn => {
-    const items = bySerial[sn].sort((a,b) => new Date(a.inspectedAt||0) - new Date(b.inspectedAt||0));
-    const latest = items[items.length - 1];
-    const registrant = String(latest.registrant || '').split('::')[0] || '미정';
-    const model = latest.model || '-';
-    
-    if(latest.result === 'fail') inProgressCount++;
-    else if(latest.result === 'rework_done') resolvedCount++;
-
-    serialSummary[sn] = {
-      registrant: registrant,
-      model: model,
-      latest: latest,
-      items: items,
-      isResolved: latest.result === 'rework_done'
-    };
-  });
-
-  const totalDefectSerials = serials.length; // 불량 발생한 고유 시리얼 수
-
-  // ⭐ 엔지니어별 그룹화
+  // 엔지니어별 그룹화 (등록자 = 원래 작업한 엔지니어)
   const byEngineer = {};
-  serials.forEach(sn => {
-    const eng = serialSummary[sn].registrant;
+  uniqueSerials.forEach(sn => {
+    const insp = firstFailBySerial[sn];
+    const eng = String(insp.registrant || '').split('::')[0] || '미정';
     if(!byEngineer[eng]) byEngineer[eng] = [];
     byEngineer[eng].push(sn);
   });
 
-  // 엔지니어 정렬: 본인 우선, 그 외 불량 많은 순 → 가나다순
+  // 엔지니어 정렬: 본인 우선, 불량 많은 순, 가나다순
   const engineerNames = Object.keys(byEngineer).sort((a,b) => {
     if(a === currentUser) return -1;
     if(b === currentUser) return 1;
@@ -4018,22 +4004,12 @@ function renderQualityHistory() {
     return a.localeCompare(b, 'ko');
   });
 
-  // 상단 통계 카드 (시리얼 기준)
+  // 상단 통계
   let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">
     <div class="card" style="padding:12px 14px;border-left:3px solid #ef4444;">
       <div style="font-size:11px;color:var(--text2);">총 불량 시리얼</div>
       <div style="font-size:22px;font-weight:700;color:#ef4444;">${totalDefectSerials}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
       <div style="font-size:10px;color:var(--text3);margin-top:2px;">시리얼당 1회 카운트</div>
-    </div>
-    <div class="card" style="padding:12px 14px;border-left:3px solid #10b981;">
-      <div style="font-size:11px;color:var(--text2);">재작업 완료</div>
-      <div style="font-size:22px;font-weight:700;color:#10b981;">${resolvedCount}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:2px;">최근 상태 = 재작업 완료</div>
-    </div>
-    <div class="card" style="padding:12px 14px;border-left:3px solid #f59e0b;">
-      <div style="font-size:11px;color:var(--text2);">진행 중</div>
-      <div style="font-size:22px;font-weight:700;color:#f59e0b;">${inProgressCount}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:2px;">아직 재작업 안 한 건</div>
     </div>
     <div class="card" style="padding:12px 14px;border-left:3px solid #6366f1;">
       <div style="font-size:11px;color:var(--text2);">엔지니어 수</div>
@@ -4043,12 +4019,12 @@ function renderQualityHistory() {
   </div>`;
 
   // 엔지니어별 카드
+  const isManagerForEdit = isFullAdmin() || isAdmin; // T3/T4는 수정/삭제 가능
+
   engineerNames.forEach(eng => {
     const sns = byEngineer[eng];
     const isMe = eng === currentUser;
     const tier = tierMap[eng] || '';
-    const engResolved = sns.filter(sn => serialSummary[sn].isResolved).length;
-    const engInProgress = sns.length - engResolved;
 
     html += `<div class="card" style="margin-bottom:12px;padding:0;overflow:hidden;${isMe?'border:2px solid #6366f1;':''}">
       <div style="padding:12px 16px;background:${isMe?'rgba(99,102,241,.12)':'var(--surface2)'};border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -4056,64 +4032,50 @@ function renderQualityHistory() {
         ${tier ? `<span style="background:var(--accent-bg,#dbeafe);color:var(--accent,#3b82f6);padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">${tier}</span>` : ''}
         ${isMe ? '<span style="background:#6366f1;color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">본인</span>' : ''}
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
-          <span style="background:#ef4444;color:#fff;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">총 ${sns.length}건</span>
-          ${engInProgress > 0 ? `<span style="background:#f59e0b;color:#fff;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">🚨 ${engInProgress}</span>` : ''}
-          ${engResolved > 0 ? `<span style="background:#10b981;color:#fff;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">✅ ${engResolved}</span>` : ''}
+          <span style="background:#ef4444;color:#fff;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">불량 ${sns.length}건</span>
         </span>
       </div>
       <div class="table-wrap"><table style="font-size:13px;">
         <thead><tr>
           <th>시리얼</th>
           <th>기종</th>
-          <th>최근 상태</th>
-          <th>이력</th>
+          <th>불량 발생일</th>
+          <th>검수자</th>
+          <th>불량 유형</th>
+          <th>불량 사유 (메모)</th>
+          ${isManagerForEdit ? '<th style="text-align:center;">처리</th>' : ''}
         </tr></thead>
         <tbody>`;
 
-    // 시리얼 정렬: 진행 중(fail) 먼저, 그 다음 최신순
+    // 시리얼 정렬: 최신순
     const sortedSns = sns.sort((a,b) => {
-      const aResolved = serialSummary[a].isResolved;
-      const bResolved = serialSummary[b].isResolved;
-      if(aResolved !== bResolved) return aResolved ? 1 : -1;
-      const aLatest = new Date(serialSummary[a].latest.inspectedAt||0).getTime();
-      const bLatest = new Date(serialSummary[b].latest.inspectedAt||0).getTime();
-      return bLatest - aLatest;
+      const aTime = new Date(firstFailBySerial[a].inspectedAt || 0).getTime();
+      const bTime = new Date(firstFailBySerial[b].inspectedAt || 0).getTime();
+      return bTime - aTime;
     });
 
     sortedSns.forEach(sn => {
-      const summary = serialSummary[sn];
-      const items = summary.items;
-      const latestBadge = summary.isResolved
-        ? '<span style="background:#10b981;color:#fff;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;">✅ 해결</span>'
-        : '<span style="background:#ef4444;color:#fff;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;">🚨 진행 중</span>';
-
-      const historyHtml = items.map(insp => {
-        const dt = insp.inspectedAt ? new Date(insp.inspectedAt).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
-        const inspector = String(insp.inspector || '').split('::')[0] || '?';
-        if(insp.result === 'fail') {
-          const types = (() => {
-            try { return JSON.parse(insp.defectTypes || '[]'); } catch { return []; }
-          })();
-          const typeLabel = types.length ? types.join(', ') : '미분류';
-          return `<div style="margin-bottom:4px;font-size:11px;">
-            <span style="background:rgba(239,68,68,.2);color:#ef4444;padding:1px 6px;border-radius:4px;font-weight:600;">불량</span>
-            <span style="color:var(--text2);">${dt}</span> · 검수:${inspector} · ${typeLabel}
-            ${insp.defectReason ? `<div style="color:var(--text3);margin-left:48px;font-size:10px;">📝 ${escapeHtml(insp.defectReason)}</div>` : ''}
-          </div>`;
-        } else {
-          return `<div style="margin-bottom:4px;font-size:11px;">
-            <span style="background:rgba(16,185,129,.2);color:#10b981;padding:1px 6px;border-radius:4px;font-weight:600;">재작업 완료</span>
-            <span style="color:var(--text2);">${dt}</span> · 재작업:${inspector}
-            ${insp.defectReason ? `<div style="color:var(--text3);margin-left:80px;font-size:10px;">📝 ${escapeHtml(insp.defectReason)}</div>` : ''}
-          </div>`;
-        }
-      }).join('');
+      const insp = firstFailBySerial[sn];
+      const dt = insp.inspectedAt ? new Date(insp.inspectedAt).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
+      const inspector = String(insp.inspector || '').split('::')[0] || '?';
+      const model = normalizeModel(insp.model || '-');
+      const types = (() => {
+        try { return JSON.parse(insp.defectTypes || '[]'); } catch { return []; }
+      })();
+      const typeLabel = types.length ? types.join(', ') : '미분류';
+      const reason = insp.defectReason || '';
 
       html += `<tr>
         <td style="font-weight:600;">${escapeHtml(sn)}</td>
-        <td>${escapeHtml(summary.model)}</td>
-        <td>${latestBadge}</td>
-        <td>${historyHtml}</td>
+        <td><span style="font-size:11px;font-weight:700;background:${model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${escapeHtml(model)}</span></td>
+        <td style="color:var(--text2);font-size:12px;">${dt}</td>
+        <td>${escapeHtml(inspector)}</td>
+        <td><span style="background:rgba(239,68,68,.15);color:#ef4444;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">${escapeHtml(typeLabel)}</span></td>
+        <td style="font-size:12px;color:var(--text);max-width:300px;">${reason ? escapeHtml(reason) : '<span style="color:var(--text3);">-</span>'}</td>
+        ${isManagerForEdit ? `<td style="text-align:center;white-space:nowrap;">
+          <button class="btn btn-sm" onclick="editQualityNote('${insp.qualityId}')" style="height:26px;padding:0 8px;font-size:11px;">수정</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteQualityNote('${insp.qualityId}', '${escapeJs(sn)}')" style="height:26px;padding:0 8px;font-size:11px;margin-left:4px;">삭제</button>
+        </td>` : ''}
       </tr>`;
     });
 
@@ -4121,6 +4083,115 @@ function renderQualityHistory() {
   });
 
   el.innerHTML = html;
+}
+
+// ⭐ v2.23: 품질 이력 메모 수정
+async function editQualityNote(qualityId) {
+  const insp = (inspections||[]).find(i => String(i.qualityId) === String(qualityId));
+  if(!insp) { notify('이력을 찾을 수 없습니다.', 'error'); return; }
+
+  const types = (() => {
+    try { return JSON.parse(insp.defectTypes || '[]'); } catch { return []; }
+  })();
+  const DEFECT_TYPES = ['외관', '기능', '강화유리', '보호필름', '부품누락', '디스플레이'];
+
+  // 모달 생성
+  const modalHtml = `
+  <div id="quality-edit-modal" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:var(--surface,#fff);color:var(--text,#111);max-width:500px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;border:1px solid var(--border,#e5e7eb);">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border,#e5e7eb);display:flex;justify-content:space-between;align-items:center;background:var(--surface2,#f9fafb);">
+        <span style="font-size:16px;font-weight:700;color:var(--text,#111);">✏️ 불량 이력 수정</span>
+        <button onclick="closeQualityEditModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text2,#666);">×</button>
+      </div>
+      <div style="padding:20px;">
+        <div style="margin-bottom:14px;padding:12px;background:var(--surface2,#f9fafb);border-radius:8px;font-size:13px;line-height:1.6;color:var(--text,#111);">
+          <strong>${escapeHtml(insp.serial)}</strong> (${escapeHtml(normalizeModel(insp.model))})
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text,#111);">불량 유형 (다중 선택 가능)</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            ${DEFECT_TYPES.map(t => `
+              <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:var(--surface,#fff);">
+                <input type="checkbox" class="qedit-defect-type" value="${t}" ${types.includes(t) ? 'checked' : ''} style="accent-color:#ef4444;">
+                <span style="font-size:12px;color:var(--text);">${t} 불량</span>
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+        <div style="margin-bottom:8px;">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--text,#111);">불량 사유 (메모)</label>
+          <textarea id="qedit-reason" rows="4" placeholder="구체적인 불량 내용..." style="width:100%;padding:8px 10px;border:1px solid var(--border,#d1d5db);border-radius:6px;font-size:13px;font-family:inherit;background:var(--surface,#fff);color:var(--text,#111);resize:vertical;">${escapeHtml(insp.defectReason || '')}</textarea>
+        </div>
+      </div>
+      <div style="padding:14px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--surface2,#f9fafb);">
+        <button onclick="closeQualityEditModal()" style="padding:0 18px;height:38px;border:1px solid var(--border,#d1d5db);background:var(--surface,#fff);color:var(--text,#111);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
+        <button id="qedit-submit-btn" onclick="submitQualityEdit('${qualityId}')" style="padding:0 18px;height:38px;border:none;background:#3b82f6;color:#fff;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">저장</button>
+      </div>
+    </div>
+  </div>`;
+
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function closeQualityEditModal() {
+  const m = document.getElementById('quality-edit-modal');
+  if(m) m.remove();
+}
+
+async function submitQualityEdit(qualityId) {
+  const btn = document.getElementById('qedit-submit-btn');
+  if(btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
+
+  const reason = document.getElementById('qedit-reason')?.value.trim() || '';
+  const checkedTypes = [...document.querySelectorAll('.qedit-defect-type:checked')].map(cb => cb.value);
+
+  try {
+    await gasCall({
+      action: 'updateInspection',
+      qualityId: qualityId,
+      defectTypes: JSON.stringify(checkedTypes),
+      defectReason: reason
+    });
+
+    // 로컬 inspections 배열도 업데이트
+    const insp = inspections.find(i => String(i.qualityId) === String(qualityId));
+    if(insp) {
+      insp.defectTypes = JSON.stringify(checkedTypes);
+      insp.defectReason = reason;
+    }
+
+    notify('불량 이력이 수정되었습니다.');
+    closeQualityEditModal();
+    renderQualityHistory();
+    setTimeout(() => syncData(true), 100);
+  } catch(err) {
+    notify('수정 실패: ' + (err.message||err), 'error');
+    if(btn) { btn.disabled = false; btn.textContent = '저장'; }
+  }
+}
+
+// ⭐ v2.23: 품질 이력 삭제
+function deleteQualityNote(qualityId, serial) {
+  openModal(
+    '불량 이력 삭제',
+    `${serial}의 불량 이력을 삭제할까요?\n\n⚠️ 삭제된 이력은 복구할 수 없습니다.`,
+    async () => {
+      try {
+        await gasCall({ action: 'deleteInspection', qualityId: qualityId });
+        // 로컬 inspections에서 제거
+        inspections = inspections.filter(i => String(i.qualityId) !== String(qualityId));
+        notify('불량 이력이 삭제되었습니다.');
+        renderQualityHistory();
+        setTimeout(() => syncData(true), 100);
+      } catch(err) {
+        notify('삭제 실패: ' + (err.message||err), 'error');
+      }
+    },
+    '삭제',
+    'btn-danger'
+  );
 }
 
 // 🚨 불량처리 리스트 렌더 (담당자별 그룹화)
@@ -7170,6 +7241,17 @@ function escapeJs(s) {
 /* ⭐ v2.20: 시리얼 정규화 — _ 제거 후 대문자 통일 */
 function normalizeSerial(s) {
   return String(s||'').toUpperCase().replace(/_/g, '');
+}
+
+/* ⭐ v2.23: 모델명 정규화 — 잘못 저장된 모델명을 올바른 형식으로 변환
+   (S2PRON → S2PRO_N, S2N → S2_N) */
+function normalizeModel(m) {
+  const model = String(m||'').toUpperCase();
+  if(model === 'S2PRON') return 'S2PRO_N';
+  if(model === 'S2N') return 'S2_N';
+  if(model === 'S2') return 'S2_N';
+  if(model === 'S2PRO') return 'S2PRO_N';
+  return model;
 }
 
 /* ⭐ v2.20: 두 시리얼이 같은지 비교 (_ 무시) */
