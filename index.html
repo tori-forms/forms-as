@@ -2025,12 +2025,12 @@ window.addEventListener('DOMContentLoaded', function(){
 <script>
 const GAS = 'https://script.google.com/macros/s/AKfycby4q1TNBU87K2LBDJAGrpBNlwBn4wsBIxDZKCUq_wdTnheLULUuQXipq8QNyDV2e7xyZw/exec';
 const HOLIDAY_KEY = 'f52c0659526679a86d04083efd86dff68943cae2fa05a623ff8606b79f3f6814';
-const ADMINS = ['최민규', '서승주', '이권우'];
-const MASTER_NAME = ADMINS[0]; // legacy 호환용 (서서히 제거)
-// ⭐ v2.18: T3(파트장) / T4(팀장)는 자동으로 관리자 로그인 칸에 표시
-// ADMINS 배열에 명시된 이름 또는 티어가 T3/T4면 관리자로 분류
+const ADMINS = []; // ⭐ v2.20: 빈 배열로 변경 — 이제 순수하게 티어(T3/T4)로만 관리자 판단
+const MASTER_NAME = '최민규'; // legacy 호환용 (서서히 제거)
+// ⭐ v2.20: 티어가 T3(파트장) 또는 T4(팀장)면 관리자
+// MASTER_NAME은 항상 관리자 (안전장치)
 const _isAdminUser = (name) => {
-  if(ADMINS.includes(name)) return true;
+  if(name === MASTER_NAME) return true; // 마스터는 항상 관리자
   const tier = (typeof tierMap !== 'undefined') ? tierMap[name] : null;
   return tier === 'T3' || tier === 'T4';
 };
@@ -3267,7 +3267,7 @@ function renderShippingList() {
   Object.keys(groups).sort((a,b) => b.localeCompare(a)).forEach(date => {
     const gList = groups[date];
     const totalFee = gList.reduce((s, item) => {
-      const e = entries.find(en => String(en.serial) === String(item.h.serial));
+      const e = findEntryBySerial(item.h.serial);
       return s + (e ? Number(e.total) : 0);
     }, 0);
     const groupId = 'shg-' + date.replace(/-/g,'');
@@ -3275,7 +3275,7 @@ function renderShippingList() {
     // 기종별 / 수리항목별 카운트
     const modelCount = {};
     gList.forEach(item => {
-      const e = entries.find(en => String(en.serial) === String(item.h.serial));
+      const e = findEntryBySerial(item.h.serial);
       const model = item.h.model || e?.model || '-';
       modelCount[model] = (modelCount[model]||0) + 1;
     });
@@ -3284,7 +3284,7 @@ function renderShippingList() {
     const modelBadges = Object.entries(modelCount).map(([m,c]) => {
       const mWorkCount = {};
       gList.forEach(item => {
-        const e = entries.find(en => String(en.serial) === String(item.h.serial));
+        const e = findEntryBySerial(item.h.serial);
         const model = item.h.model || e?.model || '-';
         if(model !== m) return;
         if(e) parseWorks(e.works).forEach(k => { mWorkCount[k] = (mWorkCount[k]||0)+1; });
@@ -3337,7 +3337,7 @@ function renderShippingList() {
       .forEach(item => {
         const h = item.h;
         const idx = item.idx;
-        const e = entries.find(en => String(en.serial) === String(h.serial));
+        const e = findEntryBySerial(h.serial);
         const shipFmt = h.shipDate ? new Date(h.shipDate).toLocaleString('ko-KR', {hour:'2-digit',minute:'2-digit'}) : '-';
         const workerName = String(h.worker || e?.worker || '').split('::')[0];
         const model = h.model || e?.model || '-';
@@ -3526,15 +3526,15 @@ function renderAging() {
     const tier = tierMap[worker] || '';
 
     html += `<div class="card" style="margin-bottom:10px;padding:0;overflow:hidden;${isMe?'border:2px solid #f59e0b;':''}">
-      <div onclick="toggleAgingWorker('${escapeHtml(worker)}')" style="cursor:pointer;padding:14px 18px;background:${isMe?'linear-gradient(135deg,#fef3c7,#fde68a)':'var(--bg2,#f9fafb)'};display:flex;align-items:center;gap:12px;user-select:none;transition:background .15s;${isMe?'color:#111827;':''}" onmouseover="this.style.filter='brightness(0.97)'" onmouseout="this.style.filter=''">
+      <div onclick="toggleAgingWorker('${escapeHtml(worker)}')" style="cursor:pointer;padding:14px 18px;background:${isMe?'linear-gradient(135deg,#fef3c7,#fde68a)':'var(--surface,#fff)'};display:flex;align-items:center;gap:12px;user-select:none;transition:background .15s;${isMe?'color:#111827;':''}" onmouseover="this.style.filter='brightness(0.95)'" onmouseout="this.style.filter=''">
         <span style="font-size:14px;color:${isMe?'#374151':'var(--text2,#666)'};font-family:monospace;width:18px;display:inline-block;text-align:center;">${isExpanded?'▼':'▶'}</span>
-        <span style="font-size:15px;font-weight:700;${isMe?'color:#111827;':''}">${isMe?'👤 ':''}${escapeHtml(worker)}</span>
+        <span style="font-size:15px;font-weight:700;${isMe?'color:#111827;':'color:var(--text,#111);'}">${isMe?'👤 ':''}${escapeHtml(worker)}</span>
         ${tier ? `<span style="background:${isMe?'rgba(245,158,11,.25)':'var(--accent-bg,#dbeafe)'};color:${isMe?'#92400e':'var(--accent,#3b82f6)'};padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">${tier}</span>` : ''}
         ${isMe ? '<span style="background:#f59e0b;color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">본인</span>' : ''}
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
           ${workerInProgress > 0 ? `<span style="background:#f59e0b;color:#fff;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;">🕐 ${workerInProgress}</span>` : ''}
           ${workerPassed > 0 ? `<span style="background:#10b981;color:#fff;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;">✅ ${workerPassed}</span>` : ''}
-          <span style="background:${isMe?'rgba(255,255,255,.7)':'var(--bg,#fff)'};border:1px solid ${isMe?'#f59e0b':'var(--border2,#d1d5db)'};padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;color:#111827;">총 ${items.length}건</span>
+          <span style="background:${isMe?'rgba(255,255,255,.7)':'var(--surface2,#f3f4f6)'};border:1px solid ${isMe?'#f59e0b':'var(--border,#e5e7eb)'};padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;color:${isMe?'#111827':'var(--text,#111)'};">총 ${items.length}건</span>
         </span>
       </div>
       <div style="display:${isExpanded?'block':'none'};">
@@ -4405,7 +4405,7 @@ function renderShipping() {
       <div class="table-wrap"><table>
         <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>출고 시간</th></tr></thead>
         <tbody>${todayShipped.map(x => {
-          const e = entries.find(en => String(en.serial) === String(x.serial));
+          const e = findEntryBySerial(x.serial);
           return `<tr>
             <td><span style="font-size:11px;font-weight:700;background:${x.model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${x.model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${x.model||'-'}</span></td>
             <td class="mono">${x.serial}</td>
@@ -4425,7 +4425,10 @@ function renderShipping() {
 function checkSerials() {
   const raw = document.getElementById('serial-search-input')?.value || '';
   // 줄바꿈, 쉼표, 탭, 공백 등으로 구분
-  const inputSerials = raw.split(/[\n\r,\t\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+  // ⭐ v2.20: 사용자가 _N 형태로 입력해도 자동 매칭되도록 _ 제거 후 정규화
+  const inputSerials = raw.split(/[\n\r,\t\s]+/)
+    .map(s => s.trim().toUpperCase().replace(/_/g, ''))
+    .filter(Boolean);
   if (!inputSerials.length) { notify('시리얼 번호를 입력해주세요.', 'error'); return; }
 
   const ok = window._shipOk || [];
@@ -4433,28 +4436,37 @@ function checkSerials() {
   const allOk = new Set(ok.map(x => String(x.entry.serial).toUpperCase()));
   const allHold = new Set(hold.map(x => String(x.entry.serial).toUpperCase()));
 
-  // ⭐ v2.19: 시리얼 매칭 — 새 형식(N) + 옛 형식(_N) + 접미사 없이 모두 매칭
-  // (TO2311FB04596, TO2311FB04596N, TO2311FB04596_N 모두 같은 시리얼로 인식)
+  // ⭐ v2.20: 시리얼 매칭 — 입력에서 _ 제거 후, 저장값에서도 _ 제거하여 비교
+  // (저장된 시리얼이 _N이든 N이든 다 매칭됨)
+  function normalize(s) {
+    return String(s || '').toUpperCase().replace(/_/g, '');
+  }
   function matchSerial(s, set) {
-    return set.has(s) || set.has(s + 'N') || set.has(s + '_N');
+    // set의 각 시리얼도 정규화해서 비교
+    for(const item of set) {
+      if(normalize(item) === s) return true;
+    }
+    return false;
   }
   function findEntry(s) {
-    return entries.find(e => {
-      const es = String(e.serial).toUpperCase();
-      return es === s || es === s + 'N' || es === s + '_N';
-    });
+    return entries.find(e => normalize(e.serial) === s);
+  }
+  function findInSet(s, set) {
+    // 정규화 매칭된 set의 원본 값 반환
+    for(const item of set) {
+      if(normalize(item) === s) return item;
+    }
+    return null;
   }
 
   const found = [], notInOk = [], notExist = [];
   inputSerials.forEach(s => {
-    if (matchSerial(s, allOk)) {
-      // 실제 저장된 시리얼 형식으로 반환
-      if(allOk.has(s)) found.push(s);
-      else if(allOk.has(s + 'N')) found.push(s + 'N');
-      else found.push(s + '_N');
-    }
-    else if (matchSerial(s, allHold)) notInOk.push({ serial: s, reason: '보류(에이징 진행 중)' });
-    else {
+    const okHit = findInSet(s, allOk);
+    if (okHit) {
+      found.push(okHit); // 시트에 저장된 원본 형식으로 표시
+    } else if (matchSerial(s, allHold)) {
+      notInOk.push({ serial: s, reason: '보류(에이징 진행 중)' });
+    } else {
       const inEntries = findEntry(s);
       if (inEntries) notInOk.push({ serial: s, reason: '수리 기록 있음 (출고 기준 미충족)' });
       else notExist.push(s);
@@ -5010,7 +5022,7 @@ function getFilteredShipHistory() {
   // AS유형 필터
   if(svTypeFilter && svTypeFilter !== 'all') {
     list = list.filter(h => {
-      const e = entries.find(en => String(en.serial) === String(h.serial));
+      const e = findEntryBySerial(h.serial);
       const works = e ? parseWorks(e.works) : [];
       if(svTypeFilter === 'single')  return works.length === 1;
       if(svTypeFilter === 'multi')   return works.length >= 2;
@@ -5022,7 +5034,7 @@ function getFilteredShipHistory() {
   // 기종 필터
   if(svModelFilter && svModelFilter !== 'all') {
     list = list.filter(h => {
-      const e = entries.find(en => String(en.serial) === String(h.serial));
+      const e = findEntryBySerial(h.serial);
       return e && e.model === svModelFilter;
     });
   }
@@ -5040,7 +5052,7 @@ function getFilteredShipHistory() {
   // 수리유형 필터 (세부) — 단일/복합 또는 개별 수리항목
   if(svRepairFilter && svRepairFilter !== 'all') {
     list = list.filter(h => {
-      const e = entries.find(en => String(en.serial) === String(h.serial));
+      const e = findEntryBySerial(h.serial);
       const works = e ? parseWorks(e.works) : [];
       if(svRepairFilter === 'single') return works.length === 1;
       if(svRepairFilter === 'multi')  return works.length >= 2;
@@ -5068,7 +5080,7 @@ function renderShipDashboard(list) {
 
   // 각 항목에서 entries 매핑
   const mapped = list.map(x => {
-    const e = entries.find(en => String(en.serial) === String(x.serial));
+    const e = findEntryBySerial(x.serial);
     // 출고 시점 금액 우선 사용 (단가 변경에 영향 없음)
     const fee = x.fee ? Number(x.fee) : (e ? Number(e.total) : 0);
     return { ...x, entry: e, fee, works: e ? parseWorks(e.works) : [] };
@@ -5411,7 +5423,7 @@ function renderShipAnalysis() {
 
   // entries 매핑
   const mapped = list.map(x => {
-    const e = entries.find(en => String(en.serial) === String(x.serial));
+    const e = findEntryBySerial(x.serial);
     const works = e ? parseWorks(e.works) : [];
     const fee = x.fee ? Number(x.fee) : (e ? Number(e.total) : 0);
     return { ...x, entry: e, fee, works };
@@ -5890,7 +5902,7 @@ function renderShipview() {
   Object.keys(groups).sort((a,b) => b.localeCompare(a)).forEach(date => {
     const gList = groups[date];
     const totalFee = gList.reduce((s,x) => {
-      const e = entries.find(en => String(en.serial) === String(x.serial));
+      const e = findEntryBySerial(x.serial);
       return s + (e ? Number(e.total) : 0);
     }, 0);
     const groupId = 'svg-' + date.replace(/-/g,'');
@@ -5899,7 +5911,7 @@ function renderShipview() {
     const modelCount = {};
     const wCount = {};
     gList.forEach(x => {
-      const e = entries.find(en => String(en.serial) === String(x.serial));
+      const e = findEntryBySerial(x.serial);
       const model = x.model || e?.model || '-';
       modelCount[model] = (modelCount[model]||0) + 1;
       if(e) parseWorks(e.works).forEach(k => { wCount[k] = (wCount[k]||0)+1; });
@@ -5909,7 +5921,7 @@ function renderShipview() {
       // 이 기종의 작업별 카운트
       const mWorkCount = {};
       gList.forEach(x => {
-        const e = entries.find(en => String(en.serial) === String(x.serial));
+        const e = findEntryBySerial(x.serial);
         const model = x.model || e?.model || '-';
         if(model !== m) return;
         if(e) parseWorks(e.works).forEach(k => { mWorkCount[k] = (mWorkCount[k]||0)+1; });
@@ -5965,7 +5977,7 @@ function renderShipview() {
               <th style="text-align:center;width:75px;">수리유형</th>
             </tr></thead>
             <tbody>${gList.map((x,i) => {
-              const e = entries.find(en => String(en.serial) === String(x.serial));
+              const e = findEntryBySerial(x.serial);
               const fee = x.fee ? Number(x.fee) : (e ? Number(e.total) : 0);
               const works = e ? e.works : '[]';
               const svIdx = shipHistory.indexOf(x);
@@ -6136,7 +6148,7 @@ function exportShipviewXlsx() {
     const rows = [['No','기종','시리얼번호','수리항목','공임비(원)','부품비(원)','합계(원)','제조년월코드','제조년도','제조월','제조분기','제조년월','수리항목수','수리유형']];
     let totalFee = 0, totalParts = 0;
     list.forEach((x, i) => {
-      const e = entries.find(en => String(en.serial) === String(x.serial));
+      const e = findEntryBySerial(x.serial);
       const fee = e ? Number(e.total) : 0;
       const partsFee = getPartsFeeForEntry(e);
       const worksArr = e ? parseWorks(e.works) : [];
@@ -6927,6 +6939,22 @@ function escapeHtml(s) {
 }
 function escapeJs(s) {
   return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"');
+}
+
+/* ⭐ v2.20: 시리얼 정규화 — _ 제거 후 대문자 통일 */
+function normalizeSerial(s) {
+  return String(s||'').toUpperCase().replace(/_/g, '');
+}
+
+/* ⭐ v2.20: 두 시리얼이 같은지 비교 (_ 무시) */
+function serialEquals(a, b) {
+  return normalizeSerial(a) === normalizeSerial(b);
+}
+
+/* ⭐ v2.20: entries 배열에서 시리얼로 entry 찾기 (_ 무시) */
+function findEntryBySerial(serial) {
+  const target = normalizeSerial(serial);
+  return entries.find(e => normalizeSerial(e.serial) === target);
 }
 
 /* id에서 시간 추출 (id가 timestamp 기반이면) */
@@ -10158,7 +10186,7 @@ function renderShipExtraCharts() {
   };
 
   const mapped = list.map(x => {
-    const e = entries.find(en => String(en.serial) === String(x.serial));
+    const e = findEntryBySerial(x.serial);
     const fee = x.fee ? Number(x.fee) : (e ? Number(e.total) : 0);
     return { ...x, entry: e, fee, works: e ? parseWorks(e.works) : [] };
   });
