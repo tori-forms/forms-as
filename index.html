@@ -1254,6 +1254,12 @@ window.addEventListener('DOMContentLoaded', function(){
           • <span style="color:#dc2626;font-weight:600;">⚠️ 3일 이상 대기 시 빨간색 강조 표시</span>
         </div>
       </div>
+      <!-- ⭐ v2.21: 처리 중 / 전체 이력 토글 -->
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap;">
+        <button id="defect-view-current" class="btn btn-sm" onclick="switchDefectView('current')" style="height:32px;padding:0 14px;font-size:12px;background:#ef4444;color:#fff;border-color:#ef4444;">🚨 처리 중인 불량건</button>
+        <button id="defect-view-history" class="btn btn-sm" onclick="switchDefectView('history')" style="height:32px;padding:0 14px;font-size:12px;">📋 전체 품질 이력 (영구 보존)</button>
+        <span id="defect-view-info" style="font-size:11px;color:var(--text2);margin-left:auto;">재작업 완료 후에도 이력은 영구 보존됩니다</span>
+      </div>
       <div id="defect-list"></div>
     </div>
   </div>
@@ -3903,8 +3909,161 @@ function renderInspectWaitList() {
   el.innerHTML = html;
 }
 
+// ⭐ v2.21: 불량처리 뷰 모드 (current = 처리 중 / history = 전체 이력)
+window._defectViewMode = window._defectViewMode || 'current';
+
+function switchDefectView(mode) {
+  window._defectViewMode = mode;
+  // 버튼 스타일 토글
+  const btnCur = document.getElementById('defect-view-current');
+  const btnHist = document.getElementById('defect-view-history');
+  if(btnCur && btnHist) {
+    if(mode === 'current') {
+      btnCur.style.background = '#ef4444';
+      btnCur.style.color = '#fff';
+      btnCur.style.borderColor = '#ef4444';
+      btnHist.style.background = '';
+      btnHist.style.color = '';
+      btnHist.style.borderColor = '';
+    } else {
+      btnHist.style.background = '#6366f1';
+      btnHist.style.color = '#fff';
+      btnHist.style.borderColor = '#6366f1';
+      btnCur.style.background = '';
+      btnCur.style.color = '';
+      btnCur.style.borderColor = '';
+    }
+  }
+  renderDefectList();
+}
+
+// ⭐ v2.21: 전체 품질 이력 렌더 (불량 + 재작업 완료 모두 표시)
+function renderQualityHistory() {
+  const el = document.getElementById('defect-list');
+  if(!el) return;
+
+  // inspections 중 fail 또는 rework_done만 (검수완료 pass 제외)
+  const list = (inspections||[]).filter(insp => {
+    return insp.result === 'fail' || insp.result === 'rework_done';
+  });
+
+  if(list.length === 0) {
+    el.innerHTML = `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
+      <div style="font-size:48px;margin-bottom:12px;">📋</div>
+      <div style="font-size:15px;">품질 이력이 없습니다.</div>
+      <div style="font-size:12px;margin-top:6px;color:var(--text2,#999);">불량으로 판정되거나 재작업 완료된 건이 여기에 표시됩니다.</div>
+    </div>`;
+    return;
+  }
+
+  // 같은 시리얼별로 그룹화하여 이력 흐름 보여주기
+  const bySerial = {};
+  list.forEach(insp => {
+    const sn = String(insp.serial || '');
+    if(!bySerial[sn]) bySerial[sn] = [];
+    bySerial[sn].push(insp);
+  });
+
+  // 시리얼 정렬: 최근 활동 우선
+  const serials = Object.keys(bySerial).sort((a,b) => {
+    const aLatest = Math.max(...bySerial[a].map(i => new Date(i.inspectedAt||0).getTime()));
+    const bLatest = Math.max(...bySerial[b].map(i => new Date(i.inspectedAt||0).getTime()));
+    return bLatest - aLatest;
+  });
+
+  // 통계
+  const totalFail = list.filter(i => i.result === 'fail').length;
+  const totalRework = list.filter(i => i.result === 'rework_done').length;
+  // 진행 중 = fail이 마지막인 시리얼
+  let inProgress = 0;
+  serials.forEach(sn => {
+    const latest = bySerial[sn].sort((a,b) => new Date(b.inspectedAt||0) - new Date(a.inspectedAt||0))[0];
+    if(latest.result === 'fail') inProgress++;
+  });
+
+  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">
+    <div class="card" style="padding:12px 14px;border-left:3px solid #ef4444;">
+      <div style="font-size:11px;color:var(--text2);">총 불량 발생</div>
+      <div style="font-size:22px;font-weight:700;color:#ef4444;">${totalFail}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
+    </div>
+    <div class="card" style="padding:12px 14px;border-left:3px solid #10b981;">
+      <div style="font-size:11px;color:var(--text2);">재작업 완료</div>
+      <div style="font-size:22px;font-weight:700;color:#10b981;">${totalRework}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
+    </div>
+    <div class="card" style="padding:12px 14px;border-left:3px solid #f59e0b;">
+      <div style="font-size:11px;color:var(--text2);">진행 중</div>
+      <div style="font-size:22px;font-weight:700;color:#f59e0b;">${inProgress}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
+    </div>
+  </div>`;
+
+  html += `<div class="card" style="padding:0;overflow:hidden;">
+    <div style="padding:12px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:13px;font-weight:700;">
+      📋 시리얼별 품질 이력 (${serials.length}건)
+    </div>
+    <div class="table-wrap"><table style="font-size:13px;">
+      <thead><tr>
+        <th>시리얼</th>
+        <th>기종</th>
+        <th>최근 상태</th>
+        <th>이력</th>
+        <th>등록 엔지니어</th>
+      </tr></thead>
+      <tbody>`;
+
+  serials.forEach(sn => {
+    const items = bySerial[sn].sort((a,b) => new Date(a.inspectedAt||0) - new Date(b.inspectedAt||0));
+    const latest = items[items.length - 1];
+    const model = latest.model || '-';
+    const registrant = String(latest.registrant || '').split('::')[0] || '-';
+
+    const latestBadge = latest.result === 'fail'
+      ? '<span style="background:#ef4444;color:#fff;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;">🚨 불량 진행 중</span>'
+      : '<span style="background:#10b981;color:#fff;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;">✅ 재작업 완료</span>';
+
+    const historyHtml = items.map(insp => {
+      const dt = insp.inspectedAt ? new Date(insp.inspectedAt).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
+      const inspector = String(insp.inspector || '').split('::')[0] || '?';
+      if(insp.result === 'fail') {
+        const types = (() => {
+          try { return JSON.parse(insp.defectTypes || '[]'); } catch { return []; }
+        })();
+        const typeLabel = types.length ? types.join(', ') : '미분류';
+        return `<div style="margin-bottom:4px;font-size:11px;">
+          <span style="background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:4px;font-weight:600;">불량</span>
+          <span style="color:var(--text2);">${dt}</span> · 검수:${inspector} · ${typeLabel}
+          ${insp.defectReason ? `<div style="color:var(--text3);margin-left:48px;font-size:10px;">📝 ${escapeHtml(insp.defectReason)}</div>` : ''}
+        </div>`;
+      } else {
+        const reworker = String(insp.inspector || '').split('::')[0] || '?'; // inspector 필드에 재작업자 저장
+        return `<div style="margin-bottom:4px;font-size:11px;">
+          <span style="background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:4px;font-weight:600;">재작업 완료</span>
+          <span style="color:var(--text2);">${dt}</span> · 재작업:${reworker}
+          ${insp.defectReason ? `<div style="color:var(--text3);margin-left:80px;font-size:10px;">📝 ${escapeHtml(insp.defectReason)}</div>` : ''}
+        </div>`;
+      }
+    }).join('');
+
+    html += `<tr>
+      <td style="font-weight:600;">${escapeHtml(sn)}</td>
+      <td>${escapeHtml(model)}</td>
+      <td>${latestBadge}</td>
+      <td>${historyHtml}</td>
+      <td>${escapeHtml(registrant)}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table></div></div>`;
+  el.innerHTML = html;
+}
+
 // 🚨 불량처리 리스트 렌더 (담당자별 그룹화)
 function renderDefectList() {
+  // ⭐ v2.21: 뷰 모드에 따라 분기
+  if(window._defectViewMode === 'history') {
+    renderQualityHistory();
+    return;
+  }
+
   const el = document.getElementById('defect-list');
   if(!el) return;
 
@@ -4113,46 +4272,46 @@ function openInspectModal(entryId, initResult) {
 
   const modalHtml = `
   <div id="inspect-modal" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;">
-    <div style="background:var(--bg,#fff);color:var(--text,#000);max-width:600px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;max-height:90vh;display:flex;flex-direction:column;">
-      <div style="padding:16px 20px;border-bottom:1px solid var(--border,#e5e7eb);display:flex;justify-content:space-between;align-items:center;background:var(--bg2,#f9fafb);">
-        <span style="font-size:16px;font-weight:700;">🔍 검수 처리: ${escapeHtml(e.serial)}</span>
+    <div style="background:var(--surface,#fff);color:var(--text,#111);max-width:600px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;max-height:90vh;display:flex;flex-direction:column;border:1px solid var(--border,#e5e7eb);">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border,#e5e7eb);display:flex;justify-content:space-between;align-items:center;background:var(--surface2,#f9fafb);">
+        <span style="font-size:16px;font-weight:700;color:var(--text,#111);">🔍 검수 처리: ${escapeHtml(e.serial)}</span>
         <button onclick="closeInspectModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text2,#666);width:32px;height:32px;border-radius:6px;">×</button>
       </div>
       <div style="padding:20px;overflow-y:auto;">
-        <div style="margin-bottom:14px;padding:12px;background:var(--bg2,#f9fafb);border-radius:8px;font-size:13px;line-height:1.6;">
+        <div style="margin-bottom:14px;padding:12px;background:var(--surface2,#f9fafb);border-radius:8px;font-size:13px;line-height:1.6;color:var(--text,#111);">
           <strong>${escapeHtml(e.serial)}</strong> (${escapeHtml(e.model||'')})<br>
           <span style="color:var(--text2,#666);">등록자: ${escapeHtml(String(e.worker||'').split('::')[0])}</span>
         </div>
 
         <div style="margin-bottom:16px;">
-          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;">검수 결과 선택</label>
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text,#111);">검수 결과 선택</label>
           <div style="display:flex;gap:8px;">
-            <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:2px solid ${isFail?'var(--border2,#d1d5db)':'#10b981'};border-radius:10px;cursor:pointer;background:${isFail?'transparent':'#d1fae5'};transition:all .15s;" onclick="toggleInspectResult('pass')">
+            <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:2px solid ${isFail?'var(--border,#d1d5db)':'#10b981'};border-radius:10px;cursor:pointer;background:${isFail?'var(--surface,#fff)':'rgba(16,185,129,.15)'};transition:all .15s;" onclick="toggleInspectResult('pass')">
               <input type="radio" name="inspect-result" value="pass" ${!isFail?'checked':''} style="accent-color:#10b981;cursor:pointer;">
-              <span style="font-weight:600;color:#065f46;">✅ 검수완료</span>
+              <span style="font-weight:600;color:${isFail?'var(--text,#111)':'#10b981'};">✅ 검수완료</span>
             </label>
-            <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:2px solid ${isFail?'#dc2626':'var(--border2,#d1d5db)'};border-radius:10px;cursor:pointer;background:${isFail?'#fee2e2':'transparent'};transition:all .15s;" onclick="toggleInspectResult('fail')">
+            <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:2px solid ${isFail?'#dc2626':'var(--border,#d1d5db)'};border-radius:10px;cursor:pointer;background:${isFail?'rgba(220,38,38,.15)':'var(--surface,#fff)'};transition:all .15s;" onclick="toggleInspectResult('fail')">
               <input type="radio" name="inspect-result" value="fail" ${isFail?'checked':''} style="accent-color:#dc2626;cursor:pointer;">
-              <span style="font-weight:600;color:#991b1b;">❌ 불량</span>
+              <span style="font-weight:600;color:${isFail?'#dc2626':'var(--text,#111)'};">❌ 불량</span>
             </label>
           </div>
         </div>
 
         <div id="defect-section" style="display:${isFail?'block':'none'};">
-          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;">불량 유형 (다중 선택 가능)</label>
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text,#111);">불량 유형 (다중 선택 가능)</label>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
             ${defectCheckboxes}
           </div>
-          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">상세 사유</label>
-          <textarea id="defect-reason" rows="3" placeholder="구체적인 불량 내용을 입력하세요..." style="width:100%;padding:8px 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg,#fff);color:var(--text,#000);resize:vertical;"></textarea>
-          <div style="margin-top:10px;padding:10px;background:#fef3c7;border-radius:8px;font-size:12px;color:#92400e;">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--text,#111);">상세 사유</label>
+          <textarea id="defect-reason" rows="3" placeholder="구체적인 불량 내용을 입력하세요..." style="width:100%;padding:8px 10px;border:1px solid var(--border,#d1d5db);border-radius:6px;font-size:13px;font-family:inherit;background:var(--surface,#fff);color:var(--text,#111);resize:vertical;"></textarea>
+          <div style="margin-top:10px;padding:10px;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.4);border-radius:8px;font-size:12px;color:var(--text,#92400e);">
             ⚠️ 불량 처리 시 <strong>"🚨 불량처리" 탭</strong>으로 이동됩니다.<br>
             담당 엔지니어(${escapeHtml(String(e.worker||'').split('::')[0])})가 재작업 후 검수대기로 복귀시킵니다.
           </div>
         </div>
       </div>
-      <div style="padding:14px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--bg2,#f9fafb);">
-        <button onclick="closeInspectModal()" style="padding:0 18px;height:38px;border:1px solid var(--border2,#d1d5db);background:var(--bg,#fff);color:var(--text,#000);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
+      <div style="padding:14px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--surface2,#f9fafb);">
+        <button onclick="closeInspectModal()" style="padding:0 18px;height:38px;border:1px solid var(--border,#d1d5db);background:var(--surface,#fff);color:var(--text,#111);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
         <button id="inspect-submit-btn" onclick="submitInspect('${entryId}')" style="padding:0 18px;height:38px;border:none;background:#3b82f6;color:#fff;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">검수 처리</button>
       </div>
     </div>
@@ -8562,15 +8721,19 @@ async function renderHistory() {
 
 /* 시리얼 조회 */
 function doSearch() {
-  const q = document.getElementById('inp-search').value.trim().toUpperCase();
+  // ⭐ v2.21: 입력에서 _ 제거 + 저장된 시리얼도 정규화하여 비교
+  const raw = document.getElementById('inp-search').value.trim().toUpperCase();
+  const q = raw.replace(/_/g, '');
   const el = document.getElementById('search-result');
   if(!q){ el.innerHTML='<div class="empty">시리얼 번호를 입력하세요.</div>'; return; }
 
-  const found = entries.filter(e=>String(e.serial).toUpperCase().includes(q)).sort((a,b)=>new Date(b.date)-new Date(a.date));
-  const foundExc = (exchangeList||[]).filter(x=>String(x.serial).toUpperCase().includes(q)).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  // 시리얼 정규화 매칭 (_ 무시)
+  const matchSerial = (serial) => normalizeSerial(serial).includes(q);
+  const found = entries.filter(e => matchSerial(e.serial)).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const foundExc = (exchangeList||[]).filter(x => matchSerial(x.serial)).sort((a,b)=>new Date(b.date)-new Date(a.date));
 
   if(!found.length && !foundExc.length){
-    el.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div>"${q}"에 해당하는 내역이 없습니다.</div>`; return;
+    el.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div>"${raw}"에 해당하는 내역이 없습니다.</div>`; return;
   }
 
   const total = found.length + foundExc.length;
