@@ -1078,7 +1078,7 @@ window.addEventListener('DOMContentLoaded', function(){
   <button class="nav-btn active" onclick="switchTab('input',this)">🔧 수리 등록</button>
   <button class="nav-btn" onclick="switchTab('exchange',this)">💸 교품 처리</button>
   <button class="nav-btn" id="nav-aging" onclick="switchTab('aging',this)">🕐 에이징</button>
-  <button class="nav-btn" id="nav-inspect" onclick="switchTab('inspect',this)">🔍 검수대기</button>
+  <button class="nav-btn" id="nav-inspect" onclick="switchTab('inspect',this)">🧪 검수대기</button>
   <button class="nav-btn" onclick="switchTab('summary',this)">📊 일일 현황</button>
   <button class="nav-btn" onclick="switchTab('history',this)">📋 전체 기록</button>
   <button class="nav-btn" onclick="switchTab('search',this)">🔍 시리얼 조회</button>
@@ -1213,7 +1213,7 @@ window.addEventListener('DOMContentLoaded', function(){
   <!-- 🔍 검수대기 (Phase2 신규) - 서브탭 구조 -->
   <div id="tab-inspect" class="section">
     <div class="section-header">
-      <span class="section-title">🔍 검수 관리</span>
+      <span class="section-title">🧪 검수 관리</span>
       <div style="display:flex;gap:8px;align-items:center;">
         <span id="inspect-permission-badge" style="font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;"></span>
         <button class="btn btn-secondary" onclick="renderInspect()" style="height:34px;padding:0 12px;font-size:13px;">↻ 새로고침</button>
@@ -1223,7 +1223,7 @@ window.addEventListener('DOMContentLoaded', function(){
     <!-- 서브탭 네비게이션 -->
     <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--border,#e5e7eb);">
       <button id="inspect-subtab-wait" onclick="switchInspectSubtab('wait')" style="padding:10px 18px;background:none;border:none;border-bottom:3px solid var(--accent,#3b82f6);color:var(--accent,#3b82f6);font-weight:700;font-size:14px;cursor:pointer;margin-bottom:-2px;font-family:inherit;">
-        🔍 검수대기 <span id="inspect-wait-count" style="background:#3b82f6;color:#fff;padding:1px 8px;border-radius:999px;font-size:11px;margin-left:4px;">0</span>
+        🧪 검수대기 <span id="inspect-wait-count" style="background:#3b82f6;color:#fff;padding:1px 8px;border-radius:999px;font-size:11px;margin-left:4px;">0</span>
       </button>
       <button id="inspect-subtab-defect" onclick="switchInspectSubtab('defect')" style="padding:10px 18px;background:none;border:none;border-bottom:3px solid transparent;color:var(--text2,#666);font-weight:600;font-size:14px;cursor:pointer;margin-bottom:-2px;font-family:inherit;">
         🚨 불량처리 <span id="inspect-defect-count" style="background:#ef4444;color:#fff;padding:1px 8px;border-radius:999px;font-size:11px;margin-left:4px;">0</span>
@@ -1257,8 +1257,8 @@ window.addEventListener('DOMContentLoaded', function(){
       <!-- ⭐ v2.21: 처리 중 / 전체 이력 토글 -->
       <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap;">
         <button id="defect-view-current" class="btn btn-sm" onclick="switchDefectView('current')" style="height:32px;padding:0 14px;font-size:12px;background:#ef4444;color:#fff;border-color:#ef4444;">🚨 처리 중인 불량건</button>
-        <button id="defect-view-history" class="btn btn-sm" onclick="switchDefectView('history')" style="height:32px;padding:0 14px;font-size:12px;">📋 전체 품질 이력 (영구 보존)</button>
-        <span id="defect-view-info" style="font-size:11px;color:var(--text2);margin-left:auto;">재작업 완료 후에도 이력은 영구 보존됩니다</span>
+        <button id="defect-view-history" class="btn btn-sm" onclick="switchDefectView('history')" style="height:32px;padding:0 14px;font-size:12px;">📋 전체 품질 이력</button>
+        <span id="defect-view-info" style="font-size:11px;color:var(--text2);margin-left:auto;"></span>
       </div>
       <div id="defect-list"></div>
     </div>
