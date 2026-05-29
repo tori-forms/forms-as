@@ -4012,14 +4012,8 @@ function renderQualityDashboard() {
   DEFECT_TYPES.forEach(t => typeCount[t] = 0);
   let typeTotal = 0;
   Object.values(firstFailBySerial).forEach(insp => {
-    // ⭐ v2.27: defectTypes 파싱 실패해도 무조건 미분류로 카운트
-    let types = [];
-    try {
-      types = JSON.parse(insp.defectTypes || '[]');
-      if(!Array.isArray(types)) types = [];
-    } catch {
-      types = [];
-    }
+    // ⭐ v2.28: defectTypes는 배열일 수도 JSON 문자열일 수도 (GAS 반환 시점에 따라)
+    const types = parseDefectTypes(insp.defectTypes);
     if(types.length === 0) {
       typeCount['미분류'] = (typeCount['미분류'] || 0) + 1;
       typeTotal++;
@@ -4189,14 +4183,8 @@ function renderQualityDashboard() {
       const eng = String(entry.worker || '').split('::')[0] || '미정';
       // ⭐ v2.26: 활동중 작업자만 (engineerStats에 이미 있는 사람만)
       if(!heatmap[eng]) return; // 퇴사자/미정 제외
-      // ⭐ v2.27: defectTypes 파싱 실패해도 미분류로
-      let types = [];
-      try {
-        types = JSON.parse(insp.defectTypes || '[]');
-        if(!Array.isArray(types)) types = [];
-      } catch {
-        types = [];
-      }
+      // ⭐ v2.28: defectTypes 안전 파싱
+      const types = parseDefectTypes(insp.defectTypes);
       if(types.length === 0) {
         heatmap[eng]['미분류'] = (heatmap[eng]['미분류'] || 0) + 1;
       } else {
@@ -4499,9 +4487,7 @@ function renderQualityHistory() {
       const dt = insp.inspectedAt ? new Date(insp.inspectedAt).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
       const inspector = String(insp.inspector || '').split('::')[0] || '?';
       const model = normalizeModel(insp.model || '-');
-      const types = (() => {
-        try { return JSON.parse(insp.defectTypes || '[]'); } catch { return []; }
-      })();
+      const types = (() => parseDefectTypes(insp.defectTypes))();
       const typeLabel = types.length ? types.join(', ') : '미분류';
       const reason = insp.defectReason || '';
 
@@ -4531,7 +4517,7 @@ async function editQualityNote(qualityId) {
   if(!insp) { notify('이력을 찾을 수 없습니다.', 'error'); return; }
 
   const types = (() => {
-    try { return JSON.parse(insp.defectTypes || '[]'); } catch { return []; }
+    return parseDefectTypes(insp.defectTypes);
   })();
   const DEFECT_TYPES = ['외관', '기능', '강화유리', '보호필름', '부품누락', '디스플레이'];
 
@@ -4595,16 +4581,26 @@ async function submitQualityEdit(qualityId) {
       defectReason: reason
     });
 
-    // 로컬 inspections 배열도 업데이트
-    const insp = inspections.find(i => String(i.qualityId) === String(qualityId));
-    if(insp) {
-      insp.defectTypes = JSON.stringify(checkedTypes);
-      insp.defectReason = reason;
+    // ⭐ v2.28: 로컬 inspections 배열 즉시 업데이트 (findIndex로 더 확실하게)
+    const idx = inspections.findIndex(i => String(i.qualityId) === String(qualityId));
+    if(idx >= 0) {
+      inspections[idx] = {
+        ...inspections[idx],
+        defectTypes: JSON.stringify(checkedTypes),
+        defectReason: reason
+      };
     }
 
     notify('불량 이력이 수정되었습니다.');
     closeQualityEditModal();
-    renderQualityHistory();
+
+    // ⭐ v2.28: 활성 서브탭에 따라 둘 다 갱신 (품질이력 + 대시보드)
+    if(typeof renderQualityHistory === 'function') renderQualityHistory();
+    const dashPanel = document.getElementById('inspect-subpanel-dashboard');
+    if(dashPanel && dashPanel.style.display !== 'none' && typeof renderQualityDashboard === 'function') {
+      renderQualityDashboard();
+    }
+
     setTimeout(() => syncData(true), 100);
   } catch(err) {
     notify('수정 실패: ' + (err.message||err), 'error');
@@ -4623,7 +4619,14 @@ function deleteQualityNote(qualityId, serial) {
         // 로컬 inspections에서 제거
         inspections = inspections.filter(i => String(i.qualityId) !== String(qualityId));
         notify('불량 이력이 삭제되었습니다.');
-        renderQualityHistory();
+
+        // ⭐ v2.28: 활성 서브탭에 따라 둘 다 갱신
+        if(typeof renderQualityHistory === 'function') renderQualityHistory();
+        const dashPanel = document.getElementById('inspect-subpanel-dashboard');
+        if(dashPanel && dashPanel.style.display !== 'none' && typeof renderQualityDashboard === 'function') {
+          renderQualityDashboard();
+        }
+
         setTimeout(() => syncData(true), 100);
       } catch(err) {
         notify('삭제 실패: ' + (err.message||err), 'error');
@@ -5050,10 +5053,8 @@ function renderShipping() {
   if(exportBtn) exportBtn.style.display = ok.length ? 'inline-flex' : 'none';
   if(completeBtn) completeBtn.style.display = ok.length ? 'inline-flex' : 'none';
 
-  // ⭐ v2.27: 출고 가능 + 보류 합산 공임비 집계 (출고 관리 화면에 있는 수리건)
+  // ⭐ v2.28: 출고 관리 공임비 = 출고 가능만 집계 (보류는 에이징/검수 진행 중이라 제외)
   const okFee = ok.reduce((s, x) => s + (x.entry ? Number(x.entry.total || 0) : 0), 0);
-  const holdFee = hold.reduce((s, x) => s + (x.entry ? Number(x.entry.total || 0) : 0), 0);
-  const totalShippingFee = okFee + holdFee;
 
   let h = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
     <div class="stat-card" style="border-left:4px solid var(--green);">
@@ -5062,9 +5063,9 @@ function renderShipping() {
       <div class="stat-sub">🔍 검수완료 상태 ${hold.length > 0 ? `<span style="color:var(--amber);">· 보류 ${hold.length}건</span>` : ''}</div>
     </div>
     <div class="stat-card" style="border-left:4px solid #6366f1;">
-      <div class="stat-label">출고 관리 공임비</div>
-      <div class="stat-val" style="color:#6366f1;font-size:22px;">${fmt(totalShippingFee)}<span style="font-size:12px;color:var(--text2);font-weight:400;">원</span></div>
-      <div class="stat-sub">출고 가능 ${fmt(okFee)}원 ${hold.length > 0 ? `· 보류 ${fmt(holdFee)}원` : ''}</div>
+      <div class="stat-label">출고 가능 공임비</div>
+      <div class="stat-val" style="color:#6366f1;font-size:22px;">${fmt(okFee)}<span style="font-size:12px;color:var(--text2);font-weight:400;">원</span></div>
+      <div class="stat-sub">출고 처리 시 발생 매출</div>
     </div>
     <div class="stat-card" style="border-left:4px solid #16a34a;">
       <div class="stat-label">출고 완료 (${dateVal})</div>
@@ -7699,6 +7700,22 @@ function normalizeModel(m) {
   if(model === 'S2') return 'S2_N';
   if(model === 'S2PRO') return 'S2PRO_N';
   return model;
+}
+
+/* ⭐ v2.28: defectTypes 안전 파싱 — GAS가 이미 배열로 반환하는 경우와
+   문자열(JSON)로 반환하는 경우 둘 다 처리 */
+function parseDefectTypes(v) {
+  if(!v) return [];
+  if(Array.isArray(v)) return v;
+  if(typeof v === 'string') {
+    try {
+      const parsed = JSON.parse(v);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }
 
 /* ⭐ v2.20: 두 시리얼이 같은지 비교 (_ 무시) */
