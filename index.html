@@ -2450,7 +2450,9 @@ async function syncData(silent=false) {
     }
     // 현재 열린 탭에 따라 자동 렌더
     const activeTab = document.querySelector('.nav-btn.active')?.getAttribute('onclick');
-    if(activeTab?.includes('shipping')) renderShipping();
+    // ⭐ v2.22: 출고 관리에서 체크박스 선택 중이면 재렌더 스킵 (선택 초기화 방지)
+    const shippingHasChecks = document.querySelectorAll('.ship-row-check:checked').length > 0;
+    if(activeTab?.includes('shipping') && !shippingHasChecks) renderShipping();
     if(activeTab?.includes('shipview')) renderShipview();
     if(activeTab?.includes('exchange')) renderExchangeList();
     docs = (data.docs || []).map(d => ({
@@ -2470,7 +2472,13 @@ async function syncData(silent=false) {
     setSyncStatus('ok');
     renderAll();
     if(!silent) notify('데이터를 불러왔습니다.');
-    if(!currentUser && !ENGRAVE_MODE) buildLoginGrid();
+    // ⭐ v2.22: 로그인 화면 — 엔지니어/관리자/QC 그리드 모두 갱신
+    // (관리자는 tierMap 로드 후에야 채워지므로 동기화 후 다시 빌드해야 함)
+    if(!currentUser && !ENGRAVE_MODE) {
+      buildLoginGrid();
+      if(typeof buildAdminGrid === 'function') buildAdminGrid();
+      if(typeof buildQCGrid === 'function') buildQCGrid();
+    }
   } catch (err) {
     console.error('[syncData] 서버 연결 실패:', err);
     console.error('[syncData] error message:', err?.message);
@@ -2500,7 +2508,9 @@ function renderAll() {
     else if(activeStockTab === 'usage') { try { renderPartsUsage(); } catch {} }
   }
   // 출고 관리/현황 탭
-  if(tab?.includes('출고 관리')) renderShipping();
+  // ⭐ v2.22: 체크박스 선택 중이면 재렌더 스킵 (선택 초기화 방지)
+  const shippingHasChecks = document.querySelectorAll('.ship-row-check:checked').length > 0;
+  if(tab?.includes('출고 관리') && !shippingHasChecks) renderShipping();
   if(tab?.includes('출고 현황')) { try { renderShipview(); } catch {} }
   // 교품 처리 탭
   if(tab?.includes('교품')) { try { renderExchangeList(); } catch {} }
@@ -3937,12 +3947,12 @@ function switchDefectView(mode) {
   renderDefectList();
 }
 
-// ⭐ v2.21: 전체 품질 이력 렌더 (불량 + 재작업 완료 모두 표시)
+// ⭐ v2.22: 전체 품질 이력 렌더 (불량 + 재작업 완료) — 시리얼당 1회 카운트, 엔지니어별 그룹
 function renderQualityHistory() {
   const el = document.getElementById('defect-list');
   if(!el) return;
 
-  // inspections 중 fail 또는 rework_done만 (검수완료 pass 제외)
+  // inspections 중 fail 또는 rework_done만
   const list = (inspections||[]).filter(insp => {
     return insp.result === 'fail' || insp.result === 'rework_done';
   });
@@ -3956,7 +3966,7 @@ function renderQualityHistory() {
     return;
   }
 
-  // 같은 시리얼별로 그룹화하여 이력 흐름 보여주기
+  // 시리얼별 묶기 (이력 흐름 추적용)
   const bySerial = {};
   list.forEach(insp => {
     const sn = String(insp.serial || '');
@@ -3964,95 +3974,152 @@ function renderQualityHistory() {
     bySerial[sn].push(insp);
   });
 
-  // 시리얼 정렬: 최근 활동 우선
-  const serials = Object.keys(bySerial).sort((a,b) => {
-    const aLatest = Math.max(...bySerial[a].map(i => new Date(i.inspectedAt||0).getTime()));
-    const bLatest = Math.max(...bySerial[b].map(i => new Date(i.inspectedAt||0).getTime()));
-    return bLatest - aLatest;
-  });
-
-  // 통계
-  const totalFail = list.filter(i => i.result === 'fail').length;
-  const totalRework = list.filter(i => i.result === 'rework_done').length;
-  // 진행 중 = fail이 마지막인 시리얼
-  let inProgress = 0;
-  serials.forEach(sn => {
-    const latest = bySerial[sn].sort((a,b) => new Date(b.inspectedAt||0) - new Date(a.inspectedAt||0))[0];
-    if(latest.result === 'fail') inProgress++;
-  });
-
-  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">
-    <div class="card" style="padding:12px 14px;border-left:3px solid #ef4444;">
-      <div style="font-size:11px;color:var(--text2);">총 불량 발생</div>
-      <div style="font-size:22px;font-weight:700;color:#ef4444;">${totalFail}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
-    </div>
-    <div class="card" style="padding:12px 14px;border-left:3px solid #10b981;">
-      <div style="font-size:11px;color:var(--text2);">재작업 완료</div>
-      <div style="font-size:22px;font-weight:700;color:#10b981;">${totalRework}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
-    </div>
-    <div class="card" style="padding:12px 14px;border-left:3px solid #f59e0b;">
-      <div style="font-size:11px;color:var(--text2);">진행 중</div>
-      <div style="font-size:22px;font-weight:700;color:#f59e0b;">${inProgress}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
-    </div>
-  </div>`;
-
-  html += `<div class="card" style="padding:0;overflow:hidden;">
-    <div style="padding:12px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:13px;font-weight:700;">
-      📋 시리얼별 품질 이력 (${serials.length}건)
-    </div>
-    <div class="table-wrap"><table style="font-size:13px;">
-      <thead><tr>
-        <th>시리얼</th>
-        <th>기종</th>
-        <th>최근 상태</th>
-        <th>이력</th>
-        <th>등록 엔지니어</th>
-      </tr></thead>
-      <tbody>`;
+  // ⭐ v2.22: 시리얼당 통계 산정 (재발생해도 1회만 카운트)
+  const serials = Object.keys(bySerial);
+  let resolvedCount = 0; // 재작업 완료된 시리얼 수
+  let inProgressCount = 0; // 진행 중 시리얼 수 (마지막 상태가 fail)
+  const serialSummary = {}; // 시리얼별 요약 (담당 엔지니어, 최근 상태, 모델)
 
   serials.forEach(sn => {
     const items = bySerial[sn].sort((a,b) => new Date(a.inspectedAt||0) - new Date(b.inspectedAt||0));
     const latest = items[items.length - 1];
+    const registrant = String(latest.registrant || '').split('::')[0] || '미정';
     const model = latest.model || '-';
-    const registrant = String(latest.registrant || '').split('::')[0] || '-';
+    
+    if(latest.result === 'fail') inProgressCount++;
+    else if(latest.result === 'rework_done') resolvedCount++;
 
-    const latestBadge = latest.result === 'fail'
-      ? '<span style="background:#ef4444;color:#fff;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;">🚨 불량 진행 중</span>'
-      : '<span style="background:#10b981;color:#fff;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;">✅ 재작업 완료</span>';
-
-    const historyHtml = items.map(insp => {
-      const dt = insp.inspectedAt ? new Date(insp.inspectedAt).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
-      const inspector = String(insp.inspector || '').split('::')[0] || '?';
-      if(insp.result === 'fail') {
-        const types = (() => {
-          try { return JSON.parse(insp.defectTypes || '[]'); } catch { return []; }
-        })();
-        const typeLabel = types.length ? types.join(', ') : '미분류';
-        return `<div style="margin-bottom:4px;font-size:11px;">
-          <span style="background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:4px;font-weight:600;">불량</span>
-          <span style="color:var(--text2);">${dt}</span> · 검수:${inspector} · ${typeLabel}
-          ${insp.defectReason ? `<div style="color:var(--text3);margin-left:48px;font-size:10px;">📝 ${escapeHtml(insp.defectReason)}</div>` : ''}
-        </div>`;
-      } else {
-        const reworker = String(insp.inspector || '').split('::')[0] || '?'; // inspector 필드에 재작업자 저장
-        return `<div style="margin-bottom:4px;font-size:11px;">
-          <span style="background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:4px;font-weight:600;">재작업 완료</span>
-          <span style="color:var(--text2);">${dt}</span> · 재작업:${reworker}
-          ${insp.defectReason ? `<div style="color:var(--text3);margin-left:80px;font-size:10px;">📝 ${escapeHtml(insp.defectReason)}</div>` : ''}
-        </div>`;
-      }
-    }).join('');
-
-    html += `<tr>
-      <td style="font-weight:600;">${escapeHtml(sn)}</td>
-      <td>${escapeHtml(model)}</td>
-      <td>${latestBadge}</td>
-      <td>${historyHtml}</td>
-      <td>${escapeHtml(registrant)}</td>
-    </tr>`;
+    serialSummary[sn] = {
+      registrant: registrant,
+      model: model,
+      latest: latest,
+      items: items,
+      isResolved: latest.result === 'rework_done'
+    };
   });
 
-  html += `</tbody></table></div></div>`;
+  const totalDefectSerials = serials.length; // 불량 발생한 고유 시리얼 수
+
+  // ⭐ 엔지니어별 그룹화
+  const byEngineer = {};
+  serials.forEach(sn => {
+    const eng = serialSummary[sn].registrant;
+    if(!byEngineer[eng]) byEngineer[eng] = [];
+    byEngineer[eng].push(sn);
+  });
+
+  // 엔지니어 정렬: 본인 우선, 그 외 불량 많은 순 → 가나다순
+  const engineerNames = Object.keys(byEngineer).sort((a,b) => {
+    if(a === currentUser) return -1;
+    if(b === currentUser) return 1;
+    const aCnt = byEngineer[a].length;
+    const bCnt = byEngineer[b].length;
+    if(aCnt !== bCnt) return bCnt - aCnt;
+    return a.localeCompare(b, 'ko');
+  });
+
+  // 상단 통계 카드 (시리얼 기준)
+  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">
+    <div class="card" style="padding:12px 14px;border-left:3px solid #ef4444;">
+      <div style="font-size:11px;color:var(--text2);">총 불량 시리얼</div>
+      <div style="font-size:22px;font-weight:700;color:#ef4444;">${totalDefectSerials}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px;">시리얼당 1회 카운트</div>
+    </div>
+    <div class="card" style="padding:12px 14px;border-left:3px solid #10b981;">
+      <div style="font-size:11px;color:var(--text2);">재작업 완료</div>
+      <div style="font-size:22px;font-weight:700;color:#10b981;">${resolvedCount}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px;">최근 상태 = 재작업 완료</div>
+    </div>
+    <div class="card" style="padding:12px 14px;border-left:3px solid #f59e0b;">
+      <div style="font-size:11px;color:var(--text2);">진행 중</div>
+      <div style="font-size:22px;font-weight:700;color:#f59e0b;">${inProgressCount}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px;">아직 재작업 안 한 건</div>
+    </div>
+    <div class="card" style="padding:12px 14px;border-left:3px solid #6366f1;">
+      <div style="font-size:11px;color:var(--text2);">엔지니어 수</div>
+      <div style="font-size:22px;font-weight:700;color:#6366f1;">${engineerNames.length}<span style="font-size:13px;color:var(--text2);font-weight:500;">명</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px;">불량 발생 엔지니어</div>
+    </div>
+  </div>`;
+
+  // 엔지니어별 카드
+  engineerNames.forEach(eng => {
+    const sns = byEngineer[eng];
+    const isMe = eng === currentUser;
+    const tier = tierMap[eng] || '';
+    const engResolved = sns.filter(sn => serialSummary[sn].isResolved).length;
+    const engInProgress = sns.length - engResolved;
+
+    html += `<div class="card" style="margin-bottom:12px;padding:0;overflow:hidden;${isMe?'border:2px solid #6366f1;':''}">
+      <div style="padding:12px 16px;background:${isMe?'rgba(99,102,241,.12)':'var(--surface2)'};border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:15px;font-weight:700;color:var(--text);">${isMe?'👤 ':'🔧 '}${escapeHtml(eng)}</span>
+        ${tier ? `<span style="background:var(--accent-bg,#dbeafe);color:var(--accent,#3b82f6);padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">${tier}</span>` : ''}
+        ${isMe ? '<span style="background:#6366f1;color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">본인</span>' : ''}
+        <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+          <span style="background:#ef4444;color:#fff;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">총 ${sns.length}건</span>
+          ${engInProgress > 0 ? `<span style="background:#f59e0b;color:#fff;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">🚨 ${engInProgress}</span>` : ''}
+          ${engResolved > 0 ? `<span style="background:#10b981;color:#fff;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">✅ ${engResolved}</span>` : ''}
+        </span>
+      </div>
+      <div class="table-wrap"><table style="font-size:13px;">
+        <thead><tr>
+          <th>시리얼</th>
+          <th>기종</th>
+          <th>최근 상태</th>
+          <th>이력</th>
+        </tr></thead>
+        <tbody>`;
+
+    // 시리얼 정렬: 진행 중(fail) 먼저, 그 다음 최신순
+    const sortedSns = sns.sort((a,b) => {
+      const aResolved = serialSummary[a].isResolved;
+      const bResolved = serialSummary[b].isResolved;
+      if(aResolved !== bResolved) return aResolved ? 1 : -1;
+      const aLatest = new Date(serialSummary[a].latest.inspectedAt||0).getTime();
+      const bLatest = new Date(serialSummary[b].latest.inspectedAt||0).getTime();
+      return bLatest - aLatest;
+    });
+
+    sortedSns.forEach(sn => {
+      const summary = serialSummary[sn];
+      const items = summary.items;
+      const latestBadge = summary.isResolved
+        ? '<span style="background:#10b981;color:#fff;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;">✅ 해결</span>'
+        : '<span style="background:#ef4444;color:#fff;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;">🚨 진행 중</span>';
+
+      const historyHtml = items.map(insp => {
+        const dt = insp.inspectedAt ? new Date(insp.inspectedAt).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
+        const inspector = String(insp.inspector || '').split('::')[0] || '?';
+        if(insp.result === 'fail') {
+          const types = (() => {
+            try { return JSON.parse(insp.defectTypes || '[]'); } catch { return []; }
+          })();
+          const typeLabel = types.length ? types.join(', ') : '미분류';
+          return `<div style="margin-bottom:4px;font-size:11px;">
+            <span style="background:rgba(239,68,68,.2);color:#ef4444;padding:1px 6px;border-radius:4px;font-weight:600;">불량</span>
+            <span style="color:var(--text2);">${dt}</span> · 검수:${inspector} · ${typeLabel}
+            ${insp.defectReason ? `<div style="color:var(--text3);margin-left:48px;font-size:10px;">📝 ${escapeHtml(insp.defectReason)}</div>` : ''}
+          </div>`;
+        } else {
+          return `<div style="margin-bottom:4px;font-size:11px;">
+            <span style="background:rgba(16,185,129,.2);color:#10b981;padding:1px 6px;border-radius:4px;font-weight:600;">재작업 완료</span>
+            <span style="color:var(--text2);">${dt}</span> · 재작업:${inspector}
+            ${insp.defectReason ? `<div style="color:var(--text3);margin-left:80px;font-size:10px;">📝 ${escapeHtml(insp.defectReason)}</div>` : ''}
+          </div>`;
+        }
+      }).join('');
+
+      html += `<tr>
+        <td style="font-weight:600;">${escapeHtml(sn)}</td>
+        <td>${escapeHtml(summary.model)}</td>
+        <td>${latestBadge}</td>
+        <td>${historyHtml}</td>
+      </tr>`;
+    });
+
+    html += `</tbody></table></div></div>`;
+  });
+
   el.innerHTML = html;
 }
 
@@ -4180,29 +4247,29 @@ function openReworkModal(entryId) {
 
   const modalHtml = `
   <div id="rework-modal" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;">
-    <div style="background:var(--bg,#fff);color:var(--text,#000);max-width:500px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
-      <div style="padding:16px 20px;border-bottom:1px solid var(--border,#e5e7eb);display:flex;justify-content:space-between;align-items:center;background:var(--bg2,#f9fafb);">
-        <span style="font-size:16px;font-weight:700;">✅ 재작업 완료</span>
+    <div style="background:var(--surface,#fff);color:var(--text,#111);max-width:500px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;border:1px solid var(--border,#e5e7eb);">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border,#e5e7eb);display:flex;justify-content:space-between;align-items:center;background:var(--surface2,#f9fafb);">
+        <span style="font-size:16px;font-weight:700;color:var(--text,#111);">✅ 재작업 완료</span>
         <button onclick="closeReworkModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text2,#666);">×</button>
       </div>
       <div style="padding:20px;">
-        <div style="margin-bottom:14px;padding:12px;background:var(--bg2,#f9fafb);border-radius:8px;font-size:13px;line-height:1.6;">
+        <div style="margin-bottom:14px;padding:12px;background:var(--surface2,#f9fafb);border-radius:8px;font-size:13px;line-height:1.6;color:var(--text,#111);">
           <strong>${escapeHtml(e.serial)}</strong> (${escapeHtml(e.model||'')})<br>
           <span style="color:var(--text2,#666);">담당: ${escapeHtml(originalWorker)}</span>
         </div>
 
-        <div style="margin-bottom:12px;padding:12px;background:#d1fae5;border-radius:8px;font-size:12px;color:#065f46;line-height:1.6;">
+        <div style="margin-bottom:12px;padding:12px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.4);border-radius:8px;font-size:12px;color:var(--text,#065f46);line-height:1.6;">
           ✅ 재작업 완료 시 <strong>에이징 없이 바로 검수대기</strong>로 복귀됩니다.<br>
           재검수를 받게 됩니다.
         </div>
 
         <div style="margin-bottom:8px;">
-          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">재작업 내용 (선택)</label>
-          <textarea id="rework-note" rows="3" placeholder="예: 서브보드 추가 교체, 펌웨어 재설치, 외관 케이스 교체..." style="width:100%;padding:8px 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg,#fff);color:var(--text,#000);resize:vertical;"></textarea>
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--text,#111);">재작업 내용 (선택)</label>
+          <textarea id="rework-note" rows="3" placeholder="예: 서브보드 추가 교체, 펌웨어 재설치, 외관 케이스 교체..." style="width:100%;padding:8px 10px;border:1px solid var(--border,#d1d5db);border-radius:6px;font-size:13px;font-family:inherit;background:var(--surface,#fff);color:var(--text,#111);resize:vertical;"></textarea>
         </div>
       </div>
-      <div style="padding:14px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--bg2,#f9fafb);">
-        <button onclick="closeReworkModal()" style="padding:0 18px;height:38px;border:1px solid var(--border2,#d1d5db);background:var(--bg,#fff);color:var(--text,#000);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
+      <div style="padding:14px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--surface2,#f9fafb);">
+        <button onclick="closeReworkModal()" style="padding:0 18px;height:38px;border:1px solid var(--border,#d1d5db);background:var(--surface,#fff);color:var(--text,#111);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
         <button id="rework-submit-btn" onclick="submitRework('${entryId}')" style="padding:0 18px;height:38px;border:none;background:#10b981;color:#fff;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">검수대기로 복귀</button>
       </div>
     </div>
