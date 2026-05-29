@@ -1228,6 +1228,10 @@ window.addEventListener('DOMContentLoaded', function(){
       <button id="inspect-subtab-defect" onclick="switchInspectSubtab('defect')" style="padding:10px 18px;background:none;border:none;border-bottom:3px solid transparent;color:var(--text2,#666);font-weight:600;font-size:14px;cursor:pointer;margin-bottom:-2px;font-family:inherit;">
         🚨 불량처리 <span id="inspect-defect-count" style="background:#ef4444;color:#fff;padding:1px 8px;border-radius:999px;font-size:11px;margin-left:4px;">0</span>
       </button>
+      <!-- ⭐ v2.25: 품질 대시보드 (QC팀 + 관리자만 보임, JS로 권한 체크 후 표시) -->
+      <button id="inspect-subtab-dashboard" onclick="switchInspectSubtab('dashboard')" style="display:none;padding:10px 18px;background:none;border:none;border-bottom:3px solid transparent;color:var(--text2,#666);font-weight:600;font-size:14px;cursor:pointer;margin-bottom:-2px;font-family:inherit;">
+        📊 품질 대시보드
+      </button>
     </div>
 
     <!-- 검수대기 서브탭 -->
@@ -1261,6 +1265,20 @@ window.addEventListener('DOMContentLoaded', function(){
         <span id="defect-view-info" style="font-size:11px;color:var(--text2);margin-left:auto;"></span>
       </div>
       <div id="defect-list"></div>
+    </div>
+
+    <!-- ⭐ v2.25: 품질 대시보드 서브탭 (신규 수리 등록 기준) -->
+    <div id="inspect-subpanel-dashboard" style="display:none;">
+      <!-- 기간 필터 -->
+      <div class="card" style="padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:13px;font-weight:600;color:var(--text);margin-right:8px;">📅 기간:</span>
+        <button class="btn btn-sm qd-period-btn" data-period="all" onclick="setQualityPeriod('all')" style="height:30px;padding:0 12px;font-size:12px;background:var(--accent);color:#fff;border-color:var(--accent);">전체</button>
+        <button class="btn btn-sm qd-period-btn" data-period="thisMonth" onclick="setQualityPeriod('thisMonth')" style="height:30px;padding:0 12px;font-size:12px;">이번 달</button>
+        <button class="btn btn-sm qd-period-btn" data-period="lastMonth" onclick="setQualityPeriod('lastMonth')" style="height:30px;padding:0 12px;font-size:12px;">지난 달</button>
+        <button class="btn btn-sm qd-period-btn" data-period="last3Months" onclick="setQualityPeriod('last3Months')" style="height:30px;padding:0 12px;font-size:12px;">최근 3개월</button>
+        <span style="margin-left:auto;font-size:11px;color:var(--text2);" id="qd-period-label">전체 기간</span>
+      </div>
+      <div id="quality-dashboard-content"></div>
     </div>
   </div>
 
@@ -1810,17 +1828,17 @@ window.addEventListener('DOMContentLoaded', function(){
     <div id="login-step-1">
       <div class="login-title">로그인</div>
       <div class="login-sub">역할을 선택해주세요</div>
-      <!-- 1행: 엔지니어 / QC (2칸) -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:24px;">
-        <button class="role-btn" onclick="showLoginEngineer()" style="padding:24px 12px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;transition:all .15s;font-size:14px;font-weight:600;">
-          <span style="font-size:32px;line-height:1;">🔧</span>
+      <!-- ⭐ v2.25: 엔지니어 강조 (2칸) / QC 축소 (1칸) — 2:1 비율 -->
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-top:24px;">
+        <button class="role-btn" onclick="showLoginEngineer()" style="padding:28px 12px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:10px;transition:all .15s;font-size:16px;font-weight:700;">
+          <span style="font-size:40px;line-height:1;">🔧</span>
           엔지니어
           <span class="role-sub" style="font-size:11px;font-weight:400;">이름 클릭으로 진입</span>
         </button>
-        <button class="role-btn" onclick="showLoginQC()" style="padding:24px 12px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;transition:all .15s;font-size:14px;font-weight:600;border-color:#10b981;color:#10b981;">
-          <span style="font-size:32px;line-height:1;">🔍</span>
+        <button class="role-btn" onclick="showLoginQC()" style="padding:18px 8px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;transition:all .15s;font-size:13px;font-weight:600;border-color:#10b981;color:#10b981;">
+          <span style="font-size:24px;line-height:1;">🔍</span>
           QC
-          <span class="role-sub" style="font-size:11px;font-weight:400;color:inherit;opacity:0.8;">품질 검수</span>
+          <span class="role-sub" style="font-size:10px;font-weight:400;color:inherit;opacity:0.8;">품질 검수</span>
         </button>
       </div>
       <!-- 2행: 관리자 (전체 폭) -->
@@ -3786,7 +3804,7 @@ async function submitAddParts(entryId) {
   }
 }
 
-// ── 🔍 검수대기 탭 렌더 (서브탭 통합 진입점) ────────────────────
+// ── 🧪 검수대기 탭 렌더 (서브탭 통합 진입점) ────────────────────
 function renderInspect() {
   // 권한 배지 표시
   const badge = document.getElementById('inspect-permission-badge');
@@ -3816,44 +3834,451 @@ function renderInspect() {
   if(wcEl) wcEl.textContent = waitCount;
   if(dcEl) dcEl.textContent = defectCount;
 
+  // ⭐ v2.25: 품질 대시보드 버튼은 QC 권한자(T3/T4/inspector/both)만 보임
+  const dashBtn = document.getElementById('inspect-subtab-dashboard');
+  if(dashBtn) {
+    dashBtn.style.display = canInspect(currentUser) ? '' : 'none';
+  }
+
   // 현재 활성 서브탭에 따라 렌더
   const waitPanel = document.getElementById('inspect-subpanel-wait');
-  const isDefectActive = waitPanel && waitPanel.style.display === 'none';
-  if(isDefectActive) {
+  const defectPanel = document.getElementById('inspect-subpanel-defect');
+  const dashPanel = document.getElementById('inspect-subpanel-dashboard');
+  if(dashPanel && dashPanel.style.display !== 'none') {
+    renderQualityDashboard();
+  } else if(defectPanel && defectPanel.style.display !== 'none') {
     renderDefectList();
   } else {
     renderInspectWaitList();
   }
 }
 
+// ⭐ v2.25: 품질 대시보드 — 신규 수리 등록 기준
+// 핵심 지표: 등록 시리얼 대비 불량 시리얼 (시리얼당 1회)
+window._qualityPeriod = window._qualityPeriod || 'all';
+
+function setQualityPeriod(period) {
+  window._qualityPeriod = period;
+  // 버튼 스타일 업데이트
+  document.querySelectorAll('.qd-period-btn').forEach(btn => {
+    if(btn.dataset.period === period) {
+      btn.style.background = 'var(--accent)';
+      btn.style.color = '#fff';
+      btn.style.borderColor = 'var(--accent)';
+    } else {
+      btn.style.background = '';
+      btn.style.color = '';
+      btn.style.borderColor = '';
+    }
+  });
+  renderQualityDashboard();
+}
+
+// 기간 범위 계산 (시작/종료 timestamp)
+function getQualityPeriodRange() {
+  const now = new Date();
+  const period = window._qualityPeriod || 'all';
+  if(period === 'all') return { start: 0, end: Infinity, label: '전체 기간' };
+  if(period === 'thisMonth') {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const end = new Date(now.getFullYear(), now.getMonth()+1, 1).getTime();
+    return { start, end, label: `${now.getFullYear()}년 ${now.getMonth()+1}월` };
+  }
+  if(period === 'lastMonth') {
+    const start = new Date(now.getFullYear(), now.getMonth()-1, 1).getTime();
+    const end = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const d = new Date(start);
+    return { start, end, label: `${d.getFullYear()}년 ${d.getMonth()+1}월` };
+  }
+  if(period === 'last3Months') {
+    const start = new Date(now.getFullYear(), now.getMonth()-2, 1).getTime();
+    const end = new Date(now.getFullYear(), now.getMonth()+1, 1).getTime();
+    return { start, end, label: '최근 3개월' };
+  }
+  return { start: 0, end: Infinity, label: '전체 기간' };
+}
+
+function renderQualityDashboard() {
+  const el = document.getElementById('quality-dashboard-content');
+  if(!el) return;
+
+  const { start, end, label } = getQualityPeriodRange();
+  const labelEl = document.getElementById('qd-period-label');
+  if(labelEl) labelEl.textContent = label;
+
+  // === 데이터 집계 ===
+  // 1) 기간 내 등록된 entries (분모)
+  const periodEntries = entries.filter(e => {
+    const t = new Date(e.date || 0).getTime();
+    return t >= start && t < end;
+  });
+  const totalRegistered = periodEntries.length;
+
+  if(totalRegistered === 0) {
+    el.innerHTML = `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
+      <div style="font-size:48px;margin-bottom:12px;">📊</div>
+      <div style="font-size:15px;">${label}에 등록된 수리건이 없습니다.</div>
+      <div style="font-size:12px;margin-top:6px;color:var(--text2,#999);">다른 기간을 선택해주세요.</div>
+    </div>`;
+    return;
+  }
+
+  // 2) 기간 내 등록 시리얼 Set (정규화)
+  const periodSerials = new Set(periodEntries.map(e => normalizeSerial(e.serial)));
+
+  // 3) 기간 내 등록 시리얼 중 불량 떴던 것 (시리얼당 1회)
+  const failInspections = (inspections || []).filter(i => i.result === 'fail');
+  const reworkInspections = (inspections || []).filter(i => i.result === 'rework_done');
+
+  const defectSerials = new Set();
+  const firstFailBySerial = {}; // 시리얼별 첫 불량 inspection
+  failInspections.forEach(insp => {
+    const sn = normalizeSerial(insp.serial);
+    if(!periodSerials.has(sn)) return; // 이 기간 등록 건만
+    defectSerials.add(sn);
+    if(!firstFailBySerial[sn]) {
+      firstFailBySerial[sn] = insp;
+    } else {
+      const existingT = new Date(firstFailBySerial[sn].inspectedAt || 0).getTime();
+      const currentT = new Date(insp.inspectedAt || 0).getTime();
+      if(currentT < existingT) firstFailBySerial[sn] = insp;
+    }
+  });
+
+  // 재작업 완료된 시리얼 (해결률 계산용)
+  const resolvedSerials = new Set();
+  reworkInspections.forEach(insp => {
+    const sn = normalizeSerial(insp.serial);
+    if(defectSerials.has(sn)) resolvedSerials.add(sn);
+  });
+
+  const totalDefects = defectSerials.size;
+  const totalResolved = resolvedSerials.size;
+  const defectRate = totalRegistered > 0 ? (totalDefects / totalRegistered * 100) : 0;
+  const resolveRate = totalDefects > 0 ? (totalResolved / totalDefects * 100) : 0;
+
+  // === 1. KPI 카드 4개 ===
+  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;">
+    <div class="card" style="padding:16px 18px;border-left:4px solid #3b82f6;">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">총 등록 시리얼</div>
+      <div style="font-size:28px;font-weight:700;color:#3b82f6;">${fmt(totalRegistered)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">${label} 기준</div>
+    </div>
+    <div class="card" style="padding:16px 18px;border-left:4px solid #ef4444;">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">불량 발생 시리얼</div>
+      <div style="font-size:28px;font-weight:700;color:#ef4444;">${fmt(totalDefects)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">시리얼당 1회 카운트</div>
+    </div>
+    <div class="card" style="padding:16px 18px;border-left:4px solid ${defectRate >= 10 ? '#ef4444' : defectRate >= 5 ? '#f59e0b' : '#10b981'};">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">전체 불량률</div>
+      <div style="font-size:28px;font-weight:700;color:${defectRate >= 10 ? '#ef4444' : defectRate >= 5 ? '#f59e0b' : '#10b981'};">${defectRate.toFixed(1)}<span style="font-size:14px;font-weight:500;margin-left:2px;">%</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">불량 / 등록</div>
+    </div>
+    <div class="card" style="padding:16px 18px;border-left:4px solid #10b981;">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">해결률</div>
+      <div style="font-size:28px;font-weight:700;color:#10b981;">${resolveRate.toFixed(1)}<span style="font-size:14px;font-weight:500;margin-left:2px;">%</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">재작업 완료 / 불량</div>
+    </div>
+  </div>`;
+
+  // === 2. 엔지니어별 불량률 ===
+  const byEngineer = {};
+  periodEntries.forEach(e => {
+    const eng = String(e.worker || '').split('::')[0] || '미정';
+    if(!byEngineer[eng]) byEngineer[eng] = { registered: 0, defects: 0 };
+    byEngineer[eng].registered++;
+    if(defectSerials.has(normalizeSerial(e.serial))) {
+      byEngineer[eng].defects++;
+    }
+  });
+  const engineerStats = Object.entries(byEngineer)
+    .map(([name, stats]) => ({
+      name,
+      registered: stats.registered,
+      defects: stats.defects,
+      rate: stats.registered > 0 ? (stats.defects / stats.registered * 100) : 0
+    }))
+    .sort((a,b) => b.rate - a.rate);
+
+  const maxEngRate = Math.max(...engineerStats.map(s => s.rate), 10);
+
+  // === 3. 불량 유형 분포 ===
+  const DEFECT_TYPES = ['외관', '기능', '강화유리', '보호필름', '부품누락', '디스플레이'];
+  const typeCount = {};
+  DEFECT_TYPES.forEach(t => typeCount[t] = 0);
+  let typeTotal = 0;
+  Object.values(firstFailBySerial).forEach(insp => {
+    try {
+      const types = JSON.parse(insp.defectTypes || '[]');
+      if(types.length === 0) {
+        typeCount['미분류'] = (typeCount['미분류'] || 0) + 1;
+        typeTotal++;
+      } else {
+        types.forEach(t => {
+          typeCount[t] = (typeCount[t] || 0) + 1;
+          typeTotal++;
+        });
+      }
+    } catch {}
+  });
+
+  // === 4. 모델별 불량 ===
+  const modelStats = {}; // {model: {registered, defects}}
+  periodEntries.forEach(e => {
+    const m = normalizeModel(e.model || '-');
+    if(!modelStats[m]) modelStats[m] = { registered: 0, defects: 0 };
+    modelStats[m].registered++;
+    if(defectSerials.has(normalizeSerial(e.serial))) {
+      modelStats[m].defects++;
+    }
+  });
+
+  // === 5. 월별 추이 ===
+  const monthlyStats = {}; // {YYYY-MM: {registered, defects}}
+  periodEntries.forEach(e => {
+    const d = new Date(e.date || 0);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if(!monthlyStats[key]) monthlyStats[key] = { registered: 0, defects: 0 };
+    monthlyStats[key].registered++;
+    if(defectSerials.has(normalizeSerial(e.serial))) {
+      monthlyStats[key].defects++;
+    }
+  });
+
+  // === HTML 조립 — 그리드 2×2 + 히트맵 ===
+  html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">`;
+
+  // (A) 엔지니어별 불량률
+  html += `<div class="card" style="padding:16px 18px;">
+    <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text);">👤 엔지니어별 불량률</div>`;
+  if(engineerStats.length === 0) {
+    html += `<div style="text-align:center;color:var(--text3);padding:20px;font-size:12px;">데이터 없음</div>`;
+  } else {
+    engineerStats.forEach(s => {
+      const color = s.rate >= 10 ? '#ef4444' : s.rate >= 5 ? '#f59e0b' : '#10b981';
+      const widthPct = maxEngRate > 0 ? (s.rate / maxEngRate * 100) : 0;
+      html += `<div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:12px;">
+          <span style="font-weight:600;color:var(--text);">${escapeHtml(s.name)}</span>
+          <span style="color:var(--text2);">
+            <span style="color:${color};font-weight:700;">${s.rate.toFixed(1)}%</span>
+            <span style="margin-left:6px;color:var(--text3);">(${s.defects}/${s.registered})</span>
+          </span>
+        </div>
+        <div style="background:var(--surface2);height:8px;border-radius:99px;overflow:hidden;">
+          <div style="background:${color};height:100%;width:${widthPct}%;border-radius:99px;transition:width .3s;"></div>
+        </div>
+      </div>`;
+    });
+  }
+  html += `</div>`;
+
+  // (B) 불량 유형 분포 (가로 막대)
+  html += `<div class="card" style="padding:16px 18px;">
+    <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text);">🏷️ 불량 유형 분포</div>`;
+  if(typeTotal === 0) {
+    html += `<div style="text-align:center;color:var(--text3);padding:20px;font-size:12px;">불량 데이터 없음</div>`;
+  } else {
+    const typeColors = {
+      '외관': '#f59e0b', '기능': '#ef4444', '강화유리': '#8b5cf6',
+      '보호필름': '#3b82f6', '부품누락': '#ec4899', '디스플레이': '#10b981',
+      '미분류': '#6b7280'
+    };
+    const sortedTypes = Object.entries(typeCount)
+      .filter(([_, c]) => c > 0)
+      .sort((a,b) => b[1] - a[1]);
+    const maxTypeCount = Math.max(...sortedTypes.map(([_, c]) => c), 1);
+    sortedTypes.forEach(([type, count]) => {
+      const widthPct = (count / maxTypeCount) * 100;
+      const ratio = (count / typeTotal * 100).toFixed(1);
+      html += `<div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:12px;">
+          <span style="font-weight:600;color:var(--text);">${escapeHtml(type)}</span>
+          <span style="color:var(--text2);">
+            <span style="color:${typeColors[type]||'#6b7280'};font-weight:700;">${count}건</span>
+            <span style="margin-left:6px;color:var(--text3);">(${ratio}%)</span>
+          </span>
+        </div>
+        <div style="background:var(--surface2);height:8px;border-radius:99px;overflow:hidden;">
+          <div style="background:${typeColors[type]||'#6b7280'};height:100%;width:${widthPct}%;border-radius:99px;transition:width .3s;"></div>
+        </div>
+      </div>`;
+    });
+  }
+  html += `</div>`;
+
+  // (C) 모델별 불량
+  html += `<div class="card" style="padding:16px 18px;">
+    <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text);">📱 모델별 불량</div>`;
+  const modelEntries = Object.entries(modelStats).sort((a,b) => b[1].registered - a[1].registered);
+  if(modelEntries.length === 0) {
+    html += `<div style="text-align:center;color:var(--text3);padding:20px;font-size:12px;">데이터 없음</div>`;
+  } else {
+    modelEntries.forEach(([model, s]) => {
+      const rate = s.registered > 0 ? (s.defects / s.registered * 100) : 0;
+      const color = model === 'S2PRO_N' ? '#6d28d9' : '#1d4ed8';
+      const bg = model === 'S2PRO_N' ? '#ede9fe' : '#dbeafe';
+      html += `<div style="margin-bottom:12px;padding:10px 12px;background:${bg};border-radius:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <span style="font-weight:700;color:${color};font-size:13px;">${escapeHtml(model)}</span>
+          <span style="font-size:11px;color:var(--text2);">${s.registered}건 등록</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">
+          <span style="color:var(--text2);">불량 ${s.defects}건</span>
+          <span style="font-weight:700;color:${rate >= 10 ? '#ef4444' : rate >= 5 ? '#f59e0b' : '#10b981'};">${rate.toFixed(1)}%</span>
+        </div>
+      </div>`;
+    });
+  }
+  html += `</div>`;
+
+  // (D) 월별 추이 (막대 차트)
+  html += `<div class="card" style="padding:16px 18px;">
+    <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text);">📅 월별 추이</div>`;
+  const monthEntries = Object.entries(monthlyStats).sort((a,b) => a[0].localeCompare(b[0]));
+  if(monthEntries.length === 0) {
+    html += `<div style="text-align:center;color:var(--text3);padding:20px;font-size:12px;">데이터 없음</div>`;
+  } else {
+    const maxMonthReg = Math.max(...monthEntries.map(([_, s]) => s.registered), 1);
+    html += `<div style="display:flex;gap:8px;align-items:flex-end;height:140px;padding-top:10px;">`;
+    monthEntries.forEach(([month, s]) => {
+      const regHeight = (s.registered / maxMonthReg) * 100;
+      const defHeight = (s.defects / maxMonthReg) * 100;
+      const rate = s.registered > 0 ? (s.defects / s.registered * 100) : 0;
+      const dispMonth = month.split('-')[1] + '월';
+      html += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+        <div style="font-size:10px;font-weight:600;color:${rate >= 10 ? '#ef4444' : 'var(--text2)'};">${rate.toFixed(1)}%</div>
+        <div style="width:100%;height:100px;background:var(--surface2);border-radius:4px;position:relative;display:flex;flex-direction:column-reverse;overflow:hidden;">
+          <div style="width:100%;height:${regHeight}%;background:linear-gradient(180deg,#dbeafe,#3b82f6);border-radius:4px 4px 0 0;position:relative;">
+            <div style="position:absolute;bottom:0;left:0;right:0;height:${(s.defects/Math.max(s.registered,1))*100}%;background:#ef4444;border-radius:0 0 4px 4px;"></div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text2);">${dispMonth}</div>
+        <div style="font-size:10px;color:var(--text3);">${s.registered}건</div>
+      </div>`;
+    });
+    html += `</div>
+    <div style="display:flex;gap:12px;justify-content:center;margin-top:10px;font-size:10px;color:var(--text2);">
+      <span><span style="display:inline-block;width:10px;height:10px;background:#3b82f6;border-radius:2px;margin-right:4px;vertical-align:middle;"></span>등록</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#ef4444;border-radius:2px;margin-right:4px;vertical-align:middle;"></span>불량</span>
+    </div>`;
+  }
+  html += `</div>`;
+
+  html += `</div>`; // grid 닫기
+
+  // === 6. 엔지니어 × 불량 유형 히트맵 ===
+  if(engineerStats.length > 0 && typeTotal > 0) {
+    // 엔지니어별 × 유형별 카운트
+    const heatmap = {};
+    engineerStats.forEach(s => { heatmap[s.name] = {}; });
+
+    Object.values(firstFailBySerial).forEach(insp => {
+      const serial = normalizeSerial(insp.serial);
+      const entry = entries.find(e => normalizeSerial(e.serial) === serial);
+      if(!entry) return;
+      const eng = String(entry.worker || '').split('::')[0] || '미정';
+      if(!heatmap[eng]) heatmap[eng] = {};
+      try {
+        const types = JSON.parse(insp.defectTypes || '[]');
+        if(types.length === 0) {
+          heatmap[eng]['미분류'] = (heatmap[eng]['미분류'] || 0) + 1;
+        } else {
+          types.forEach(t => {
+            heatmap[eng][t] = (heatmap[eng][t] || 0) + 1;
+          });
+        }
+      } catch {}
+    });
+
+    const heatmapTypes = Object.keys(typeCount).filter(t => typeCount[t] > 0);
+    let maxHeatVal = 0;
+    Object.values(heatmap).forEach(row => {
+      Object.values(row).forEach(v => { if(v > maxHeatVal) maxHeatVal = v; });
+    });
+
+    const getHeatColor = (val) => {
+      if(val === 0 || maxHeatVal === 0) return 'transparent';
+      const intensity = val / maxHeatVal;
+      // 진한 빨강 ~ 연한 빨강
+      const alpha = 0.15 + intensity * 0.7;
+      return `rgba(239,68,68,${alpha.toFixed(2)})`;
+    };
+
+    html += `<div class="card" style="padding:16px 18px;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text);">🔥 엔지니어 × 불량 유형 히트맵</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">색이 진할수록 불량 건수가 많음</div>
+      <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:12px;border-collapse:separate;border-spacing:2px;">
+        <thead><tr>
+          <th style="text-align:left;padding:6px 8px;color:var(--text2);font-weight:600;">엔지니어</th>`;
+    heatmapTypes.forEach(t => {
+      html += `<th style="text-align:center;padding:6px 8px;color:var(--text2);font-weight:600;">${escapeHtml(t)}</th>`;
+    });
+    html += `<th style="text-align:center;padding:6px 8px;color:var(--text2);font-weight:600;">합계</th>
+        </tr></thead><tbody>`;
+
+    engineerStats.forEach(s => {
+      const row = heatmap[s.name] || {};
+      let rowTotal = 0;
+      heatmapTypes.forEach(t => { rowTotal += (row[t] || 0); });
+      html += `<tr>
+        <td style="padding:6px 8px;font-weight:600;color:var(--text);">${escapeHtml(s.name)}</td>`;
+      heatmapTypes.forEach(t => {
+        const v = row[t] || 0;
+        html += `<td style="text-align:center;padding:8px;background:${getHeatColor(v)};border-radius:4px;font-weight:${v > 0 ? '700' : '400'};color:${v > 0 ? '#7f1d1d' : 'var(--text3)'};">${v || '-'}</td>`;
+      });
+      html += `<td style="text-align:center;padding:6px 8px;font-weight:700;color:var(--text);">${rowTotal}</td>
+      </tr>`;
+    });
+
+    html += `</tbody></table></div></div>`;
+  }
+
+  el.innerHTML = html;
+}
+
 // 서브탭 전환
 function switchInspectSubtab(which) {
   const waitBtn = document.getElementById('inspect-subtab-wait');
   const defectBtn = document.getElementById('inspect-subtab-defect');
+  const dashBtn = document.getElementById('inspect-subtab-dashboard');
   const waitPanel = document.getElementById('inspect-subpanel-wait');
   const defectPanel = document.getElementById('inspect-subpanel-defect');
+  const dashPanel = document.getElementById('inspect-subpanel-dashboard');
   if(!waitBtn || !defectBtn || !waitPanel || !defectPanel) return;
+
+  // 모든 버튼 비활성화 스타일
+  const resetBtn = (btn) => {
+    if(!btn) return;
+    btn.style.borderBottomColor = 'transparent';
+    btn.style.color = 'var(--text2,#666)';
+    btn.style.fontWeight = '600';
+  };
+  resetBtn(waitBtn); resetBtn(defectBtn); resetBtn(dashBtn);
+  waitPanel.style.display = 'none';
+  defectPanel.style.display = 'none';
+  if(dashPanel) dashPanel.style.display = 'none';
 
   if(which === 'wait') {
     waitBtn.style.borderBottomColor = 'var(--accent,#3b82f6)';
     waitBtn.style.color = 'var(--accent,#3b82f6)';
     waitBtn.style.fontWeight = '700';
-    defectBtn.style.borderBottomColor = 'transparent';
-    defectBtn.style.color = 'var(--text2,#666)';
-    defectBtn.style.fontWeight = '600';
     waitPanel.style.display = 'block';
-    defectPanel.style.display = 'none';
     renderInspectWaitList();
-  } else {
+  } else if(which === 'defect') {
     defectBtn.style.borderBottomColor = '#dc2626';
     defectBtn.style.color = '#dc2626';
     defectBtn.style.fontWeight = '700';
-    waitBtn.style.borderBottomColor = 'transparent';
-    waitBtn.style.color = 'var(--text2,#666)';
-    waitBtn.style.fontWeight = '600';
-    waitPanel.style.display = 'none';
     defectPanel.style.display = 'block';
     renderDefectList();
+  } else if(which === 'dashboard') {
+    if(!dashBtn || !dashPanel) return;
+    dashBtn.style.borderBottomColor = '#8b5cf6';
+    dashBtn.style.color = '#8b5cf6';
+    dashBtn.style.fontWeight = '700';
+    dashPanel.style.display = 'block';
+    renderQualityDashboard();
   }
 }
 
@@ -7828,13 +8253,38 @@ async function renderMyDash() {
   const todayEntries = myEntries.filter(e => String(e.date) === todayKey);
   const monthEntries = myEntries.filter(e => String(e.date).startsWith(monthKey));
 
+  // ⭐ v2.25: 월 KPI 달성률은 "출고 기준"으로 계산
+  // 본인이 작업했고, 이번 달에 실제로 출고 완료된 시리얼 수
+  // (등록만 하고 불량 떠서 출고 안 됐으면 KPI에 안 잡힘)
+  const myMonthShipped = (shipHistory||[]).filter(h => {
+    // 출고일이 이번 달인지
+    if(!String(h.shipDate || '').startsWith(monthKey)) return false;
+    // 이 시리얼의 entry에서 작업자가 본인인지
+    const entry = findEntryBySerial(h.serial);
+    if(!entry) return false;
+    const workerName = String(entry.worker || '').split('::')[0];
+    return workerName === currentUser;
+  });
+  const myMonthShippedCount = myMonthShipped.length;
+
+  // 오늘 출고된 본인 건 (참고용)
+  const myTodayShipped = (shipHistory||[]).filter(h => {
+    if(!String(h.shipDate || '').startsWith(todayKey)) return false;
+    const entry = findEntryBySerial(h.serial);
+    if(!entry) return false;
+    const workerName = String(entry.worker || '').split('::')[0];
+    return workerName === currentUser;
+  });
+  const myTodayShippedCount = myTodayShipped.length;
+
   // 월 목표 / 1인 하루 목표
   const monthKPI = (kpiMap||{})[monthKey] || 0;
   const wd = monthKPI ? await getWorkdays(now.getFullYear(), now.getMonth()+1) : 0;
   const activeN = (workers||[]).filter(w => w !== MASTER_NAME).length || 1;
   const dailyTarget = (monthKPI && wd) ? Math.ceil(monthKPI / wd / activeN) : 0;
   const myMonthTarget = dailyTarget && wd ? dailyTarget * wd : 0;
-  const achievePct = myMonthTarget ? Math.min(999, Math.round(monthEntries.length / myMonthTarget * 100)) : 0;
+  // ⭐ v2.25: 달성률 = 출고된 건 / 목표
+  const achievePct = myMonthTarget ? Math.min(999, Math.round(myMonthShippedCount / myMonthTarget * 100)) : 0;
 
   // 평균 처리 시간 — 같은 날 내 연속된 수리 등록 간격의 평균
   // (점심/공백 구간 제외: 90분 넘는 간격은 제외)
@@ -7920,10 +8370,10 @@ async function renderMyDash() {
         <div style="${subStyle}">공임비 ${fmt(todayRev)}원 ${dailyTarget ? `· 목표 ${dailyTarget}건` : ''}</div>
       </div>
 
-      <!-- 2. 월 목표 달성률 -->
-      <div style="${cardBaseClickable}" onclick="gotoTab('summary')" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
+      <!-- 2. 월 목표 달성률 (⭐ v2.25: 출고 기준) -->
+      <div style="${cardBaseClickable}" onclick="gotoTab('shipping')" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
         <div style="${iconStyle}">🎯</div>
-        <div style="${labelStyle}">${monthLabel} 목표 달성률</div>
+        <div style="${labelStyle}">${monthLabel} 목표 달성률 <span style="font-size:9px;color:var(--text3);font-weight:500;">(출고기준)</span></div>
         <div style="display:flex;align-items:baseline;gap:6px;">
           <span style="font-size:32px;font-weight:700;letter-spacing:-1px;color:${pctColor};line-height:1.1;">${achievePct}</span>
           <span style="font-size:16px;color:var(--text2);font-weight:500;">%</span>
@@ -7931,7 +8381,7 @@ async function renderMyDash() {
         <div style="margin-top:10px;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;">
           <div style="height:100%;width:${pctClamp}%;background:${pctColor};transition:width .4s;"></div>
         </div>
-        <div style="${subStyle}">${myMonthTarget ? `${monthEntries.length} / ${myMonthTarget}건` : '목표 미설정'}</div>
+        <div style="${subStyle}">${myMonthTarget ? `${myMonthShippedCount} / ${myMonthTarget}건 출고` : '목표 미설정'}</div>
       </div>
 
       <!-- 3. 검수대기 건 (에이징 끝났는데 아직 안 누른 건) -->
