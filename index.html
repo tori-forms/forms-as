@@ -1112,7 +1112,7 @@ window.addEventListener('DOMContentLoaded', function(){
         </div>
         <div class="form-group">
           <label class="form-label">시리얼 번호</label>
-          <input type="text" id="inp-serial" placeholder="예: SN12345678" style="width:200px;" oninput="this.value=this.value.toUpperCase();autoDetectModel();">
+          <input type="text" id="inp-serial" placeholder="예: SN12345678" style="width:200px;" oninput="this.value=this.value.toUpperCase().replace(/_/g,'');autoDetectModel();">
         </div>
         <div class="form-group">
           <label class="form-label">기종</label>
@@ -1196,7 +1196,6 @@ window.addEventListener('DOMContentLoaded', function(){
     <div class="section-header">
       <span class="section-title">🕐 에이징 중인 수리건</span>
       <div style="display:flex;gap:8px;align-items:center;">
-        <span style="font-size:13px;color:var(--muted);">자동 갱신: 1초마다</span>
         <button class="btn btn-secondary" onclick="renderAging()" style="height:34px;padding:0 12px;font-size:13px;">↻ 새로고침</button>
       </div>
     </div>
@@ -2028,7 +2027,13 @@ const GAS = 'https://script.google.com/macros/s/AKfycby4q1TNBU87K2LBDJAGrpBNlwBn
 const HOLIDAY_KEY = 'f52c0659526679a86d04083efd86dff68943cae2fa05a623ff8606b79f3f6814';
 const ADMINS = ['최민규', '서승주', '이권우'];
 const MASTER_NAME = ADMINS[0]; // legacy 호환용 (서서히 제거)
-const _isAdminUser = (name) => ADMINS.includes(name);
+// ⭐ v2.18: T3(파트장) / T4(팀장)는 자동으로 관리자 로그인 칸에 표시
+// ADMINS 배열에 명시된 이름 또는 티어가 T3/T4면 관리자로 분류
+const _isAdminUser = (name) => {
+  if(ADMINS.includes(name)) return true;
+  const tier = (typeof tierMap !== 'undefined') ? tierMap[name] : null;
+  return tier === 'T3' || tier === 'T4';
+};
 
 const WORKS = {
   pcb:    { label:'PCB 교체 (+S/N 라이팅)',               price:15180, tag:'PCB 교체',   tagColor:'#2563eb', tagBg:'#dbeafe',
@@ -2822,21 +2827,29 @@ function buildQCGrid() {
   }).join('');
 }
 
-// 관리자 3명 그리드 빌드
+// 관리자 그리드 빌드 (T3 파트장 + T4 팀장 + 명시적 ADMINS)
 function buildAdminGrid() {
   const grid = document.getElementById('admin-login-grid');
   if(!grid) return;
-  // T4(전체 마스터)는 맨 마지막에 배치, 나머지는 가나다순
-  const sorted = [...ADMINS].sort((a, b) => {
+  // ⭐ v2.18: ADMINS 명시자 + T3 + T4 모두 표시
+  const adminSet = new Set(ADMINS);
+  workers.forEach(w => {
+    const tier = tierMap[w];
+    if(tier === 'T3' || tier === 'T4') adminSet.add(w);
+  });
+  // T4(팀장)는 뒤에, T3(파트장)는 앞에, 나머지는 가나다순
+  const sorted = [...adminSet].sort((a, b) => {
     const aT4 = tierMap[a] === 'T4';
     const bT4 = tierMap[b] === 'T4';
-    if(aT4 && !bT4) return 1;   // a가 T4면 뒤로
-    if(!aT4 && bT4) return -1;  // b가 T4면 뒤로
-    return a.localeCompare(b, 'ko');  // 둘 다 아니면 가나다
+    if(aT4 && !bT4) return 1;
+    if(!aT4 && bT4) return -1;
+    return a.localeCompare(b, 'ko');
   });
-  grid.innerHTML = sorted.map(name =>
-    `<button class="admin-name-btn" data-name="${name}" onclick="selectAdmin('${name}')">${name}</button>`
-  ).join('');
+  grid.innerHTML = sorted.map(name => {
+    const tier = tierMap[name] || '';
+    const tierBadgeHtml = tier ? tierBadge(tier) : '';
+    return `<button class="admin-name-btn" data-name="${name}" onclick="selectAdmin('${name}')">${name}${tierBadgeHtml}</button>`;
+  }).join('');
 }
 
 // 로그인 단계 전환
@@ -3513,15 +3526,15 @@ function renderAging() {
     const tier = tierMap[worker] || '';
 
     html += `<div class="card" style="margin-bottom:10px;padding:0;overflow:hidden;${isMe?'border:2px solid #f59e0b;':''}">
-      <div onclick="toggleAgingWorker('${escapeHtml(worker)}')" style="cursor:pointer;padding:14px 18px;background:${isMe?'linear-gradient(135deg,#fef3c7,#fde68a)':'var(--bg2,#f9fafb)'};display:flex;align-items:center;gap:12px;user-select:none;transition:background .15s;" onmouseover="this.style.filter='brightness(0.97)'" onmouseout="this.style.filter=''">
-        <span style="font-size:14px;color:var(--text2,#666);font-family:monospace;width:18px;display:inline-block;text-align:center;">${isExpanded?'▼':'▶'}</span>
-        <span style="font-size:15px;font-weight:700;">${isMe?'👤 ':''}${escapeHtml(worker)}</span>
-        ${tier ? `<span style="background:var(--accent-bg,#dbeafe);color:var(--accent,#3b82f6);padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">${tier}</span>` : ''}
+      <div onclick="toggleAgingWorker('${escapeHtml(worker)}')" style="cursor:pointer;padding:14px 18px;background:${isMe?'linear-gradient(135deg,#fef3c7,#fde68a)':'var(--bg2,#f9fafb)'};display:flex;align-items:center;gap:12px;user-select:none;transition:background .15s;${isMe?'color:#111827;':''}" onmouseover="this.style.filter='brightness(0.97)'" onmouseout="this.style.filter=''">
+        <span style="font-size:14px;color:${isMe?'#374151':'var(--text2,#666)'};font-family:monospace;width:18px;display:inline-block;text-align:center;">${isExpanded?'▼':'▶'}</span>
+        <span style="font-size:15px;font-weight:700;${isMe?'color:#111827;':''}">${isMe?'👤 ':''}${escapeHtml(worker)}</span>
+        ${tier ? `<span style="background:${isMe?'rgba(245,158,11,.25)':'var(--accent-bg,#dbeafe)'};color:${isMe?'#92400e':'var(--accent,#3b82f6)'};padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">${tier}</span>` : ''}
         ${isMe ? '<span style="background:#f59e0b;color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">본인</span>' : ''}
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
           ${workerInProgress > 0 ? `<span style="background:#f59e0b;color:#fff;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;">🕐 ${workerInProgress}</span>` : ''}
           ${workerPassed > 0 ? `<span style="background:#10b981;color:#fff;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;">✅ ${workerPassed}</span>` : ''}
-          <span style="background:var(--bg,#fff);border:1px solid var(--border2,#d1d5db);padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;color:var(--text,#000);">총 ${items.length}건</span>
+          <span style="background:${isMe?'rgba(255,255,255,.7)':'var(--bg,#fff)'};border:1px solid ${isMe?'#f59e0b':'var(--border2,#d1d5db)'};padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;color:#111827;">총 ${items.length}건</span>
         </span>
       </div>
       <div style="display:${isExpanded?'block':'none'};">
@@ -3608,8 +3621,7 @@ async function moveToInspect(entryId) {
   const c = calcAging(e.agingStart);
   if(!c.isPassed) { notify('아직 24시간이 경과하지 않았습니다.', 'error'); return; }
 
-  if(!confirm(`${e.serial} 을(를) 검수대기로 이동하시겠습니까?`)) return;
-
+  // ⭐ v2.17: 중복 확인 팝업 제거 (이미 모달에서 액션 확정)
   try {
     notifyPersist('이동 중...');
     await gasCall({action:'updateRepairStatus', id: entryId, newStatus: STATUS_AGING_PASS});
@@ -4052,8 +4064,7 @@ async function submitRework(entryId) {
   const note = (document.getElementById('rework-note')?.value || '').trim();
   const originalWorker = String(e.worker||'').split('::')[0];
 
-  if(!confirm(`${e.serial} 재작업 완료 처리하시겠습니까?\n검수대기로 바로 복귀됩니다.`)) return;
-
+  // ⭐ v2.17: 중복 확인 팝업 제거 (이미 모달에서 액션 확정)
   try {
     const btn = document.getElementById('rework-submit-btn');
     if(btn) { btn.disabled = true; btn.textContent = '처리 중...'; }
@@ -4191,10 +4202,7 @@ async function submitInspect(entryId) {
   }
 
   const originalWorker = String(e.worker||'').split('::')[0];
-  const confirmMsg = result === 'pass'
-    ? `${e.serial} 검수완료 처리하시겠습니까?\n(출고관리로 이동됩니다)`
-    : `${e.serial} 불량 처리하시겠습니까?\n\n📋 담당 엔지니어 "${originalWorker}"에게 재작업이 배정됩니다.\n불량처리 탭에서 확인하세요.`;
-  if(!confirm(confirmMsg)) return;
+  // ⭐ v2.17: 중복 확인 팝업 제거 (이미 모달에서 액션 확정)
 
   try {
     const submitBtn = document.getElementById('inspect-submit-btn');
@@ -4425,20 +4433,26 @@ function checkSerials() {
   const allOk = new Set(ok.map(x => String(x.entry.serial).toUpperCase()));
   const allHold = new Set(hold.map(x => String(x.entry.serial).toUpperCase()));
 
-  // _N 없이 입력해도 매칭되도록: 입력값과 입력값+'_N' 둘 다 체크
+  // ⭐ v2.19: 시리얼 매칭 — 새 형식(N) + 옛 형식(_N) + 접미사 없이 모두 매칭
+  // (TO2311FB04596, TO2311FB04596N, TO2311FB04596_N 모두 같은 시리얼로 인식)
   function matchSerial(s, set) {
-    return set.has(s) || set.has(s + '_N');
+    return set.has(s) || set.has(s + 'N') || set.has(s + '_N');
   }
   function findEntry(s) {
     return entries.find(e => {
       const es = String(e.serial).toUpperCase();
-      return es === s || es === s + '_N';
+      return es === s || es === s + 'N' || es === s + '_N';
     });
   }
 
   const found = [], notInOk = [], notExist = [];
   inputSerials.forEach(s => {
-    if (matchSerial(s, allOk)) found.push(allOk.has(s) ? s : s + '_N');
+    if (matchSerial(s, allOk)) {
+      // 실제 저장된 시리얼 형식으로 반환
+      if(allOk.has(s)) found.push(s);
+      else if(allOk.has(s + 'N')) found.push(s + 'N');
+      else found.push(s + '_N');
+    }
     else if (matchSerial(s, allHold)) notInOk.push({ serial: s, reason: '보류(에이징 진행 중)' });
     else {
       const inEntries = findEntry(s);
@@ -7307,12 +7321,19 @@ async function addEntry() {
   if(!works.length){ notify('수리 항목을 하나 이상 선택하세요.','error'); return; }
   if(busy){ notify('처리 중입니다. 잠시 기다려주세요.','error'); return; }
 
-  // S2PRO_N / S2_N 기종 + 논배터리 작업 포함 시에만 시리얼 끝에 _N 자동 추가
-  // (_N 표식 = "논배터리 전환 완료" 의미. 일반 PCB/LCD/MB 수리만 하는 경우는 추가 X)
+  // ⭐ v2.19: 사용자가 _N 또는 _ 형태로 입력해도 자동으로 _ 제거
+  // (TO2311FB04596_N → TO2311FB04596N)
+  if(serial.includes('_')) {
+    serial = serial.replace(/_/g, '');
+    document.getElementById('inp-serial').value = serial;
+  }
+
+  // ⭐ v2.19: S2PRO_N / S2_N 기종 + 논배터리 작업 포함 시에만 시리얼 끝에 N 자동 추가
+  // (N 표식 = "논배터리 전환 완료" 의미. 일반 PCB/LCD/MB 수리만 하는 경우는 추가 X)
   const detectedModel = detectModel(serial);
   const isNonBatWork = works.includes('nonbat');
-  if(isNonBatWork && (detectedModel === 'S2PRO_N' || detectedModel === 'S2_N') && !serial.endsWith('_N')) {
-    serial = serial + '_N';
+  if(isNonBatWork && (detectedModel === 'S2PRO_N' || detectedModel === 'S2_N') && !serial.endsWith('N')) {
+    serial = serial + 'N';
     document.getElementById('inp-serial').value = serial;
   }
   const model = getModel() || detectedModel;
@@ -7507,12 +7528,32 @@ async function renderMyDash() {
   const todayRev = todayEntries.reduce((s,e)=>s+Number(e.total||0),0);
   const monthRev = monthEntries.reduce((s,e)=>s+Number(e.total||0),0);
 
+  // ⭐ v2.17: 검수대기 건 (에이징 끝났는데 검수대기 아직 안 누른 본인 건)
+  // 본인이 작업했고, status가 'aging'이며, 24시간 경과한 건
+  const myAgingPendingInspect = (entries||[]).filter(e => {
+    const workerName = String(e.worker||'').split('::')[0];
+    if(workerName !== currentUser) return false;
+    if(e.status !== 'aging') return false;
+    if(!e.agingStart) return false;
+    const elapsed = Date.now() - new Date(e.agingStart).getTime();
+    return elapsed >= 24 * 60 * 60 * 1000; // 24시간 경과
+  });
+
+  // ⭐ v2.17: 불량 재작업 대기 건 (검수에서 불량 판정 받고 아직 재작업 안 한 본인 건)
+  // 본인이 작업한 건 중 status가 'defect'인 것 (재작업 완료 시 status가 aging_pass로 바뀌므로 사라짐)
+  const myDefectPending = (entries||[]).filter(e => {
+    const workerName = String(e.worker||'').split('::')[0];
+    if(workerName !== currentUser) return false;
+    return e.status === 'defect';
+  });
+
   // 날짜/기간 레이블
   const monthLabel = `${now.getMonth()+1}월`;
   const dayLabel = `${now.getMonth()+1}.${now.getDate()} (${['일','월','화','수','목','금','토'][now.getDay()]})`;
 
-  // 요일별 이모지
+  // 카드 스타일
   const cardBase = 'background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);position:relative;overflow:hidden;';
+  const cardBaseClickable = cardBase + 'cursor:pointer;transition:all .15s;';
   const labelStyle = 'font-size:12px;font-weight:600;color:var(--text2);letter-spacing:-.2px;margin-bottom:8px;';
   const valStyle = 'font-size:32px;font-weight:700;letter-spacing:-1px;color:var(--text);line-height:1.1;';
   const subStyle = 'font-size:11px;color:var(--text3);margin-top:8px;';
@@ -7533,23 +7574,18 @@ async function renderMyDash() {
 
     <!-- KPI 4 카드 -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px;">
-      <div style="${cardBase}">
+      <!-- 1. 오늘 처리 건수 -->
+      <div style="${cardBaseClickable}" onclick="gotoTab('summary')" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
         <div style="${iconStyle}">🔧</div>
         <div style="${labelStyle}">오늘 처리 건수</div>
         <div style="${valStyle}">${todayEntries.length}<span style="font-size:16px;color:var(--text2);font-weight:500;"> 건</span></div>
-        <div style="${subStyle}">공임비 ${fmt(todayRev)}원 · ${dailyTarget ? `목표 ${dailyTarget}건` : '목표 미설정'}</div>
+        <div style="${subStyle}">공임비 ${fmt(todayRev)}원 ${dailyTarget ? `· 목표 ${dailyTarget}건` : ''}</div>
       </div>
 
-      <div style="${cardBase}">
-        <div style="${iconStyle}">📅</div>
-        <div style="${labelStyle}">${monthLabel} 누적 건수</div>
-        <div style="${valStyle}">${monthEntries.length}<span style="font-size:16px;color:var(--text2);font-weight:500;"> 건</span></div>
-        <div style="${subStyle}">공임비 ${fmt(monthRev)}원</div>
-      </div>
-
-      <div style="${cardBase}">
+      <!-- 2. 월 목표 달성률 -->
+      <div style="${cardBaseClickable}" onclick="gotoTab('summary')" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
         <div style="${iconStyle}">🎯</div>
-        <div style="${labelStyle}">월 목표 달성률</div>
+        <div style="${labelStyle}">${monthLabel} 목표 달성률</div>
         <div style="display:flex;align-items:baseline;gap:6px;">
           <span style="font-size:32px;font-weight:700;letter-spacing:-1px;color:${pctColor};line-height:1.1;">${achievePct}</span>
           <span style="font-size:16px;color:var(--text2);font-weight:500;">%</span>
@@ -7560,11 +7596,20 @@ async function renderMyDash() {
         <div style="${subStyle}">${myMonthTarget ? `${monthEntries.length} / ${myMonthTarget}건` : '목표 미설정'}</div>
       </div>
 
-      <div style="${cardBase}">
-        <div style="${iconStyle}">⏱️</div>
-        <div style="${labelStyle}">평균 처리 시간</div>
-        <div style="${valStyle}">${durs.length ? avgLabel : '—'}</div>
-        <div style="${subStyle}">${durs.length ? `최근 ${durs.length}개 간격 기준 (90분 이상 제외)` : '데이터 부족'}</div>
+      <!-- 3. 검수대기 건 (에이징 끝났는데 아직 안 누른 건) -->
+      <div style="${cardBaseClickable}${myAgingPendingInspect.length>0?'border:2px solid #f59e0b;':''}" onclick="gotoTab('aging')" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
+        <div style="${iconStyle}">⏰</div>
+        <div style="${labelStyle}">검수대기 이동 필요</div>
+        <div style="${valStyle}${myAgingPendingInspect.length>0?'color:#f59e0b;':''}">${myAgingPendingInspect.length}<span style="font-size:16px;color:var(--text2);font-weight:500;"> 건</span></div>
+        <div style="${subStyle}">${myAgingPendingInspect.length>0?'에이징 끝났습니다 → 클릭해서 처리':'없음'}</div>
+      </div>
+
+      <!-- 4. 불량 재작업 대기 -->
+      <div style="${cardBaseClickable}${myDefectPending.length>0?'border:2px solid #ef4444;':''}" onclick="gotoTab('inspect')" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
+        <div style="${iconStyle}">🚨</div>
+        <div style="${labelStyle}">불량 재작업 대기</div>
+        <div style="${valStyle}${myDefectPending.length>0?'color:#ef4444;':''}">${myDefectPending.length}<span style="font-size:16px;color:var(--text2);font-weight:500;"> 건</span></div>
+        <div style="${subStyle}">${myDefectPending.length>0?'재작업 필요 → 클릭해서 처리':'없음'}</div>
       </div>
     </div>
 
@@ -8020,18 +8065,30 @@ function openExchangeModal() {
 function closeExchangeModal() {}
 
 async function registerExchange() {
-  const serial = document.getElementById('exc-serial').value.trim();
+  let serial = document.getElementById('exc-serial').value.trim();
   const worker = document.getElementById('exc-worker').value;
   const reason = document.getElementById('exc-reason').value;
   const note   = document.getElementById('exc-note').value.trim();
   if(!serial) { notify('시리얼 번호를 입력하세요.', 'error'); return; }
   if(!worker)  { notify('엔지니어를 선택하세요.', 'error'); return; }
 
-  // 중복 체크
-  if(exchangeList.find(x => String(x.serial) === serial || String(x.serial) === serial + '_N')) {
+  // ⭐ v2.19: 시리얼에 _ 포함되어 있으면 자동 제거
+  if(serial.includes('_')) {
+    serial = serial.replace(/_/g, '');
+    document.getElementById('exc-serial').value = serial;
+  }
+
+  // ⭐ v2.19: 중복 체크 — 새 형식(N) + 옛 형식(_N) 모두 매칭
+  if(exchangeList.find(x => {
+    const xs = String(x.serial);
+    return xs === serial || xs === serial + 'N' || xs === serial + '_N';
+  })) {
     notify('이미 교품 처리된 시리얼입니다.', 'error'); return;
   }
-  if(entries.find(e => String(e.serial) === serial || String(e.serial) === serial + '_N')) {
+  if(entries.find(e => {
+    const es = String(e.serial);
+    return es === serial || es === serial + 'N' || es === serial + '_N';
+  })) {
     notify('이미 수리 등록된 시리얼입니다.', 'error'); return;
   }
 
@@ -8888,6 +8945,11 @@ function delSearch(id) {
 
 /* 엔지니어 관리 */
 async function addWorker() {
+  // ⭐ v2.18: 작업자 추가는 T4(팀장)만 가능
+  if(!isFullAdmin()) {
+    notify('작업자 추가는 팀장(T4)만 가능합니다.', 'error');
+    return;
+  }
   // 두 입력 폼 중 값이 있는 곳 사용 (관리자 탭과 작업자 관리 탭)
   const inp1 = document.getElementById('inp-worker');
   const inp2 = document.getElementById('new-worker');
@@ -8956,6 +9018,11 @@ function serializeWorkers() {
 document.getElementById('inp-worker')?.addEventListener('keydown', e=>{if(e.key==='Enter')addWorker();});
 
 function removeWorker(name) {
+  // ⭐ v2.18: 작업자 삭제는 T4(팀장)만 가능
+  if(!isFullAdmin()) {
+    notify('작업자 삭제는 팀장(T4)만 가능합니다.', 'error');
+    return;
+  }
   // 권한 체크
   if(!canManageWorker(name)) {
     notify('해당 엔지니어를 삭제할 권한이 없습니다.', 'error');
