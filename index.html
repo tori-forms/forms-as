@@ -1828,25 +1828,26 @@ window.addEventListener('DOMContentLoaded', function(){
     <div id="login-step-1">
       <div class="login-title">로그인</div>
       <div class="login-sub">역할을 선택해주세요</div>
-      <!-- ⭐ v2.25: 엔지니어 강조 (2칸) / QC 축소 (1칸) — 2:1 비율 -->
-      <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-top:24px;">
-        <button class="role-btn" onclick="showLoginEngineer()" style="padding:28px 12px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:10px;transition:all .15s;font-size:16px;font-weight:700;">
-          <span style="font-size:40px;line-height:1;">🔧</span>
-          엔지니어
-          <span class="role-sub" style="font-size:11px;font-weight:400;">이름 클릭으로 진입</span>
-        </button>
-        <button class="role-btn" onclick="showLoginQC()" style="padding:18px 8px;border-radius:14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;transition:all .15s;font-size:13px;font-weight:600;border-color:#10b981;color:#10b981;">
-          <span style="font-size:24px;line-height:1;">🔍</span>
-          QC
-          <span class="role-sub" style="font-size:10px;font-weight:400;color:inherit;opacity:0.8;">품질 검수</span>
+      <!-- ⭐ v2.27: 엔지니어 한 줄 (강조) / QC + 관리자 반반 -->
+      <!-- 1행: 엔지니어 (전체 폭) -->
+      <div style="margin-top:24px;">
+        <button class="role-btn" onclick="showLoginEngineer()" style="width:100%;padding:32px 12px;border-radius:14px;cursor:pointer;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:14px;transition:all .15s;font-size:18px;font-weight:700;">
+          <span style="font-size:42px;line-height:1;">🔧</span>
+          <span>엔지니어</span>
+          <span class="role-sub" style="font-size:12px;font-weight:400;">이름 클릭으로 진입</span>
         </button>
       </div>
-      <!-- 2행: 관리자 (전체 폭) -->
-      <div style="margin-top:12px;">
-        <button class="role-btn" onclick="showLoginAdmin()" style="width:100%;padding:18px 12px;border-radius:14px;cursor:pointer;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:12px;transition:all .15s;font-size:14px;font-weight:600;">
-          <span style="font-size:24px;line-height:1;">⚙️</span>
+      <!-- 2행: QC / 관리자 (반반) -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+        <button class="role-btn" onclick="showLoginQC()" style="padding:18px 12px;border-radius:14px;cursor:pointer;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:10px;transition:all .15s;font-size:14px;font-weight:600;border-color:#10b981;color:#10b981;">
+          <span style="font-size:22px;line-height:1;">🔍</span>
+          <span>QC</span>
+          <span class="role-sub" style="font-size:10px;font-weight:400;color:inherit;opacity:0.8;">품질 검수</span>
+        </button>
+        <button class="role-btn" onclick="showLoginAdmin()" style="padding:18px 12px;border-radius:14px;cursor:pointer;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:10px;transition:all .15s;font-size:14px;font-weight:600;">
+          <span style="font-size:22px;line-height:1;">⚙️</span>
           <span>관리자</span>
-          <span class="role-sub" style="font-size:11px;font-weight:400;">비밀번호 필요</span>
+          <span class="role-sub" style="font-size:10px;font-weight:400;">비밀번호 필요</span>
         </button>
       </div>
     </div>
@@ -3854,7 +3855,7 @@ function renderInspect() {
 }
 
 // ⭐ v2.25: 품질 대시보드 — 신규 수리 등록 기준
-// 핵심 지표: 등록 시리얼 대비 불량 시리얼 (시리얼당 1회)
+// 핵심 지표: 등록 수리건 대비 불량 수리건 (수리건당 1회)
 window._qualityPeriod = window._qualityPeriod || 'all';
 
 function setQualityPeriod(period) {
@@ -3926,7 +3927,7 @@ function renderQualityDashboard() {
   // 2) 기간 내 등록 시리얼 Set (정규화)
   const periodSerials = new Set(periodEntries.map(e => normalizeSerial(e.serial)));
 
-  // 3) 기간 내 등록 시리얼 중 불량 떴던 것 (시리얼당 1회)
+  // 3) 기간 내 등록 수리건 중 불량 떴던 것 (수리건당 1회)
   const failInspections = (inspections || []).filter(i => i.result === 'fail');
   const reworkInspections = (inspections || []).filter(i => i.result === 'rework_done');
 
@@ -3960,14 +3961,14 @@ function renderQualityDashboard() {
   // === 1. KPI 카드 4개 ===
   let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;">
     <div class="card" style="padding:16px 18px;border-left:4px solid #3b82f6;">
-      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">총 등록 시리얼</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">총 등록 수리건</div>
       <div style="font-size:28px;font-weight:700;color:#3b82f6;">${fmt(totalRegistered)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
       <div style="font-size:10px;color:var(--text3);margin-top:4px;">${label} 기준</div>
     </div>
     <div class="card" style="padding:16px 18px;border-left:4px solid #ef4444;">
-      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">불량 발생 시리얼</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">불량 발생 건</div>
       <div style="font-size:28px;font-weight:700;color:#ef4444;">${fmt(totalDefects)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">시리얼당 1회 카운트</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">수리건당 1회 카운트</div>
     </div>
     <div class="card" style="padding:16px 18px;border-left:4px solid ${defectRate >= 10 ? '#ef4444' : defectRate >= 5 ? '#f59e0b' : '#10b981'};">
       <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">전체 불량률</div>
@@ -4011,18 +4012,23 @@ function renderQualityDashboard() {
   DEFECT_TYPES.forEach(t => typeCount[t] = 0);
   let typeTotal = 0;
   Object.values(firstFailBySerial).forEach(insp => {
+    // ⭐ v2.27: defectTypes 파싱 실패해도 무조건 미분류로 카운트
+    let types = [];
     try {
-      const types = JSON.parse(insp.defectTypes || '[]');
-      if(types.length === 0) {
-        typeCount['미분류'] = (typeCount['미분류'] || 0) + 1;
+      types = JSON.parse(insp.defectTypes || '[]');
+      if(!Array.isArray(types)) types = [];
+    } catch {
+      types = [];
+    }
+    if(types.length === 0) {
+      typeCount['미분류'] = (typeCount['미분류'] || 0) + 1;
+      typeTotal++;
+    } else {
+      types.forEach(t => {
+        typeCount[t] = (typeCount[t] || 0) + 1;
         typeTotal++;
-      } else {
-        types.forEach(t => {
-          typeCount[t] = (typeCount[t] || 0) + 1;
-          typeTotal++;
-        });
-      }
-    } catch {}
+      });
+    }
   });
 
   // === 4. 모델별 불량 ===
@@ -4183,16 +4189,21 @@ function renderQualityDashboard() {
       const eng = String(entry.worker || '').split('::')[0] || '미정';
       // ⭐ v2.26: 활동중 작업자만 (engineerStats에 이미 있는 사람만)
       if(!heatmap[eng]) return; // 퇴사자/미정 제외
+      // ⭐ v2.27: defectTypes 파싱 실패해도 미분류로
+      let types = [];
       try {
-        const types = JSON.parse(insp.defectTypes || '[]');
-        if(types.length === 0) {
-          heatmap[eng]['미분류'] = (heatmap[eng]['미분류'] || 0) + 1;
-        } else {
-          types.forEach(t => {
-            heatmap[eng][t] = (heatmap[eng][t] || 0) + 1;
-          });
-        }
-      } catch {}
+        types = JSON.parse(insp.defectTypes || '[]');
+        if(!Array.isArray(types)) types = [];
+      } catch {
+        types = [];
+      }
+      if(types.length === 0) {
+        heatmap[eng]['미분류'] = (heatmap[eng]['미분류'] || 0) + 1;
+      } else {
+        types.forEach(t => {
+          heatmap[eng][t] = (heatmap[eng][t] || 0) + 1;
+        });
+      }
     });
 
     const heatmapTypes = Object.keys(typeCount).filter(t => typeCount[t] > 0);
@@ -4379,7 +4390,7 @@ function switchDefectView(mode) {
   renderDefectList();
 }
 
-// ⭐ v2.23: 전체 품질 이력 렌더 (불량 발생 시리얼만, 시리얼당 1건, 첫 불량 메모만)
+// ⭐ v2.23: 전체 품질 이력 렌더 (불량 발생 수리건만, 수리건당 1건, 첫 불량 메모만)
 function renderQualityHistory() {
   const el = document.getElementById('defect-list');
   if(!el) return;
@@ -4436,9 +4447,9 @@ function renderQualityHistory() {
   // 상단 통계
   let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">
     <div class="card" style="padding:12px 14px;border-left:3px solid #ef4444;">
-      <div style="font-size:11px;color:var(--text2);">총 불량 시리얼</div>
+      <div style="font-size:11px;color:var(--text2);">총 불량 수리건</div>
       <div style="font-size:22px;font-weight:700;color:#ef4444;">${totalDefectSerials}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:2px;">시리얼당 1회 카운트</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px;">수리건당 1회 카운트</div>
     </div>
     <div class="card" style="padding:12px 14px;border-left:3px solid #6366f1;">
       <div style="font-size:11px;color:var(--text2);">엔지니어 수</div>
@@ -5039,16 +5050,21 @@ function renderShipping() {
   if(exportBtn) exportBtn.style.display = ok.length ? 'inline-flex' : 'none';
   if(completeBtn) completeBtn.style.display = ok.length ? 'inline-flex' : 'none';
 
+  // ⭐ v2.27: 출고 가능 + 보류 합산 공임비 집계 (출고 관리 화면에 있는 수리건)
+  const okFee = ok.reduce((s, x) => s + (x.entry ? Number(x.entry.total || 0) : 0), 0);
+  const holdFee = hold.reduce((s, x) => s + (x.entry ? Number(x.entry.total || 0) : 0), 0);
+  const totalShippingFee = okFee + holdFee;
+
   let h = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
     <div class="stat-card" style="border-left:4px solid var(--green);">
       <div class="stat-label">출고 가능</div>
       <div class="stat-val" style="color:var(--green);">${ok.length}<span style="font-size:14px;color:var(--text2);font-weight:400;">건</span></div>
-      <div class="stat-sub">🔍 검수완료 상태</div>
+      <div class="stat-sub">🔍 검수완료 상태 ${hold.length > 0 ? `<span style="color:var(--amber);">· 보류 ${hold.length}건</span>` : ''}</div>
     </div>
-    <div class="stat-card" style="border-left:4px solid var(--amber);">
-      <div class="stat-label">보류 (검수 진행 중)</div>
-      <div class="stat-val" style="color:var(--amber);">${hold.length}<span style="font-size:14px;color:var(--text2);font-weight:400;">건</span></div>
-      <div class="stat-sub">에이징/검수대기/불량</div>
+    <div class="stat-card" style="border-left:4px solid #6366f1;">
+      <div class="stat-label">출고 관리 공임비</div>
+      <div class="stat-val" style="color:#6366f1;font-size:22px;">${fmt(totalShippingFee)}<span style="font-size:12px;color:var(--text2);font-weight:400;">원</span></div>
+      <div class="stat-sub">출고 가능 ${fmt(okFee)}원 ${hold.length > 0 ? `· 보류 ${fmt(holdFee)}원` : ''}</div>
     </div>
     <div class="stat-card" style="border-left:4px solid #16a34a;">
       <div class="stat-label">출고 완료 (${dateVal})</div>
