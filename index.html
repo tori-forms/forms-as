@@ -3982,9 +3982,12 @@ function renderQualityDashboard() {
   </div>`;
 
   // === 2. 엔지니어별 불량률 ===
+  // ⭐ v2.26: 현재 작업자 목록(workers)에 있는 사람만 표시 (퇴사자 제외)
+  const activeWorkerSet = new Set(workers || []);
   const byEngineer = {};
   periodEntries.forEach(e => {
     const eng = String(e.worker || '').split('::')[0] || '미정';
+    if(!activeWorkerSet.has(eng)) return; // 퇴사자(목록에 없는 사람) 제외
     if(!byEngineer[eng]) byEngineer[eng] = { registered: 0, defects: 0 };
     byEngineer[eng].registered++;
     if(defectSerials.has(normalizeSerial(e.serial))) {
@@ -4178,7 +4181,8 @@ function renderQualityDashboard() {
       const entry = entries.find(e => normalizeSerial(e.serial) === serial);
       if(!entry) return;
       const eng = String(entry.worker || '').split('::')[0] || '미정';
-      if(!heatmap[eng]) heatmap[eng] = {};
+      // ⭐ v2.26: 활동중 작업자만 (engineerStats에 이미 있는 사람만)
+      if(!heatmap[eng]) return; // 퇴사자/미정 제외
       try {
         const types = JSON.parse(insp.defectTypes || '[]');
         if(types.length === 0) {
@@ -9193,8 +9197,18 @@ async function renderHistory() {
       const monthKey = `${y}-${String(m).padStart(2,'0')}`;
       const monthKPI = kpiMap[monthKey] || 0;
       if(monthKPI) {
-        const allMonthEntries = entries.filter(e=>String(e.date).startsWith(monthKey));
-        const done = allMonthEntries.length;
+        // ⭐ v2.26: KPI 현황은 "출고 기준"으로 계산
+        // - 현재 완료: 해당 월에 출고된 시리얼 수
+        // - 기간 공임비: 해당 월에 출고된 시리얼의 공임비 합계
+        const monthShipped = (shipHistory||[]).filter(h => 
+          String(h.shipDate || '').startsWith(monthKey)
+        );
+        const done = monthShipped.length;
+        // 출고된 시리얼의 공임비 합계 (entries에서 매칭해서 가져옴)
+        const monthShippedRev = monthShipped.reduce((s, h) => {
+          const e = findEntryBySerial(h.serial);
+          return s + (e ? Number(e.total || 0) : 0);
+        }, 0);
         const remain = Math.max(0, monthKPI - done);
         const pct = Math.min(100, Math.round(done/monthKPI*100));
         const wd = await getWorkdays(y, m);
@@ -9204,7 +9218,7 @@ async function renderHistory() {
         const progColor = pct>=100?'var(--green)':pct>=70?'var(--amber)':'var(--red)';
         kpiHtml = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;box-shadow:var(--shadow);width:100%;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-            <span style="font-size:14px;font-weight:700;">📊 ${y}년 ${m}월 KPI 현황</span>
+            <span style="font-size:14px;font-weight:700;">📊 ${y}년 ${m}월 KPI 현황 <span style="font-size:10px;color:var(--text3);font-weight:500;margin-left:4px;">(출고기준)</span></span>
             <span style="font-size:22px;font-weight:700;color:${progColor};">${pct}%</span>
           </div>
           <div style="background:var(--surface2);border-radius:6px;height:8px;overflow:hidden;margin-bottom:16px;">
@@ -9216,7 +9230,7 @@ async function renderHistory() {
               <div style="font-size:17px;font-weight:700;">${fmt(monthKPI)}<span style="font-size:11px;color:var(--text2);">대</span></div>
             </div>
             <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-              <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">현재 완료</div>
+              <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">현재 완료 <span style="color:var(--accent);">(출고)</span></div>
               <div style="font-size:17px;font-weight:700;color:var(--accent);">${fmt(done)}<span style="font-size:11px;color:var(--text2);">대</span></div>
             </div>
             <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
@@ -9229,12 +9243,12 @@ async function renderHistory() {
               <div style="font-size:10px;color:var(--text3);margin-top:3px;">평일 ${wd}일 · ${ac}명</div>
             </div>
             <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-              <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">기간 수리</div>
-              <div style="font-size:17px;font-weight:700;">${rangeList.length}<span style="font-size:11px;color:var(--text2);">건</span></div>
+              <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">출고 건수</div>
+              <div style="font-size:17px;font-weight:700;">${fmt(done)}<span style="font-size:11px;color:var(--text2);">건</span></div>
             </div>
             <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-              <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">기간 공임비</div>
-              <div style="font-size:15px;font-weight:700;">${fmt(totalRev)}<span style="font-size:10px;color:var(--text2);">원</span></div>
+              <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">출고 공임비</div>
+              <div style="font-size:15px;font-weight:700;">${fmt(monthShippedRev)}<span style="font-size:10px;color:var(--text2);">원</span></div>
             </div>
           </div>
         </div>`;
