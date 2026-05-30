@@ -4861,7 +4861,9 @@ async function submitRework(entryId) {
     const btn = document.getElementById('rework-submit-btn');
     if(btn) { btn.disabled = true; btn.textContent = '처리 중...'; }
 
-    await gasCall({
+    console.log('[재작업 완료] entryId:', entryId, 'reworker:', currentUser);
+
+    const resp = await gasCall({
       action: 'completeRework',
       id: entryId,
       serial: e.serial || '',
@@ -4870,6 +4872,7 @@ async function submitRework(entryId) {
       reworker: currentUser || '',
       reworkNote: note
     });
+    console.log('[재작업 완료] GAS 응답:', resp);
 
     // 로컬 갱신
     e.status = STATUS_AGING_PASS;
@@ -4877,6 +4880,12 @@ async function submitRework(entryId) {
 
     closeReworkModal();
     notify('✅ 재작업 완료. 검수대기로 복귀되었습니다.');
+    renderInspect();
+
+    // ⭐ v2.31: 서버 fresh 데이터로 즉시 검증 (5초 기다리지 않음)
+    console.log('[재작업 완료] 서버 동기화 시작...');
+    await syncData(true);
+    console.log('[재작업 완료] 서버 동기화 완료');
     renderInspect();
   } catch(err) {
     notify('처리 실패: ' + (err.message||err), 'error');
@@ -4896,10 +4905,12 @@ function openInspectModal(entryId, initResult) {
 
   const isFail = initResult === 'fail';
 
-  const defectCheckboxes = Object.entries(DEFECT_TYPES).map(([k,v]) =>
+  // ⭐ v2.31: 체크박스 value를 한글로 통일 (수정 모달과 동일하게)
+  const DEFECT_TYPE_LABELS = ['외관', '기능', '강화유리', '보호필름', '부품누락', '디스플레이'];
+  const defectCheckboxes = DEFECT_TYPE_LABELS.map(label =>
     `<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--border2,#d1d5db);border-radius:8px;cursor:pointer;font-size:13px;transition:all .15s;background:var(--bg,#fff);" onmouseover="this.style.borderColor='#dc2626'" onmouseout="this.style.borderColor='var(--border2,#d1d5db)'">
-      <input type="checkbox" class="defect-cb" value="${k}" style="accent-color:#dc2626;width:16px;height:16px;cursor:pointer;">
-      <span style="color:var(--text,#000);">${v}</span>
+      <input type="checkbox" class="defect-cb" value="${label}" style="accent-color:#dc2626;width:16px;height:16px;cursor:pointer;">
+      <span style="color:var(--text,#000);">${label}</span>
     </label>`
   ).join('');
 
@@ -5000,7 +5011,9 @@ async function submitInspect(entryId) {
     const submitBtn = document.getElementById('inspect-submit-btn');
     if(submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '처리 중...'; }
 
-    await gasCall({
+    console.log('[검수 처리] entryId:', entryId, 'result:', result, 'defectTypes:', defectTypes);
+
+    const resp = await gasCall({
       action: 'addInspection',
       repairId: entryId,
       serial: e.serial || '',
@@ -5011,6 +5024,7 @@ async function submitInspect(entryId) {
       defectTypes: JSON.stringify(defectTypes),
       defectReason: defectReason
     });
+    console.log('[검수 처리] GAS 응답:', resp);
 
     // 로컬 상태 갱신
     if(result === 'pass') {
@@ -5035,6 +5049,12 @@ async function submitInspect(entryId) {
     notify(result === 'pass'
       ? '✅ 검수완료 처리되었습니다.'
       : `❌ 불량 처리되었습니다. ${originalWorker}님에게 재작업 배정.`);
+    renderInspect();
+
+    // ⭐ v2.31: 서버 fresh 데이터로 즉시 검증 (5초 기다리지 않음)
+    console.log('[검수 처리] 서버 동기화 시작...');
+    await syncData(true);
+    console.log('[검수 처리] 서버 동기화 완료');
     renderInspect();
   } catch(err) {
     notify('처리 실패: ' + (err.message||err), 'error');
