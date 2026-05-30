@@ -2415,6 +2415,8 @@ async function syncData(silent=false) {
       if(model === 'S2N') model = 'S2_N';
       return {...e, model, parts};
     });
+    // ⭐ v2.33: 변경 보호 적용 (status 변경 등 보호)
+    entries = applyPendingChanges(entries, 'entries', 'id');
     // workers: 'name::T2::part::status::dailyTarget::role' 형식 지원
     const rawWorkers = data.workers || [];
     workers = rawWorkers.map(w => String(w).split('::')[0]);
@@ -2496,7 +2498,9 @@ async function syncData(silent=false) {
       memo: (d.memo||'').replace(/\[BR\]/g,'\n').replace(/\[CL\]/g,'::').replace(/\[PP\]/g,'||')
     }));
     // === 검수 시스템 (Phase2): 검수 이력 + 서버시간 ===
-    inspections = data.inspections || [];
+    // ⭐ v2.33: 변경 보호 적용 - 최근 변경한 항목은 서버 데이터로 덮어쓰지 않음
+    const rawInspections = data.inspections || [];
+    inspections = applyPendingChanges(rawInspections, 'inspections', 'qualityId');
     if(data.agingDurationMs) agingDurationMs = Number(data.agingDurationMs);
     if(data.serverTime) {
       const serverMs = new Date(data.serverTime).getTime();
@@ -4615,12 +4619,15 @@ async function submitQualityEdit(qualityId) {
     closeQualityEditModal();
     refreshInspectViews();
 
-    // ⭐ v2.32: 1.5초 후 서버 검증 (시트 반영 충분히 기다림)
-    setTimeout(async () => {
-      await syncData(true);
-      refreshInspectViews();
-      console.log('[품질이력 수정] 서버 검증 완료');
-    }, 1500);
+    // ⭐ v2.33: 변경 보호 등록 (3초간)
+    // → 자동 동기화가 옛 데이터 받아와도 덮어쓰지 못함
+    markPendingChange('inspections', qualityId, {
+      type: 'update',
+      data: {
+        defectTypes: checkedTypes,
+        defectReason: reason
+      }
+    }, 3000);
 
   } catch(err) {
     console.error('[품질이력 수정] 에러:', err);
@@ -4645,19 +4652,13 @@ function deleteQualityNote(qualityId, serial) {
           throw new Error(resp.msg || '서버 삭제 실패');
         }
 
-        // 1차: 로컬에서 즉시 제거 + 화면 갱신
+        // ⭐ v2.33: 로컬 즉시 제거 + 변경 보호 등록 (3초간)
+        // → 자동 동기화가 옛 데이터 받아와도 덮어쓰지 못함
         inspections = inspections.filter(i => String(i.qualityId) !== String(qualityId));
-        console.log('[품질이력 삭제] 로컬 inspections 길이:', inspections.length);
+        markPendingChange('inspections', qualityId, { type: 'delete' }, 3000);
 
         notify('불량 이력이 삭제되었습니다.');
         refreshInspectViews();
-
-        // ⭐ v2.32: 1.5초 후 서버 검증 (시트 반영 충분히 기다림)
-        setTimeout(async () => {
-          await syncData(true);
-          refreshInspectViews();
-          console.log('[품질이력 삭제] 서버 검증 완료');
-        }, 1500);
 
       } catch(err) {
         console.error('[품질이력 삭제] 에러:', err);
@@ -4883,12 +4884,14 @@ async function submitRework(entryId) {
     notify('✅ 재작업 완료. 검수대기로 복귀되었습니다.');
     renderInspect();
 
-    // ⭐ v2.32: 1.5초 후 서버 검증
-    setTimeout(async () => {
-      await syncData(true);
-      renderInspect();
-      console.log('[재작업 완료] 서버 검증 완료');
-    }, 1500);
+    // ⭐ v2.33: 변경 보호 등록 (status 보호, 3초간)
+    markPendingChange('entries', entryId, {
+      type: 'update',
+      data: {
+        status: STATUS_AGING_PASS,
+        agingStart: e.agingStart
+      }
+    }, 3000);
   } catch(err) {
     notify('처리 실패: ' + (err.message||err), 'error');
     const btn = document.getElementById('rework-submit-btn');
@@ -5053,12 +5056,14 @@ async function submitInspect(entryId) {
       : `❌ 불량 처리되었습니다. ${originalWorker}님에게 재작업 배정.`);
     renderInspect();
 
-    // ⭐ v2.32: 1.5초 후 서버 검증 (시트 반영 시간 충분히 기다림)
-    setTimeout(async () => {
-      await syncData(true);
-      renderInspect();
-      console.log('[검수 처리] 서버 검증 완료');
-    }, 1500);
+    // ⭐ v2.33: 변경 보호 등록 (status 보호, 3초간)
+    markPendingChange('entries', entryId, {
+      type: 'update',
+      data: {
+        status: e.status,
+        agingStart: e.agingStart
+      }
+    }, 3000);
   } catch(err) {
     notify('처리 실패: ' + (err.message||err), 'error');
     const submitBtn = document.getElementById('inspect-submit-btn');
@@ -7779,7 +7784,7 @@ function normalizeModel(m) {
   return model;
 }
 
-/* ⭐ v2.28: defectTypes 안전 파싱 — GAS가 이미 배열로 반환하는 경우와
+/* ⭐ v2.32: defectTypes 안전 파싱 — GAS가 이미 배열로 반환하는 경우와
    문자열(JSON)로 반환하는 경우 둘 다 처리
    ⭐ v2.29: 영어 키(appearance, function 등) → 한글(외관, 기능)로 자동 변환 */
 const DEFECT_TYPE_KEY_TO_LABEL = {
@@ -7804,6 +7809,65 @@ function parseDefectTypes(v) {
   }
   // 영어 키가 있으면 한글로 변환
   return arr.map(t => DEFECT_TYPE_KEY_TO_LABEL[t] || t);
+}
+
+/* ⭐ v2.33: 변경 보호 메커니즘
+   GAS 시트의 쓰기→읽기 lag 때문에 자동 동기화가 옛 데이터를 받아오는 문제 해결.
+   로컬 변경 직후 3초간 그 변경 사항을 보호하여 자동 동기화가 덮어쓰지 못하게 함. */
+window._pendingChanges = window._pendingChanges || {
+  inspections: {}, // { qualityId: { type:'delete'|'update', expire, data } }
+  entries: {}     // { entryId: { type:'update', expire, data } }
+};
+
+/** 변경 보호 등록
+ * @param {string} kind 'inspections' or 'entries'
+ * @param {string} id 식별자 (qualityId, entryId)
+ * @param {object} change { type, data? } - type: 'delete'|'update', data: 부분 업데이트
+ * @param {number} durationMs 보호 시간 (기본 3000ms)
+ */
+function markPendingChange(kind, id, change, durationMs = 3000) {
+  if(!window._pendingChanges[kind]) window._pendingChanges[kind] = {};
+  window._pendingChanges[kind][String(id)] = {
+    ...change,
+    expire: Date.now() + durationMs
+  };
+  console.log(`[변경보호] ${kind}/${id} 보호 등록:`, change);
+}
+
+/** 서버에서 받은 배열에 보호 중인 변경 사항을 적용
+ * - delete 보호: 결과 배열에서 제외
+ * - update 보호: 해당 항목에 보호된 데이터 덮어씌움
+ * @param {array} arr 서버 데이터
+ * @param {string} kind 'inspections' or 'entries'
+ * @param {string} idKey 'qualityId' or 'id'
+ */
+function applyPendingChanges(arr, kind, idKey) {
+  const pending = window._pendingChanges[kind] || {};
+  const now = Date.now();
+
+  // 만료된 보호 항목 정리
+  Object.keys(pending).forEach(id => {
+    if(pending[id].expire < now) {
+      delete pending[id];
+      console.log(`[변경보호] ${kind}/${id} 보호 해제 (만료)`);
+    }
+  });
+
+  if(Object.keys(pending).length === 0) return arr;
+
+  return arr
+    .filter(item => {
+      const change = pending[String(item[idKey])];
+      // delete 보호 → 결과에서 제외
+      return !(change && change.type === 'delete');
+    })
+    .map(item => {
+      const change = pending[String(item[idKey])];
+      if(change && change.type === 'update' && change.data) {
+        return { ...item, ...change.data };
+      }
+      return item;
+    });
 }
 
 /* ⭐ v2.20: 두 시리얼이 같은지 비교 (_ 무시) */
