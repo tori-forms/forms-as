@@ -2407,15 +2407,15 @@ function setSyncStatus(state) {
 
 /* 전체 로드 */
 let _syncInProgress = false;
-async function syncData(silent=false) {
+async function syncData(silent=false, force=false) {
   // ⭐ v2.12: 중복 실행 방지 — 이전 syncData가 진행 중이면 스킵
   if(_syncInProgress) {
     if(!silent) notify('이미 동기화 중입니다. 잠시만 기다려주세요.');
     return;
   }
   // ⭐ v2.34: 자동 동기화 정지 중이면 silent 모드일 때만 건너뛰기
-  // (사용자가 명시적 새로고침 클릭한 경우(silent=false)는 정지 무시)
-  if(silent && isSyncPaused()) {
+  // ⭐ v2.35: force=true면 정지 상태도 무시하고 강제 실행
+  if(silent && !force && isSyncPaused()) {
     console.log('[syncData] 자동 동기화 일시 정지 중, 건너뜀');
     return;
   }
@@ -4650,29 +4650,13 @@ async function submitQualityEdit(qualityId) {
       throw new Error(resp.msg || '서버 업데이트 실패 - GAS 배포 확인 필요');
     }
 
-    // 1차: 로컬 즉시 업데이트 + 화면 갱신
-    const idx = inspections.findIndex(i => String(i.qualityId) === String(qualityId));
-    if(idx >= 0) {
-      inspections[idx] = {
-        ...inspections[idx],
-        defectTypes: checkedTypes,
-        defectReason: reason
-      };
-    }
+    // ⭐ v2.35: 옵션 B - 시트 반영 대기 후 한 번에 갱신
+    await new Promise(r => setTimeout(r, 1500));
+    await syncData(true, true);
 
     notify('불량 이력이 수정되었습니다.');
     closeQualityEditModal();
     refreshInspectViews();
-
-    // ⭐ v2.33: 변경 보호 등록 (3초간)
-    // → 자동 동기화가 옛 데이터 받아와도 덮어쓰지 못함
-    markPendingChange('inspections', qualityId, {
-      type: 'update',
-      data: {
-        defectTypes: checkedTypes,
-        defectReason: reason
-      }
-    }, 3000);
 
   } catch(err) {
     console.error('[품질이력 수정] 에러:', err);
@@ -4697,10 +4681,10 @@ function deleteQualityNote(qualityId, serial) {
           throw new Error(resp.msg || '서버 삭제 실패');
         }
 
-        // ⭐ v2.33: 로컬 즉시 제거 + 변경 보호 등록 (3초간)
-        // → 자동 동기화가 옛 데이터 받아와도 덮어쓰지 못함
-        inspections = inspections.filter(i => String(i.qualityId) !== String(qualityId));
-        markPendingChange('inspections', qualityId, { type: 'delete' }, 3000);
+        // ⭐ v2.35: 옵션 B - 로컬 즉시 갱신 안 함, 시트 반영 대기 후 한 번에 갱신
+        // (깜빡임 방지: 화면은 잠깐 옛 상태 유지 → 처리 완료 후 새 상태)
+        await new Promise(r => setTimeout(r, 1500)); // 시트 반영 대기
+        await syncData(true, true); // 강제 동기화로 fresh 데이터
 
         notify('불량 이력이 삭제되었습니다.');
         refreshInspectViews();
@@ -4921,22 +4905,13 @@ async function submitRework(entryId) {
     });
     console.log('[재작업 완료] GAS 응답:', resp);
 
-    // 로컬 갱신
-    e.status = STATUS_AGING_PASS;
-    e.agingStart = new Date().toISOString();
+    // ⭐ v2.35: 옵션 B - 시트 반영 대기 후 한 번에 갱신
+    await new Promise(r => setTimeout(r, 1500));
+    await syncData(true, true);
 
     closeReworkModal();
     notify('✅ 재작업 완료. 검수대기로 복귀되었습니다.');
     renderInspect();
-
-    // ⭐ v2.33: 변경 보호 등록 (status 보호, 3초간)
-    markPendingChange('entries', entryId, {
-      type: 'update',
-      data: {
-        status: STATUS_AGING_PASS,
-        agingStart: e.agingStart
-      }
-    }, 3000);
   } catch(err) {
     notify('처리 실패: ' + (err.message||err), 'error');
     const btn = document.getElementById('rework-submit-btn');
@@ -5076,39 +5051,15 @@ async function submitInspect(entryId) {
     });
     console.log('[검수 처리] GAS 응답:', resp);
 
-    // 로컬 상태 갱신
-    if(result === 'pass') {
-      e.status = STATUS_INSPECTED;
-    } else {
-      // ⭐ 불량 → defect 상태로 (에이징 X)
-      e.status = STATUS_DEFECT;
-      e.agingStart = new Date().toISOString(); // 불량 발견 시각 = 재작업 대기 시작
-    }
-    inspections.push({
-      qualityId: 'Q'+Date.now(),
-      repairId: entryId,
-      serial: e.serial,
-      model: e.model,
-      registrant: originalWorker,
-      inspector: currentUser,
-      inspectedAt: new Date().toISOString(),
-      result, defectTypes, defectReason
-    });
+    // ⭐ v2.35: 옵션 B - 시트 반영 대기 후 한 번에 갱신 (로컬 즉시 갱신 안 함)
+    await new Promise(r => setTimeout(r, 1500));
+    await syncData(true, true);
 
     closeInspectModal();
     notify(result === 'pass'
       ? '✅ 검수완료 처리되었습니다.'
       : `❌ 불량 처리되었습니다. ${originalWorker}님에게 재작업 배정.`);
     renderInspect();
-
-    // ⭐ v2.33: 변경 보호 등록 (status 보호, 3초간)
-    markPendingChange('entries', entryId, {
-      type: 'update',
-      data: {
-        status: e.status,
-        agingStart: e.agingStart
-      }
-    }, 3000);
   } catch(err) {
     notify('처리 실패: ' + (err.message||err), 'error');
     const submitBtn = document.getElementById('inspect-submit-btn');
@@ -8356,21 +8307,22 @@ async function addEntry() {
     const total = works.reduce((s,k)=>s+WORKS[k].price, 0);
     const parts = JSON.stringify(getPartsData());
     await gasCall({action:'add', id, worker, serial, works:JSON.stringify(works), total, date, note, model, parts});
-    entries.push({id, worker, serial, works, total, date, note, model, parts:getPartsData()});
+
+    // 폼 초기화 (즉시)
     document.getElementById('inp-serial').value = '';
     document.getElementById('inp-note').value = '';
     document.getElementById('inp-model').value = '';
     document.getElementById('model-auto').textContent = '';
     document.getElementById('model-auto').style.display = 'none';
     document.getElementById('inp-model').style.display = 'block';
-    clearChecks(); renderToday();
-    // ⭐ v2.7: 등록 후 전체 화면 재렌더 (에이징/검수대기/대시보드 등 모두 갱신)
-    renderAll();
+    clearChecks();
     notify(`${serial} 수리 등록 완료!`);
     // 재고 자동 차감 (실사용 부품 수량 기준)
     if(stock.length) deductStock(works, getPartsData(), model);
-    // ⭐ v2.15: 등록 후 즉시 서버 동기화 (다른 사람 화면에도 빠르게 반영되도록)
-    setTimeout(() => syncData(true), 100);
+
+    // ⭐ v2.35: 옵션 B - 시트 반영 대기 후 한 번에 갱신
+    await new Promise(r => setTimeout(r, 1500));
+    await syncData(true, true);
   } catch { notify('저장 실패. 다시 시도해주세요.','error'); }
   busy = false; btn.disabled = false; btn.textContent = '수리 등록';
 }
@@ -8796,13 +8748,13 @@ async function saveEdit() {
     // 형식: "부품명=수량|부품명=수량" → GAS에서 동일 형식으로 파싱
     const partsSafe = Object.entries(editPartsResult).map(([k,v])=>encodeURIComponent(k)+'='+v).join('|');
     await gasCall({action:'edit', id:String(editTargetId), works:JSON.stringify(works), total, note, parts:partsSafe});
-    const idx = entries.findIndex(x=>String(x.id)===String(editTargetId));
-    if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; entries[idx].parts=editPartsResult; }
+
+    // ⭐ v2.35: 옵션 B - 시트 반영 대기 후 한 번에 갱신
+    await new Promise(r => setTimeout(r, 1500));
+    await syncData(true, true);
+
     closeEditModal();
-    renderToday(); renderAll();
     notify('수정되었습니다!');
-    // ⭐ v2.15: 수정 후 즉시 서버 동기화 (다른 사람 화면에도 빠르게 반영)
-    setTimeout(() => syncData(true), 100);
   } catch { notify('저장 실패. 다시 시도해주세요.','error'); }
   btn.disabled = false; btn.textContent = '저장';
 }
@@ -8813,12 +8765,12 @@ function delEntry(id) {
   openModal('수리 내역 삭제',`${e.serial} (${e.worker}) 수리 내역을 삭제할까요?`, async()=>{
     try {
       await gasCall({action:'delete', id});
-      entries = entries.filter(x=>String(x.id)!==String(id));
-      renderToday();
-      renderAll(); // ⭐ v2.7: 삭제 후 전체 갱신
+
+      // ⭐ v2.35: 옵션 B - 시트 반영 대기 후 한 번에 갱신
+      await new Promise(r => setTimeout(r, 1500));
+      await syncData(true, true);
+
       notify('삭제되었습니다.');
-      // ⭐ v2.15: 삭제 후 즉시 서버 동기화
-      setTimeout(() => syncData(true), 100);
     } catch { notify('삭제 실패. 다시 시도해주세요.','error'); }
   });
 }
