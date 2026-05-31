@@ -3990,17 +3990,39 @@ function renderQualityDashboard() {
   if(labelEl) labelEl.textContent = label;
 
   // === 데이터 집계 ===
-  // 1) 기간 내 등록된 entries (분모)
+  // ⭐ v2.41: 검수 시스템 도입 시점 자동 추정
+  // (가장 빠른 inspection 시점 이전 데이터는 분모에서 제외 — 검수가 운영되기 전이라 불량 데이터 없음)
+  let inspectionEpoch = 0; // 검수 시스템 시작 시점 (timestamp)
+  if((inspections || []).length > 0) {
+    const times = inspections
+      .map(i => new Date(i.inspectedAt || 0).getTime())
+      .filter(t => t > 0);
+    if(times.length > 0) inspectionEpoch = Math.min(...times);
+  }
+
+  // 1) 기간 내 등록된 entries (분모) — 검수 시스템 도입 후 데이터만
   const periodEntries = entries.filter(e => {
     const t = new Date(e.date || 0).getTime();
-    return t >= start && t < end;
+    if(t < start || t >= end) return false;
+    // 검수 시스템 도입 전 데이터는 제외
+    if(inspectionEpoch > 0 && t < inspectionEpoch) return false;
+    return true;
   });
   const totalRegistered = periodEntries.length;
+
+  // 검수 도입 전 등록건 카운트 (참고용 표시)
+  const preInspectionCount = (inspectionEpoch > 0)
+    ? entries.filter(e => {
+        const t = new Date(e.date || 0).getTime();
+        return t >= start && t < end && t < inspectionEpoch;
+      }).length
+    : 0;
 
   if(totalRegistered === 0) {
     el.innerHTML = `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
       <div style="font-size:48px;margin-bottom:12px;">📊</div>
-      <div style="font-size:15px;">${label}에 등록된 수리건이 없습니다.</div>
+      <div style="font-size:15px;">${label}에 검수 운영된 수리건이 없습니다.</div>
+      ${preInspectionCount > 0 ? `<div style="font-size:12px;margin-top:6px;color:var(--text2,#999);">(검수 도입 이전 ${preInspectionCount}건은 통계에서 제외됨)</div>` : ''}
       <div style="font-size:12px;margin-top:6px;color:var(--text2,#999);">다른 기간을 선택해주세요.</div>
     </div>`;
     return;
@@ -4028,31 +4050,32 @@ function renderQualityDashboard() {
     }
   });
 
-  // ⭐ v2.39: 해결률 = "현재 시점에 불량 상태가 아닌" 시리얼 비율
-  // (재작업 완료 이력만 있는 게 아니라, 재작업 후 또 불량 떴으면 여전히 미해결로 처리)
-  const resolvedSerials = new Set();
-  defectSerials.forEach(sn => {
-    // 해당 시리얼의 entry 현재 상태 확인
-    const entry = entries.find(e => normalizeSerial(e.serial) === sn);
-    if(!entry) {
-      // entry 없으면 (삭제됨 등) — rework_done 이력으로 판단
-      const hasRework = reworkInspections.some(i => normalizeSerial(i.serial) === sn);
-      if(hasRework) resolvedSerials.add(sn);
-    } else if(entry.status !== STATUS_DEFECT) {
-      // 현재 불량 상태가 아니면 해결됨
-      // (STATUS_INSPECTED 검수완료, STATUS_AGING_PASS 검수대기 복귀, 출고완료 등 모두 해결)
-      resolvedSerials.add(sn);
-    }
-    // entry.status === STATUS_DEFECT면 미해결 (resolvedSerials에 추가 안 함)
+  // ⭐ v2.41: 검수 진행 수량 (한 번이라도 검수가 이루어진 시리얼)
+  const inspectedSerials = new Set();
+  (inspections || []).forEach(insp => {
+    const sn = normalizeSerial(insp.serial);
+    if(periodSerials.has(sn)) inspectedSerials.add(sn);
   });
+  const inspectedCount = inspectedSerials.size;
+  const aqlRecommended = aqlSampleSize(totalRegistered);
+  const aqlProgress = aqlRecommended > 0 ? Math.min(100, (inspectedCount / aqlRecommended * 100)) : 0;
 
   const totalDefects = defectSerials.size;
-  const totalResolved = resolvedSerials.size;
   const defectRate = totalRegistered > 0 ? (totalDefects / totalRegistered * 100) : 0;
-  const resolveRate = totalDefects > 0 ? (totalResolved / totalDefects * 100) : 0;
 
   // === 1. KPI 카드 4개 ===
-  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;">
+  // ⭐ v2.41: 검수 도입 시점 안내 (자동 추정)
+  let infoBanner = '';
+  if(inspectionEpoch > 0 && preInspectionCount > 0) {
+    const epochDate = new Date(inspectionEpoch);
+    const epochStr = `${epochDate.getFullYear()}.${String(epochDate.getMonth()+1).padStart(2,'0')}.${String(epochDate.getDate()).padStart(2,'0')}`;
+    infoBanner = `<div style="background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.25);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--text2);">
+      <span style="font-weight:600;color:#6366f1;">ℹ️ 검수 시스템 시작 시점: ${epochStr}</span>
+      <span style="margin-left:8px;">— 이 시점 이전 등록건 ${preInspectionCount}건은 통계에서 제외됨 (검수 데이터 없음)</span>
+    </div>`;
+  }
+
+  let html = infoBanner + `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;">
     <div class="card" style="padding:16px 18px;border-left:4px solid #3b82f6;">
       <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">총 등록 수리건</div>
       <div style="font-size:28px;font-weight:700;color:#3b82f6;">${fmt(totalRegistered)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
@@ -4069,9 +4092,9 @@ function renderQualityDashboard() {
       <div style="font-size:10px;color:var(--text3);margin-top:4px;">불량 / 등록</div>
     </div>
     <div class="card" style="padding:16px 18px;border-left:4px solid #8b5cf6;">
-      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">AQL II 권장 표본</div>
-      <div style="font-size:28px;font-weight:700;color:#8b5cf6;">${fmt(aqlSampleSize(totalRegistered))}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">등록 ${fmt(totalRegistered)}건 기준</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">검수 진행 (AQL II)</div>
+      <div style="font-size:24px;font-weight:700;color:#8b5cf6;line-height:1.2;">${fmt(inspectedCount)}<span style="font-size:16px;color:var(--text2);font-weight:500;margin:0 4px;">/</span><span style="color:${aqlProgress>=100?'#10b981':'#6b7280'};">${fmt(aqlRecommended)}</span><span style="font-size:13px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">실제 검수 / 권장 표본 ${aqlProgress >= 100 ? '✅ 달성' : `(${aqlProgress.toFixed(0)}%)`}</div>
     </div>
   </div>`;
 
@@ -4861,12 +4884,16 @@ function renderDefectList() {
 
     const isMe = worker === currentUser;
     const myCanRework = isMe || isFullAdmin(); // 본인 또는 T4만 재작업 완료 처리
+    const workerTier = tierMap[worker] || '';
 
-    html += `<div class="card" style="margin-bottom:12px;padding:0;overflow:hidden;">
-      <div style="padding:12px 16px;background:${isMe?'#fef3c7':'#f3f4f6'};border-bottom:1px solid var(--border,#e5e7eb);display:flex;align-items:center;gap:10px;">
-        <span style="font-size:15px;font-weight:700;color:${isMe?'#78350f':'#1f2937'};">${isMe?'👤 ':'🔧 '}${escapeHtml(worker)}</span>
-        ${isMe ? '<span style="background:#f59e0b;color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">담당 본인</span>' : ''}
-        <span style="font-size:12px;color:${isMe?'#92400e':'#6b7280'};">${items.length}건</span>
+    html += `<div class="card" style="margin-bottom:12px;padding:0;overflow:hidden;${isMe?'border:2px solid #6366f1;':''}">
+      <div style="padding:12px 16px;background:${isMe?'rgba(99,102,241,.12)':'var(--surface2)'};border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:15px;font-weight:700;color:var(--text);">${isMe?'👤 ':'🔧 '}${escapeHtml(worker)}</span>
+        ${workerTier ? `<span style="background:var(--accent-bg,#dbeafe);color:var(--accent,#3b82f6);padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">${workerTier}</span>` : ''}
+        ${isMe ? '<span style="background:#6366f1;color:#fff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">담당 본인</span>' : ''}
+        <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+          <span style="background:#ef4444;color:#fff;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">불량 ${items.length}건</span>
+        </span>
       </div>
       <div class="table-wrap"><table style="font-size:13px;">
         <thead><tr>
