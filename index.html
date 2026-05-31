@@ -2361,6 +2361,12 @@ const _DATA_MUTATION_ACTIONS = new Set([
 ]);
 
 function gasCall(params) {
+  // ⭐ v2.37: 호출 즉시 자동 동기화 정지 (응답 받기 전부터)
+  // → await 동안 자동 동기화가 entries/inspections 갈아끼우는 경쟁 상태 방지
+  if(params && params.action && _DATA_MUTATION_ACTIONS.has(params.action)) {
+    pauseSync(8000); // 8초간 정지 (변경 보호 5초 + 여유)
+  }
+
   return new Promise((resolve, reject) => {
     const cb = '__gas_' + Date.now() + '_' + (Math.random()*1e6|0);
     const qs = Object.entries({...params, callback:cb})
@@ -2369,11 +2375,6 @@ function gasCall(params) {
     const timer = setTimeout(()=>{ cleanup(); reject(new Error('timeout')); }, 30000);
     window[cb] = data => {
       cleanup();
-      // ⭐ v2.34: 데이터 변경 액션 응답 받으면 자동 동기화 5초간 정지
-      // (GAS 시트 lag로 옛 데이터가 화면을 덮어쓰는 것 방지)
-      if(params && params.action && _DATA_MUTATION_ACTIONS.has(params.action)) {
-        pauseSync(5000);
-      }
       resolve(data);
     };
     s.onerror = ()=>{ cleanup(); reject(new Error('error')); };
@@ -4933,28 +4934,42 @@ async function submitRework(entryId) {
     });
     console.log('[재작업 완료] GAS 응답:', resp);
 
-    // ⭐ v2.36: 로컬 즉시 갱신
-    e.status = STATUS_AGING_PASS;
-    e.agingStart = new Date().toISOString();
+    // ⭐ v2.37: entries 재탐색
+    let curIdx = entries.findIndex(x => String(x.id) === String(entryId));
+    console.log('[재작업 완료] entries idx 재탐색:', curIdx);
 
-    // ⭐ 변경 보호 등록 (5초간)
+    if(curIdx === -1) {
+      console.warn('[재작업 완료] entries에서 못 찾음 — 옛 객체로 추가');
+      const newAging = new Date().toISOString();
+      entries.push({...e, status: STATUS_AGING_PASS, agingStart: newAging});
+      curIdx = entries.length - 1;
+    } else {
+      entries[curIdx].status = STATUS_AGING_PASS;
+      entries[curIdx].agingStart = new Date().toISOString();
+      console.log('[재작업 완료] entries[idx] 업데이트 완료');
+    }
+
+    // 변경 보호 등록
     markPendingChange('entries', entryId, {
       type: 'update',
-      data: { status: STATUS_AGING_PASS, agingStart: e.agingStart }
+      data: {
+        status: STATUS_AGING_PASS,
+        agingStart: entries[curIdx].agingStart
+      }
     }, 5000);
 
     closeReworkModal();
     notify('✅ 재작업 완료. 검수대기로 복귀되었습니다.');
     renderInspect();
 
-    // ⭐ 백그라운드 검증
+    // 백그라운드 검증
     setTimeout(async () => {
       try {
         await syncData(true, true);
         renderInspect();
         console.log('[재작업 완료] 백그라운드 검증 완료');
       } catch(e) { console.warn(e); }
-    }, 1500);
+    }, 2000);
   } catch(err) {
     notify('처리 실패: ' + (err.message||err), 'error');
     const btn = document.getElementById('rework-submit-btn');
@@ -5094,13 +5109,26 @@ async function submitInspect(entryId) {
     });
     console.log('[검수 처리] GAS 응답:', resp);
 
-    // ⭐ v2.36: 로컬 즉시 갱신 (사용자 즉시 결과 봄)
-    if(result === 'pass') {
-      e.status = STATUS_INSPECTED;
+    // ⭐ v2.37: await 동안 entries가 갈아끼워졌을 수 있으니 idx 다시 찾기
+    let curIdx = entries.findIndex(x => String(x.id) === String(entryId));
+    console.log('[검수 처리] entries idx 재탐색:', curIdx);
+
+    if(curIdx === -1) {
+      console.warn('[검수 처리] entries에서 entry 못 찾음 — 옛 객체로 추가');
+      const newStatus = result === 'pass' ? STATUS_INSPECTED : STATUS_DEFECT;
+      const newAging = result === 'pass' ? e.agingStart : new Date().toISOString();
+      entries.push({...e, status: newStatus, agingStart: newAging});
+      curIdx = entries.length - 1;
     } else {
-      e.status = STATUS_DEFECT;
-      e.agingStart = new Date().toISOString();
+      if(result === 'pass') {
+        entries[curIdx].status = STATUS_INSPECTED;
+      } else {
+        entries[curIdx].status = STATUS_DEFECT;
+        entries[curIdx].agingStart = new Date().toISOString();
+      }
+      console.log('[검수 처리] entries[idx] 업데이트 완료:', entries[curIdx].status);
     }
+
     inspections.push({
       qualityId: 'Q'+Date.now(),
       repairId: entryId,
@@ -5112,10 +5140,13 @@ async function submitInspect(entryId) {
       result, defectTypes, defectReason
     });
 
-    // ⭐ 변경 보호 등록 (5초간 자동 동기화가 옛 상태로 덮어쓰지 못함)
+    // ⭐ 변경 보호 등록 (5초간)
     markPendingChange('entries', entryId, {
       type: 'update',
-      data: { status: e.status, agingStart: e.agingStart }
+      data: {
+        status: entries[curIdx].status,
+        agingStart: entries[curIdx].agingStart
+      }
     }, 5000);
 
     closeInspectModal();
@@ -5123,15 +5154,16 @@ async function submitInspect(entryId) {
       ? '✅ 검수완료 처리되었습니다.'
       : `❌ 불량 처리되었습니다. ${originalWorker}님에게 재작업 배정.`);
     renderInspect();
+    console.log('[검수 처리] renderInspect 호출 완료');
 
-    // ⭐ 백그라운드에서 강제 동기화로 검증 (사용자는 안 기다림)
+    // ⭐ 백그라운드 검증 (2초 후 — 시트 반영 충분히 기다림)
     setTimeout(async () => {
       try {
         await syncData(true, true);
         renderInspect();
         console.log('[검수 처리] 백그라운드 검증 완료');
       } catch(e) { console.warn(e); }
-    }, 1500);
+    }, 2000);
   } catch(err) {
     notify('처리 실패: ' + (err.message||err), 'error');
     const submitBtn = document.getElementById('inspect-submit-btn');
