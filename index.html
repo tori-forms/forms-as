@@ -4007,11 +4007,22 @@ function renderQualityDashboard() {
     }
   });
 
-  // 재작업 완료된 시리얼 (해결률 계산용)
+  // ⭐ v2.39: 해결률 = "현재 시점에 불량 상태가 아닌" 시리얼 비율
+  // (재작업 완료 이력만 있는 게 아니라, 재작업 후 또 불량 떴으면 여전히 미해결로 처리)
   const resolvedSerials = new Set();
-  reworkInspections.forEach(insp => {
-    const sn = normalizeSerial(insp.serial);
-    if(defectSerials.has(sn)) resolvedSerials.add(sn);
+  defectSerials.forEach(sn => {
+    // 해당 시리얼의 entry 현재 상태 확인
+    const entry = entries.find(e => normalizeSerial(e.serial) === sn);
+    if(!entry) {
+      // entry 없으면 (삭제됨 등) — rework_done 이력으로 판단
+      const hasRework = reworkInspections.some(i => normalizeSerial(i.serial) === sn);
+      if(hasRework) resolvedSerials.add(sn);
+    } else if(entry.status !== STATUS_DEFECT) {
+      // 현재 불량 상태가 아니면 해결됨
+      // (STATUS_INSPECTED 검수완료, STATUS_AGING_PASS 검수대기 복귀, 출고완료 등 모두 해결)
+      resolvedSerials.add(sn);
+    }
+    // entry.status === STATUS_DEFECT면 미해결 (resolvedSerials에 추가 안 함)
   });
 
   const totalDefects = defectSerials.size;
@@ -4039,7 +4050,7 @@ function renderQualityDashboard() {
     <div class="card" style="padding:16px 18px;border-left:4px solid #10b981;">
       <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">해결률</div>
       <div style="font-size:28px;font-weight:700;color:#10b981;">${resolveRate.toFixed(1)}<span style="font-size:14px;font-weight:500;margin-left:2px;">%</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">재작업 완료 / 불량</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">현재 불량 아닌 비율</div>
     </div>
   </div>`;
 
