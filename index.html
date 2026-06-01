@@ -3736,13 +3736,37 @@ async function moveToInspect(entryId) {
   const c = calcAging(e.agingStart);
   if(!c.isPassed) { notify('아직 24시간이 경과하지 않았습니다.', 'error'); return; }
 
-  // ⭐ v2.17: 중복 확인 팝업 제거 (이미 모달에서 액션 확정)
   try {
     notifyPersist('이동 중...');
-    await gasCall({action:'updateRepairStatus', id: entryId, newStatus: STATUS_AGING_PASS});
-    e.status = STATUS_AGING_PASS;
+    const resp = await gasCall({action:'updateRepairStatus', id: entryId, newStatus: STATUS_AGING_PASS});
+    console.log('[검수대기 이동] GAS 응답:', resp);
+
+    // ⭐ v2.45: await 후 entries idx 재탐색 (자동 동기화가 entries 갈아끼웠을 수 있음)
+    const curIdx = entries.findIndex(x => String(x.id) === String(entryId));
+    if(curIdx === -1) {
+      console.warn('[검수대기 이동] entries에서 못 찾음 — 옛 객체로 push');
+      entries.push({...e, status: STATUS_AGING_PASS});
+    } else {
+      entries[curIdx].status = STATUS_AGING_PASS;
+    }
+
+    // 변경 보호 등록 (5초)
+    markPendingChange('entries', entryId, {
+      type: 'update',
+      data: { status: STATUS_AGING_PASS }
+    }, 5000);
+
     notify('검수대기로 이동했습니다.');
     renderAging();
+
+    // 백그라운드 검증
+    setTimeout(async () => {
+      try {
+        await syncData(true, true);
+        renderAging();
+        console.log('[검수대기 이동] 백그라운드 검증 완료');
+      } catch(e) { console.warn(e); }
+    }, 2000);
   } catch(err) {
     notify('이동 실패: ' + (err.message||err), 'error');
   }
@@ -3870,13 +3894,34 @@ async function submitAddParts(entryId) {
     });
 
     // 로컬 갱신 (에이징 시간 유지)
-    e.parts = newParts;
-    e.note = newNote;
-    // status, agingStart는 그대로 둔다 (재시작 X)
+    // ⭐ v2.45: await 후 entries idx 재탐색
+    const curIdx = entries.findIndex(x => String(x.id) === String(entryId));
+    if(curIdx === -1) {
+      console.warn('[부품 추가] entries에서 못 찾음 — 옛 객체로 push');
+      entries.push({...e, parts: newParts, note: newNote});
+    } else {
+      entries[curIdx].parts = newParts;
+      entries[curIdx].note = newNote;
+      // status, agingStart는 그대로 (재시작 X)
+    }
+
+    // 변경 보호 등록
+    markPendingChange('entries', entryId, {
+      type: 'update',
+      data: { parts: newParts, note: newNote }
+    }, 5000);
 
     closeAddPartsModal();
     notify('부품 추가 완료. 에이징 시간은 유지됩니다.');
     renderAging();
+
+    // 백그라운드 검증
+    setTimeout(async () => {
+      try {
+        await syncData(true, true);
+        renderAging();
+      } catch(e) { console.warn(e); }
+    }, 2000);
   } catch(err) {
     notify('실패: ' + (err.message||err), 'error');
   }
@@ -9606,72 +9651,113 @@ async function renderHistory() {
   }
   const totalRev = rangeList.reduce((s,e)=>s+Number(e.total),0);
 
-  // KPI 현황 계산 (기간이 한 달인 경우)
+  // ⭐ v2.44: KPI 현황 - 기간이 단일 월이든 여러 달이든 합산해서 표시
   let kpiHtml = '';
   if(from && to) {
     const fd = new Date(from+'T00:00:00'), td = new Date(to+'T00:00:00');
-    // 같은 달인지 체크
-    if(fd.getFullYear()===td.getFullYear() && fd.getMonth()===td.getMonth()) {
-      const y = fd.getFullYear(), m = fd.getMonth()+1;
-      const monthKey = `${y}-${String(m).padStart(2,'0')}`;
-      const monthKPI = kpiMap[monthKey] || 0;
-      if(monthKPI) {
-        // ⭐ v2.26: KPI 현황은 "출고 기준"으로 계산
-        // - 현재 완료: 해당 월에 출고된 시리얼 수
-        // - 기간 공임비: 해당 월에 출고된 시리얼의 공임비 합계
-        const monthShipped = (shipHistory||[]).filter(h => 
-          String(h.shipDate || '').startsWith(monthKey)
-        );
-        const done = monthShipped.length;
-        // 출고된 시리얼의 공임비 합계 (entries에서 매칭해서 가져옴)
-        const monthShippedRev = monthShipped.reduce((s, h) => {
-          const e = findEntryBySerial(h.serial);
-          return s + (e ? Number(e.total || 0) : 0);
-        }, 0);
-        const remain = Math.max(0, monthKPI - done);
-        const pct = Math.min(100, Math.round(done/monthKPI*100));
-        const wd = await getWorkdays(y, m);
-        // 자동 분배 대상 (T1, MASTER, 비활동 제외)
-        const ac = getKpiTargetCount();
-        const daily = ac && wd ? Math.ceil(monthKPI/wd/ac) : 0;
-        const progColor = pct>=100?'var(--green)':pct>=70?'var(--amber)':'var(--red)';
-        kpiHtml = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;box-shadow:var(--shadow);width:100%;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-            <span style="font-size:14px;font-weight:700;">📊 ${y}년 ${m}월 KPI 현황 <span style="font-size:10px;color:var(--text3);font-weight:500;margin-left:4px;">(출고기준)</span></span>
-            <span style="font-size:22px;font-weight:700;color:${progColor};">${pct}%</span>
-          </div>
-          <div style="background:var(--surface2);border-radius:6px;height:8px;overflow:hidden;margin-bottom:16px;">
-            <div style="height:100%;border-radius:6px;background:${progColor};width:${pct}%;transition:width .5s;"></div>
-          </div>
-          <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;">
-            <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-              <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">월 목표</div>
-              <div style="font-size:17px;font-weight:700;">${fmt(monthKPI)}<span style="font-size:11px;color:var(--text2);">대</span></div>
-            </div>
-            <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-              <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">현재 완료 <span style="color:var(--accent);">(출고)</span></div>
-              <div style="font-size:17px;font-weight:700;color:var(--accent);">${fmt(done)}<span style="font-size:11px;color:var(--text2);">대</span></div>
-            </div>
-            <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-              <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">남은 건수</div>
-              <div style="font-size:17px;font-weight:700;color:${remain>0?'var(--red)':'var(--green)'};">${remain>0?fmt(remain)+'대':'✓ 달성!'}</div>
-            </div>
-            <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-              <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">1인 하루 목표</div>
-              <div style="font-size:17px;font-weight:700;">${daily}<span style="font-size:11px;color:var(--text2);">건</span></div>
-              <div style="font-size:10px;color:var(--text3);margin-top:3px;">평일 ${wd}일 · ${ac}명 <span style="color:var(--text3);opacity:.7;" title="T2/T3만 카운트 (T4·T1·무직급·QC 제외)">ℹ️</span></div>
-            </div>
-            <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-              <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">출고 건수</div>
-              <div style="font-size:17px;font-weight:700;">${fmt(done)}<span style="font-size:11px;color:var(--text2);">건</span></div>
-            </div>
-            <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-              <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">출고 공임비</div>
-              <div style="font-size:15px;font-weight:700;">${fmt(monthShippedRev)}<span style="font-size:10px;color:var(--text2);">원</span></div>
-            </div>
-          </div>
-        </div>`;
+
+    // 기간에 걸친 모든 월 키 수집
+    const monthKeys = [];
+    const it = new Date(fd.getFullYear(), fd.getMonth(), 1);
+    const endLimit = new Date(td.getFullYear(), td.getMonth(), 1);
+    while(it.getTime() <= endLimit.getTime()) {
+      monthKeys.push(`${it.getFullYear()}-${String(it.getMonth()+1).padStart(2,'0')}`);
+      it.setMonth(it.getMonth() + 1);
+    }
+
+    // 월 KPI 합산
+    let monthKPISum = 0;
+    const kpiByMonth = []; // 표시용
+    monthKeys.forEach(mk => {
+      const v = kpiMap[mk] || 0;
+      monthKPISum += v;
+      if(v > 0) kpiByMonth.push({ key: mk, kpi: v });
+    });
+
+    if(monthKPISum > 0) {
+      // 기간 내 출고된 건수 합산 (KPI 분자)
+      const periodShipped = (shipHistory||[]).filter(h => {
+        const t = new Date(h.shipDate || 0).getTime();
+        return t >= fd.getTime() && t <= td.getTime() + 86399999; // 마지막 날 끝까지
+      });
+      const done = periodShipped.length;
+      // 출고된 시리얼의 공임비 합계
+      const monthShippedRev = periodShipped.reduce((s, h) => {
+        const e = findEntryBySerial(h.serial);
+        return s + (e ? Number(e.total || 0) : 0);
+      }, 0);
+
+      const remain = Math.max(0, monthKPISum - done);
+      const pct = Math.min(100, Math.round(done/monthKPISum*100));
+
+      // 기간 내 평일 수 합산
+      let totalWorkdays = 0;
+      for(const mk of monthKeys) {
+        const [yy, mm] = mk.split('-').map(Number);
+        totalWorkdays += await getWorkdays(yy, mm);
       }
+      // 자동 분배 대상 (T2·T3만)
+      const ac = getKpiTargetCount();
+      const daily = ac && totalWorkdays ? Math.ceil(monthKPISum/totalWorkdays/ac) : 0;
+      const progColor = pct>=100?'var(--green)':pct>=70?'var(--amber)':'var(--red)';
+
+      // 기간 라벨
+      const isSameMonth = monthKeys.length === 1;
+      const periodLabel = isSameMonth
+        ? `${fd.getFullYear()}년 ${fd.getMonth()+1}월`
+        : `${monthKeys.length}개월 합산 (${monthKeys[0].replace('-','.')} ~ ${monthKeys[monthKeys.length-1].replace('-','.')})`;
+
+      // 다중 월일 때 월별 분해 표시
+      const monthlyBreakdown = !isSameMonth && kpiByMonth.length > 0
+        ? `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:11px;color:var(--text3);">
+            <span style="font-weight:600;">월별 KPI:</span>
+            ${kpiByMonth.map(m => `<span style="margin-left:10px;">${m.key.split('-')[1]}월: ${fmt(m.kpi)}대</span>`).join('')}
+            ${monthKeys.length > kpiByMonth.length ? `<span style="margin-left:10px;color:var(--text3);">(${monthKeys.length - kpiByMonth.length}개월은 미설정)</span>` : ''}
+          </div>`
+        : '';
+
+      kpiHtml = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;box-shadow:var(--shadow);width:100%;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span style="font-size:14px;font-weight:700;">📊 ${periodLabel} KPI 현황 <span style="font-size:10px;color:var(--text3);font-weight:500;margin-left:4px;">(출고기준)</span></span>
+          <span style="font-size:22px;font-weight:700;color:${progColor};">${pct}%</span>
+        </div>
+        <div style="background:var(--surface2);border-radius:6px;height:8px;overflow:hidden;margin-bottom:16px;">
+          <div style="height:100%;border-radius:6px;background:${progColor};width:${pct}%;transition:width .5s;"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;">
+          <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
+            <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">${isSameMonth ? '월 목표' : '기간 목표'}</div>
+            <div style="font-size:17px;font-weight:700;">${fmt(monthKPISum)}<span style="font-size:11px;color:var(--text2);">대</span></div>
+          </div>
+          <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
+            <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">현재 완료 <span style="color:var(--accent);">(출고)</span></div>
+            <div style="font-size:17px;font-weight:700;color:var(--accent);">${fmt(done)}<span style="font-size:11px;color:var(--text2);">대</span></div>
+          </div>
+          <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
+            <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">남은 건수</div>
+            <div style="font-size:17px;font-weight:700;color:${remain>0?'var(--red)':'var(--green)'};">${remain>0?fmt(remain)+'대':'✓ 달성!'}</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
+            <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">1인 하루 목표</div>
+            <div style="font-size:17px;font-weight:700;">${daily}<span style="font-size:11px;color:var(--text2);">건</span></div>
+            <div style="font-size:10px;color:var(--text3);margin-top:3px;">평일 ${totalWorkdays}일 · ${ac}명 <span style="color:var(--text3);opacity:.7;" title="T2/T3만 카운트 (T4·T1·무직급·QC 제외)">ℹ️</span></div>
+          </div>
+          <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
+            <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">출고 건수</div>
+            <div style="font-size:17px;font-weight:700;">${fmt(done)}<span style="font-size:11px;color:var(--text2);">건</span></div>
+          </div>
+          <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
+            <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">출고 공임비</div>
+            <div style="font-size:15px;font-weight:700;">${fmt(monthShippedRev)}<span style="font-size:10px;color:var(--text2);">원</span></div>
+          </div>
+        </div>
+        ${monthlyBreakdown}
+      </div>`;
+    } else if(monthKeys.length > 1) {
+      // 기간 내 모든 월에 KPI 미설정 - 안내
+      kpiHtml = `<div style="background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.25);border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--text2);">
+        ℹ️ 선택한 기간(${monthKeys.length}개월)에 설정된 월 KPI가 없습니다.
+      </div>`;
     }
   }
 
