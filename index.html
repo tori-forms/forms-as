@@ -7601,11 +7601,23 @@ function savePriceSettings() {
   const saved = JSON.parse(localStorage.getItem('formsPriceSettings') || '{}');
   localStorage.setItem('formsPriceSettings', JSON.stringify({ ...saved, ...settingsObj }));
 
-  // GAS에도 저장 (고객사 등 다른 기기에서도 부품비 표시되도록)
-  gasCall({ action: 'savePriceSettings', settingsJson: JSON.stringify(settingsObj) }).catch(()=>{});
-
   buildChecks();
-  notify('단가 설정이 저장되었습니다!');
+
+  // ⭐ v2.47: GAS 저장 결과를 명확히 표시 (고객 대시보드 반영 위해 필수)
+  notify('💾 저장 중... (서버 반영)');
+  gasCall({ action: 'savePriceSettings', settingsJson: JSON.stringify(settingsObj) })
+    .then(resp => {
+      console.log('[단가 저장] GAS 응답:', resp);
+      if(resp && resp.ok !== false) {
+        notify('✅ 단가 설정 저장 완료! (고객 대시보드에도 반영됨)');
+      } else {
+        notify('⚠️ 서버 저장 실패 — 다시 시도해주세요.', 'error');
+      }
+    })
+    .catch(err => {
+      console.error('[단가 저장] 실패:', err);
+      notify('⚠️ 서버 저장 실패 (네트워크 오류) — 다시 시도해주세요.', 'error');
+    });
 }
 
 function loadPriceSettings() {
