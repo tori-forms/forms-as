@@ -7873,15 +7873,14 @@ function renderEngravePage() {
       const time = parseTimeFromId(id);
       const copiedAt = engraveCopiedMap[id];
       const isCopied = !!copiedAt;
-      const valid = /^TO\d{4}[A-Z0-9]+_N$/i.test(sn);
+      const valid = /^TO\d{4}[A-Z0-9]+N$/i.test(sn);
 
       // 시리얼 표시 - 복사된 것은 회색 처리
       const serialColor = isCopied ? '#666' : (valid ? '#7ee787' : '#ffb86b');
       const bgColor = isCopied ? '#0a0a0a' : '#0f0f0f';
 
-      // 각인용 시리얼 (복사될 실제 텍스트, _N 제거)
-      const engraveSn = stripNSuffix(sn);
-      const hasNSuffix = sn !== engraveSn;
+      // ⭐ 각인용 시리얼 = 원본 그대로 (N까지 새김)
+      const engraveSn = sn;
 
       groupsHtml += '<div style="padding:14px 18px;border-bottom:1px solid #1a1a1a;display:flex;align-items:center;gap:14px;background:' + bgColor + ';' +
                     (isCopied ? 'opacity:0.6;' : '') + '">' +
@@ -7889,15 +7888,10 @@ function renderEngravePage() {
                     '<div style="font-size:12px;color:#555;width:24px;flex-shrink:0;">' + (idx+1) + '.</div>' +
                     // 시리얼
                     '<div style="flex:1;min-width:0;">' +
-                    // 원본 시리얼 (전체)
-                    '<div style="font-family:\'Courier New\',monospace;font-size:14px;color:#666;' +
-                    (isCopied ? 'text-decoration:line-through;text-decoration-color:#333;' : '') +
-                    'word-break:break-all;line-height:1.3;">' + escapeHtml(sn) + '</div>' +
-                    // 각인용 시리얼 (강조 표시)
+                    // 각인용 시리얼 (강조 표시, N까지 포함)
                     '<div style="font-family:\'Courier New\',monospace;font-size:20px;font-weight:800;color:' + serialColor + ';' +
                     (isCopied ? 'text-decoration:line-through;text-decoration-color:#444;' : '') +
-                    'word-break:break-all;line-height:1.2;margin-top:2px;">' + escapeHtml(engraveSn) +
-                    (hasNSuffix ? '<span style="font-size:11px;color:#555;font-weight:400;margin-left:6px;">← 각인용</span>' : '') +
+                    'word-break:break-all;line-height:1.2;">' + escapeHtml(engraveSn) +
                     '</div>' +
                     '<div style="font-size:11px;color:#666;margin-top:3px;">' +
                     (time ? '등록 ' + time : '') +
@@ -7936,8 +7930,8 @@ function stripNSuffix(serial) {
 function copyEngraveSerialFromQueue(serial, entryId) {
   if(!serial) return;
 
-  // 클립보드에 복사할 때는 _N 제거 (각인용 본체 시리얼만)
-  const copyText = stripNSuffix(serial);
+  // ⭐ 각인용 = 원본 그대로 복사 (N까지 새김)
+  const copyText = serial;
 
   const now = new Date();
   const tStr = String(now.getHours()).padStart(2,'0')+':'+
@@ -7975,12 +7969,12 @@ function fallbackCopyQueue(text, entryId, tStr) {
   }
 }
 
-/* 시리얼 형식 검증 - TO + 4자리 + 6자리 + _N */
+/* 시리얼 형식 검증 - TO + 4자리 + 영숫자 + N */
 function validateSerial(serial) {
-  const valid = /^TO\d{4}[A-Z0-9]+_N$/i.test(serial);
+  const valid = /^TO\d{4}[A-Z0-9]+N$/i.test(serial);
   if(valid) {
     return '<div style="background:#0d1a0d;border:1px solid #1a3a1a;border-radius:8px;padding:12px 16px;color:#7ee787;font-size:13px;">' +
-           '✅ 형식 검증 통과 (TO + 시리얼 + _N)' +
+           '✅ 형식 검증 통과 (TO + 시리얼 + N)' +
            '</div>';
   } else {
     return '<div style="background:#1a0d0d;border:1px solid #3a1a1a;border-radius:8px;padding:12px 16px;color:#ff6b6b;font-size:13px;">' +
