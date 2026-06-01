@@ -1622,30 +1622,32 @@ window.addEventListener('DOMContentLoaded', function(){
 
       <div class="form-group" style="margin-top:4px;">
         <label class="form-label">수리 항목 (복수 선택 가능)</label>
-        <!-- ⭐ v2.6: 2행+3행 레이아웃, 라벨 잘림 제거 -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;margin-bottom:10px;">
-          <label class="work-check exc-wc" id="exc-wc-nonbat" style="cursor:pointer;">
-            <input type="checkbox" value="nonbat" checked="" style="margin-top:4px;accent-color:#ea580c;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
-            <div style="flex:1;min-width:0;"><div class="work-check-name">논배터리 작업</div><div class="work-check-price">18,700원</div></div>
-          </label>
-          <label class="work-check exc-wc" id="exc-wc-battery" style="cursor:pointer;">
-            <input type="checkbox" value="battery" style="margin-top:4px;accent-color:#0891b2;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
-            <div style="flex:1;min-width:0;"><div class="work-check-name">배터리 교체</div><div class="work-check-price">0원</div></div>
-          </label>
-        </div>
-        <div class="exc-work-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;" id="exc-works-wrap">
-          <label class="work-check exc-wc" id="exc-wc-pcb" style="cursor:pointer;">
-            <input type="checkbox" value="pcb" checked="" style="margin-top:4px;accent-color:#2563eb;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
-            <div style="flex:1;min-width:0;"><div class="work-check-name">PCB 교체 (+S/N 라이팅)</div><div class="work-check-price">15,180원</div></div>
-          </label>
-          <label class="work-check exc-wc" id="exc-wc-panel" style="cursor:pointer;">
-            <input type="checkbox" value="panel" checked="" style="margin-top:4px;accent-color:#16a34a;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
-            <div style="flex:1;min-width:0;"><div class="work-check-name">일체형 패널 교체 (액정 보호필름 부착)</div><div class="work-check-price">10,450원</div></div>
-          </label>
-          <label class="work-check exc-wc" id="exc-wc-board" style="cursor:pointer;">
-            <input type="checkbox" value="board" style="margin-top:4px;accent-color:#7c3aed;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
-            <div style="flex:1;min-width:0;"><div class="work-check-name">메인보드 부분 수리 (충전단자 포함)</div><div class="work-check-price">10,450원</div></div>
-          </label>
+        <!-- ⭐ v2.46: 논배터리/배터리도 exc-works-wrap 안에 포함 (getExcWorks 누락 버그 수정) -->
+        <div id="exc-works-wrap">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;margin-bottom:10px;">
+            <label class="work-check exc-wc" id="exc-wc-nonbat" style="cursor:pointer;">
+              <input type="checkbox" value="nonbat" checked="" style="margin-top:4px;accent-color:#ea580c;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
+              <div style="flex:1;min-width:0;"><div class="work-check-name">논배터리 작업</div><div class="work-check-price">18,700원</div></div>
+            </label>
+            <label class="work-check exc-wc" id="exc-wc-battery" style="cursor:pointer;">
+              <input type="checkbox" value="battery" style="margin-top:4px;accent-color:#0891b2;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
+              <div style="flex:1;min-width:0;"><div class="work-check-name">배터리 교체</div><div class="work-check-price">0원</div></div>
+            </label>
+          </div>
+          <div class="exc-work-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+            <label class="work-check exc-wc" id="exc-wc-pcb" style="cursor:pointer;">
+              <input type="checkbox" value="pcb" checked="" style="margin-top:4px;accent-color:#2563eb;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
+              <div style="flex:1;min-width:0;"><div class="work-check-name">PCB 교체 (+S/N 라이팅)</div><div class="work-check-price">15,180원</div></div>
+            </label>
+            <label class="work-check exc-wc" id="exc-wc-panel" style="cursor:pointer;">
+              <input type="checkbox" value="panel" checked="" style="margin-top:4px;accent-color:#16a34a;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
+              <div style="flex:1;min-width:0;"><div class="work-check-name">일체형 패널 교체 (액정 보호필름 부착)</div><div class="work-check-price">10,450원</div></div>
+            </label>
+            <label class="work-check exc-wc" id="exc-wc-board" style="cursor:pointer;">
+              <input type="checkbox" value="board" style="margin-top:4px;accent-color:#7c3aed;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
+              <div style="flex:1;min-width:0;"><div class="work-check-name">메인보드 부분 수리 (충전단자 포함)</div><div class="work-check-price">10,450원</div></div>
+            </label>
+          </div>
         </div>
       </div>
 
