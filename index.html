@@ -5958,7 +5958,7 @@ function populateSvMfgOptions() {
   const sel = document.getElementById('sv-mfg-filter');
   if(!sel) return;
   const set = new Set();
-  (window.shipHistory || []).forEach(h => {
+  (shipHistory || []).forEach(h => {
     const m = String(h.serial || '').match(/[A-Z]{2}(\d{2})(\d{2})[A-Z]/);
     if(m) set.add(`20${m[1]}-${m[2]}`);
   });
@@ -9995,20 +9995,7 @@ async function renderReport() {
   const wd = monthKPI ? await getWorkdays(y, m) : 0;
   const dailyTarget = monthKPI && wd && kpiTargetCount ? Math.ceil(monthKPI / wd / kpiTargetCount) : 0;
   // ⭐ KPI 집계는 출고 기준 — 해당 월에 출고된 건수
-  const monthShipped = (window.shipHistory || []).filter(h => shipDateKey(h.shipDate).startsWith(monthVal));
-  // 진단 로그 (한 번만)
-  if(!window._debugShipReport) {
-    window._debugShipReport = true;
-    console.log('[실적 진단] monthVal:', monthVal);
-    console.log('[실적 진단] shipHistory 총 건수:', (window.shipHistory||[]).length);
-    const sample = (window.shipHistory||[]).slice(0,5).map(h => ({
-      raw_shipDate: h.shipDate,
-      parsed_key: shipDateKey(h.shipDate),
-      serial: h.serial
-    }));
-    console.log('[실적 진단] 출고이력 샘플 5건:', sample);
-    console.log('[실적 진단] 이 달 출고 매칭된 건수:', monthShipped.length);
-  }
+  const monthShipped = (shipHistory || []).filter(h => shipDateKey(h.shipDate).startsWith(monthVal));
   const totalDone = monthShipped.length;
   const totalRev = monthShipped.reduce((s,h) => s+Number(h.fee||0), 0);
   const pct = monthKPI ? Math.min(100, Math.round(totalDone/monthKPI*100)) : 0;
