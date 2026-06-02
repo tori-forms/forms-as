@@ -9996,8 +9996,21 @@ async function renderReport() {
   const dailyTarget = monthKPI && wd && kpiTargetCount ? Math.ceil(monthKPI / wd / kpiTargetCount) : 0;
   // ⭐ KPI 집계는 출고 기준 — 해당 월에 출고된 건수
   const monthShipped = (window.shipHistory || []).filter(h => shipDateKey(h.shipDate).startsWith(monthVal));
+  // 진단 로그 (한 번만)
+  if(!window._debugShipReport) {
+    window._debugShipReport = true;
+    console.log('[실적 진단] monthVal:', monthVal);
+    console.log('[실적 진단] shipHistory 총 건수:', (window.shipHistory||[]).length);
+    const sample = (window.shipHistory||[]).slice(0,5).map(h => ({
+      raw_shipDate: h.shipDate,
+      parsed_key: shipDateKey(h.shipDate),
+      serial: h.serial
+    }));
+    console.log('[실적 진단] 출고이력 샘플 5건:', sample);
+    console.log('[실적 진단] 이 달 출고 매칭된 건수:', monthShipped.length);
+  }
   const totalDone = monthShipped.length;
-  const totalRev = monthEntries.reduce((s,e) => s+Number(e.total), 0);
+  const totalRev = monthShipped.reduce((s,h) => s+Number(h.fee||0), 0);
   const pct = monthKPI ? Math.min(100, Math.round(totalDone/monthKPI*100)) : 0;
   const progColor = pct>=100?'var(--green)':pct>=70?'var(--amber)':'var(--red)';
 
@@ -10053,9 +10066,10 @@ async function renderReport() {
       <tbody>`;
 
   activeWorkers.forEach(w => {
-    const wEntries = monthEntries.filter(e => e.worker === w);
-    const cnt = wEntries.length;
-    const wrev = wEntries.reduce((s,e) => s+Number(e.total), 0);
+    // ⭐ 출고 기준: 이 달 출고된 건 중 이 엔지니어가 작업한 것
+    const wShipped = monthShipped.filter(h => (h.worker||'') === w);
+    const cnt = wShipped.length;
+    const wrev = wShipped.reduce((s,h) => s+Number(h.fee||0), 0);
     const workerTarget = monthKPI && wd ? Math.ceil(monthKPI / wd / activeWorkers.length) * wd : 0;
     const wpct = workerTarget ? Math.min(100, Math.round(cnt/workerTarget*100)) : 0;
     const diff = workerTarget ? cnt - workerTarget : 0;
