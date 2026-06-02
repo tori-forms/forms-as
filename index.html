@@ -1178,6 +1178,7 @@ window.addEventListener('DOMContentLoaded', function(){
       <span class="range-sep">~</span>
       <input type="date" id="date-to" onchange="renderHistory()" style="width:148px;">
       <button class="today-btn" onclick="setRangeMonth()">이번 달</button>
+      <button class="today-btn" onclick="setRangeLastMonth()">지난 달</button>
       <button class="today-btn" onclick="setRangeAll()">전체</button>
     </div>
 
@@ -2653,6 +2654,16 @@ function moveDate(tab, delta) {
 function setRangeMonth() {
   const now = new Date();
   const y = now.getFullYear(), m = now.getMonth();
+  document.getElementById('date-from').value = `${y}-${String(m+1).padStart(2,'0')}-01`;
+  const last = new Date(y, m+1, 0).getDate();
+  document.getElementById('date-to').value = `${y}-${String(m+1).padStart(2,'0')}-${String(last).padStart(2,'0')}`;
+  renderHistory();
+}
+function setRangeLastMonth() {
+  const now = new Date();
+  // 지난 달 = 이번 달 1일에서 하루 뺀 달
+  const lastMonthDate = new Date(now.getFullYear(), now.getMonth(), 0);
+  const y = lastMonthDate.getFullYear(), m = lastMonthDate.getMonth();
   document.getElementById('date-from').value = `${y}-${String(m+1).padStart(2,'0')}-01`;
   const last = new Date(y, m+1, 0).getDate();
   document.getElementById('date-to').value = `${y}-${String(m+1).padStart(2,'0')}-${String(last).padStart(2,'0')}`;
@@ -9243,21 +9254,39 @@ async function renderSummary() {
           <span style="font-size:13px;color:var(--text2);">${cnt} / ${target||'?'}건</span>
           <span class="badge ${bc}">${bt}</span>
           <span class="worker-block-revenue">${fmt(wrev)}원</span>
-          <span id="arrow-${blockId}" style="font-size:16px;color:var(--text3);transition:transform .2s;display:inline-block;">${isMe?'▲':'▼'}</span>
+          <span id="arrow-${blockId}" style="font-size:16px;color:var(--text3);transition:transform .2s;display:inline-block;">${_isWbOpen(blockId, isMe)?'▲':'▼'}</span>
         </div>
       </div>
-      <div id="${blockId}" style="display:${isMe?'block':'none'};">${tbl}</div>
+      <div id="${blockId}" style="display:${_isWbOpen(blockId, isMe)?'block':'none'};">${tbl}</div>
     </div>`;
   }).join('');
+}
+
+/* ⭐ 일일현황 블록 펼침 상태 (동기화 재렌더 후에도 유지) */
+window._expandedWbGroups = window._expandedWbGroups || new Set();
+window._wbInitialized = window._wbInitialized || false;
+function _isWbOpen(blockId, isMe) {
+  // 최초 1회: 본인 블록 자동 펼침 (기본값)
+  if(!window._wbInitialized && isMe) {
+    window._expandedWbGroups.add(blockId);
+  }
+  return window._expandedWbGroups.has(blockId);
 }
 
 function toggleWorkerBlock(id) {
   const el = document.getElementById(id);
   const arrow = document.getElementById('arrow-'+id);
   if(!el) return;
+  window._wbInitialized = true; // 사용자가 한 번이라도 조작하면 자동 펼침 로직 끔
   const open = el.style.display !== 'none';
   el.style.display = open ? 'none' : 'block';
   if(arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
+  // 상태 저장 (재렌더 시 유지)
+  if(open) {
+    window._expandedWbGroups.delete(id);
+  } else {
+    window._expandedWbGroups.add(id);
+  }
 }
 
 /* ===== 교품 처리 ===== */
@@ -9965,7 +9994,9 @@ async function renderReport() {
   const kpiTargetCount = getKpiTargetCount();
   const wd = monthKPI ? await getWorkdays(y, m) : 0;
   const dailyTarget = monthKPI && wd && kpiTargetCount ? Math.ceil(monthKPI / wd / kpiTargetCount) : 0;
-  const totalDone = monthEntries.length;
+  // ⭐ KPI 집계는 출고 기준 — 해당 월에 출고된 건수
+  const monthShipped = (window.shipHistory || []).filter(h => shipDateKey(h.shipDate).startsWith(monthVal));
+  const totalDone = monthShipped.length;
   const totalRev = monthEntries.reduce((s,e) => s+Number(e.total), 0);
   const pct = monthKPI ? Math.min(100, Math.round(totalDone/monthKPI*100)) : 0;
   const progColor = pct>=100?'var(--green)':pct>=70?'var(--amber)':'var(--red)';
@@ -9985,7 +10016,7 @@ async function renderReport() {
         <div style="font-size:18px;font-weight:700;">${monthKPI>0?fmt(monthKPI):'-'}<span style="font-size:11px;color:var(--text2);">${monthKPI?'대':''}</span></div>
       </div>
       <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">전체 완료</div>
+        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">출고 완료</div>
         <div style="font-size:18px;font-weight:700;color:var(--accent);">${fmt(totalDone)}<span style="font-size:11px;color:var(--text2);">대</span></div>
       </div>
       <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
