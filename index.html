@@ -4137,6 +4137,23 @@ function renderQualityDashboard() {
   const totalDefects = defectSerials.size;
   const defectRate = totalRegistered > 0 ? (totalDefects / totalRegistered * 100) : 0;
 
+  // ⭐ 진단: 대시보드 vs 전체 품질 이력 불량 건수 차이 추적 (한 번만)
+  if(!window._debugDefect) {
+    window._debugDefect = true;
+    const allFails = (inspections||[]).filter(i => i.result === 'fail');
+    const allFailSerials = [...new Set(allFails.map(i => String(i.serial||'')))];
+    console.log('[불량 진단] 전체 fail 이력 시리얼:', allFailSerials);
+    console.log('[불량 진단] 대시보드 기간:', new Date(start).toISOString().slice(0,10), '~', new Date(end).toISOString().slice(0,10));
+    console.log('[불량 진단] 검수도입시점(epoch):', inspectionEpoch ? new Date(inspectionEpoch).toISOString().slice(0,10) : '없음');
+    console.log('[불량 진단] 대시보드가 센 불량 시리얼:', [...defectSerials]);
+    allFailSerials.forEach(rawSn => {
+      const normSn = normalizeSerial(rawSn);
+      const inPeriod = periodSerials.has(normSn);
+      const matchEntry = entries.find(e => normalizeSerial(e.serial) === normSn);
+      console.log(`[불량 진단] 시리얼 "${rawSn}" → 정규화 "${normSn}" | 기간내등록=${inPeriod} | 매칭entry날짜=${matchEntry ? matchEntry.date : '❌없음'}`);
+    });
+  }
+
   // === 1. KPI 카드 4개 ===
   // ⭐ v2.41: 검수 도입 시점 안내 (자동 추정)
   let infoBanner = '';
