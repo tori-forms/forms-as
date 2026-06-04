@@ -4637,7 +4637,8 @@ function renderQualityHistory() {
   </div>`;
 
   // 엔지니어별 카드
-  const isManagerForEdit = isFullAdmin() || isAdmin; // T3/T4는 수정/삭제 가능
+  // ⭐ 권한: T3/T4(관리자) + 검수자(inspector role)는 품질 이력 수정/삭제 가능
+  const isManagerForEdit = isFullAdmin() || isAdmin || isInspector(currentUser);
 
   engineerNames.forEach(eng => {
     const sns = byEngineer[eng];
