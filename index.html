@@ -4140,12 +4140,14 @@ function renderQualityDashboard() {
   // ⭐ 진단: 대시보드 vs 전체 품질 이력 불량 건수 차이 추적 (한 번만)
   if(!window._debugDefect) {
     window._debugDefect = true;
+    const fmtT = (t) => (t === Infinity || t === 0 || isNaN(t)) ? String(t) : new Date(t).toISOString().slice(0,10);
     const allFails = (inspections||[]).filter(i => i.result === 'fail');
     const allFailSerials = [...new Set(allFails.map(i => String(i.serial||'')))];
     console.log('[불량 진단] 전체 fail 이력 시리얼:', allFailSerials);
-    console.log('[불량 진단] 대시보드 기간:', new Date(start).toISOString().slice(0,10), '~', new Date(end).toISOString().slice(0,10));
-    console.log('[불량 진단] 검수도입시점(epoch):', inspectionEpoch ? new Date(inspectionEpoch).toISOString().slice(0,10) : '없음');
+    console.log('[불량 진단] 대시보드 기간:', fmtT(start), '~', fmtT(end), '(period=', (window._qualityPeriod||'all'), ')');
+    console.log('[불량 진단] 검수도입시점(epoch):', inspectionEpoch ? fmtT(inspectionEpoch) : '없음');
     console.log('[불량 진단] 대시보드가 센 불량 시리얼:', [...defectSerials]);
+    console.log('[불량 진단] 기간내 등록 수리건수(totalRegistered):', totalRegistered);
     allFailSerials.forEach(rawSn => {
       const normSn = normalizeSerial(rawSn);
       const inPeriod = periodSerials.has(normSn);
