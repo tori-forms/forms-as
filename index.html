@@ -4071,7 +4071,12 @@ function renderQualityDashboard() {
     const times = inspections
       .map(i => new Date(i.inspectedAt || 0).getTime())
       .filter(t => t > 0);
-    if(times.length > 0) inspectionEpoch = Math.min(...times);
+    if(times.length > 0) {
+      // ⭐ 가장 빠른 검수일의 '그날 0시 0분 0초'로 내림
+      // (검수 도입 당일 아침에 등록된 건이 시·분·초 차이로 잘려나가는 것 방지)
+      const earliest = new Date(Math.min(...times));
+      inspectionEpoch = new Date(earliest.getFullYear(), earliest.getMonth(), earliest.getDate()).getTime();
+    }
   }
 
   // 1) 기간 내 등록된 entries (분모) — 검수 시스템 도입 후 데이터만
@@ -4136,25 +4141,6 @@ function renderQualityDashboard() {
 
   const totalDefects = defectSerials.size;
   const defectRate = totalRegistered > 0 ? (totalDefects / totalRegistered * 100) : 0;
-
-  // ⭐ 진단: 대시보드 vs 전체 품질 이력 불량 건수 차이 추적 (한 번만)
-  if(!window._debugDefect) {
-    window._debugDefect = true;
-    const fmtT = (t) => (t === Infinity || t === 0 || isNaN(t)) ? String(t) : new Date(t).toISOString().slice(0,10);
-    const allFails = (inspections||[]).filter(i => i.result === 'fail');
-    const allFailSerials = [...new Set(allFails.map(i => String(i.serial||'')))];
-    console.log('[불량 진단] 전체 fail 이력 시리얼:', allFailSerials);
-    console.log('[불량 진단] 대시보드 기간:', fmtT(start), '~', fmtT(end), '(period=', (window._qualityPeriod||'all'), ')');
-    console.log('[불량 진단] 검수도입시점(epoch):', inspectionEpoch ? fmtT(inspectionEpoch) : '없음');
-    console.log('[불량 진단] 대시보드가 센 불량 시리얼:', [...defectSerials]);
-    console.log('[불량 진단] 기간내 등록 수리건수(totalRegistered):', totalRegistered);
-    allFailSerials.forEach(rawSn => {
-      const normSn = normalizeSerial(rawSn);
-      const inPeriod = periodSerials.has(normSn);
-      const matchEntry = entries.find(e => normalizeSerial(e.serial) === normSn);
-      console.log(`[불량 진단] 시리얼 "${rawSn}" → 정규화 "${normSn}" | 기간내등록=${inPeriod} | 매칭entry날짜=${matchEntry ? matchEntry.date : '❌없음'}`);
-    });
-  }
 
   // === 1. KPI 카드 4개 ===
   // ⭐ v2.41: 검수 도입 시점 안내 (자동 추정)
@@ -10077,7 +10063,22 @@ async function renderReport() {
     const wShipped = monthShipped.filter(h => (h.worker||'') === w);
     const cnt = wShipped.length;
     const wrev = wShipped.reduce((s,h) => s+Number(h.fee||0), 0);
-    const workerTarget = monthKPI && wd ? Math.ceil(monthKPI / wd / activeWorkers.length) * wd : 0;
+
+    // ⭐ 개인 월 목표 계산 (C 방식)
+    //  - 개별 목표(workerDailyTargets) 설정 시 → 그 일일목표 × 평일수
+    //  - 미설정 T2/T3 → 공통 KPI 자동분배 (분모는 KPI 대상 T2/T3 수)
+    //  - 미설정 T1 → 0 (KPI 미설정으로 표시)
+    let workerTarget = 0;
+    const manualDaily = workerDailyTargets[w];
+    if(manualDaily !== undefined && manualDaily !== null && manualDaily > 0) {
+      // 개별 목표 있음 (T1 포함)
+      workerTarget = wd ? manualDaily * wd : 0;
+    } else if(isKpiTarget(w) && monthKPI && wd && kpiTargetCount) {
+      // 미설정 T2/T3 → 공통 자동분배 (T2/T3 인원수로 나눔)
+      workerTarget = Math.ceil(monthKPI / wd / kpiTargetCount) * wd;
+    }
+    // T1 미설정은 workerTarget = 0 → "KPI 미설정" 표시
+
     const wpct = workerTarget ? Math.min(100, Math.round(cnt/workerTarget*100)) : 0;
     const diff = workerTarget ? cnt - workerTarget : 0;
     let bc, bt;
