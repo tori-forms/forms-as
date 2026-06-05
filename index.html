@@ -2342,6 +2342,14 @@ const todayStr = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 };
+/* ⭐ 저장된 날짜값(UTC ISO 등)을 로컬(KST) 날짜 'YYYY-MM-DD'로 변환
+   — toISOString()로 저장된 값이 오전 등록 시 전날로 밀리는 타임존 버그 방지 */
+const toLocalDay = (v) => {
+  if(!v) return '';
+  const d = new Date(v);
+  if(isNaN(d)) return String(v).slice(0,10);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+};
 const fmtDT = v => {
   if(!v) return '';
   const d = new Date(v);
@@ -9047,7 +9055,7 @@ function gotoTab(name) {
 function renderToday() {
   updateLbl('input');
   const sel = getDate('input');
-  const list = entries.filter(e=>String(e.date).startsWith(sel));
+  const list = entries.filter(e => toLocalDay(e.date) === sel);
   const el = document.getElementById('today-list');
   document.getElementById('today-count').textContent = `(${list.length}건)`;
   if(!list.length){ el.innerHTML=`<div class="empty"><div class="empty-icon">📋</div>${dateLabel(sel)} 수리 내역이 없습니다.</div>`; return; }
@@ -9401,19 +9409,9 @@ async function getDailyTarget(dateStr) {
 async function renderSummary() {
   updateLbl('summary');
   const sel = getDate('summary');
-  const list = entries.filter(e=>String(e.date).startsWith(sel));
+  // ⭐ 타임존 버그 수정: UTC ISO 저장값도 로컬(KST) 날짜로 변환 비교
+  const list = entries.filter(e => toLocalDay(e.date) === sel);
   const rev = list.reduce((s,e)=>s+Number(e.total),0);
-
-  // ⭐ 진단: T4 등 작업자별 집계 확인 (한 번만)
-  if(!window._debugSummary) {
-    window._debugSummary = true;
-    const byWorker = {};
-    list.forEach(e => { const w = String(e.worker||'미정'); byWorker[w] = (byWorker[w]||0)+1; });
-    console.log('[일일현황 진단] 날짜:', sel, '| 총', list.length, '건');
-    console.log('[일일현황 진단] 작업자별 건수:', byWorker);
-    console.log('[일일현황 진단] workers 배열:', workers);
-    console.log('[일일현황 진단] MASTER_NAME:', MASTER_NAME, '| 최민규 tier:', tierMap['최민규'], '| role:', roleMap['최민규']);
-  }
 
   const dailyTarget = await getDailyTarget(sel);
   // ⭐ v2.5: MASTER + T4 + QC 전용 제외한 실제 수리 엔지니어만 카운트
@@ -11049,7 +11047,7 @@ function exportCSV(mode) {
     fn = `폼즈AS_${from}_${to}.csv`;
   } else {
     const sel = getDate('input');
-    rows = entries.filter(e=>String(e.date).startsWith(sel));
+    rows = entries.filter(e => toLocalDay(e.date) === sel);
     fn = `폼즈AS_${sel}.csv`;
   }
   if(!rows.length){ notify('내보낼 데이터가 없습니다.','error'); return; }
