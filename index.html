@@ -4610,10 +4610,10 @@ function renderInspectWaitList() {
 
       rows += `<tr ${isRework?'style="background:rgba(245,158,11,.06);"':''}>
         <td style="font-weight:600;">${escapeHtml(e.serial)}${reworkBadge}</td>
-        <td>${escapeHtml(e.model||'')}</td>
-        <td>${escapeHtml(worker)}</td>
+        <td style="white-space:nowrap;">${escapeHtml(e.model||'')}</td>
+        <td style="white-space:nowrap;">${escapeHtml(worker)}</td>
         <td>${workCell}</td>
-        <td style="font-size:12px;">${passFmt}</td>
+        <td style="font-size:12px;white-space:nowrap;">${passFmt}</td>
         <td style="font-size:12px;color:${waitH>=24?'#ef4444':'var(--text2)'};">
           ${waitH > 0 ? `${waitH}시간 대기` : '방금'}
         </td>
@@ -9403,6 +9403,17 @@ async function renderSummary() {
   const sel = getDate('summary');
   const list = entries.filter(e=>String(e.date).startsWith(sel));
   const rev = list.reduce((s,e)=>s+Number(e.total),0);
+
+  // ⭐ 진단: T4 등 작업자별 집계 확인 (한 번만)
+  if(!window._debugSummary) {
+    window._debugSummary = true;
+    const byWorker = {};
+    list.forEach(e => { const w = String(e.worker||'미정'); byWorker[w] = (byWorker[w]||0)+1; });
+    console.log('[일일현황 진단] 날짜:', sel, '| 총', list.length, '건');
+    console.log('[일일현황 진단] 작업자별 건수:', byWorker);
+    console.log('[일일현황 진단] workers 배열:', workers);
+    console.log('[일일현황 진단] MASTER_NAME:', MASTER_NAME, '| 최민규 tier:', tierMap['최민규'], '| role:', roleMap['최민규']);
+  }
 
   const dailyTarget = await getDailyTarget(sel);
   // ⭐ v2.5: MASTER + T4 + QC 전용 제외한 실제 수리 엔지니어만 카운트
