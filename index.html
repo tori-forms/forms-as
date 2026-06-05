@@ -5644,39 +5644,56 @@ function checkSerials() {
   // ⭐ v2.20: 시리얼 매칭 — 입력에서 _ 제거 후, 저장값에서도 _ 제거하여 비교
   // (저장된 시리얼이 _N이든 N이든 다 매칭됨)
   function normalize(s) {
-    return String(s || '').toUpperCase().replace(/_/g, '');
+    return String(s || '').toUpperCase().replace(/[_\s]/g, '');
+  }
+  // ⭐ 단일 입력이고 전체 시리얼보다 짧으면 → 부분 일치 검색 (끝 4자리 등 일부만 입력 가능)
+  const isPartialSearch = inputSerials.length === 1 && inputSerials[0].length < 12;
+  function eq(a, b) {
+    return isPartialSearch ? a.includes(b) : a === b;
   }
   function matchSerial(s, set) {
-    // set의 각 시리얼도 정규화해서 비교
     for(const item of set) {
-      if(normalize(item) === s) return true;
+      if(eq(normalize(item), s)) return true;
     }
     return false;
   }
   function findEntry(s) {
-    return entries.find(e => normalize(e.serial) === s);
+    return entries.find(e => eq(normalize(e.serial), s));
   }
   function findInSet(s, set) {
-    // 정규화 매칭된 set의 원본 값 반환
     for(const item of set) {
-      if(normalize(item) === s) return item;
+      if(eq(normalize(item), s)) return item;
     }
     return null;
   }
 
+  // ⭐ 부분 검색일 때는 매칭되는 '모든' 항목을 찾음 (한 건만이 아니라)
   const found = [], notInOk = [], notExist = [];
-  inputSerials.forEach(s => {
-    const okHit = findInSet(s, allOk);
-    if (okHit) {
-      found.push(okHit); // 시트에 저장된 원본 형식으로 표시
-    } else if (matchSerial(s, allHold)) {
-      notInOk.push({ serial: s, reason: '보류(에이징 진행 중)' });
-    } else {
-      const inEntries = findEntry(s);
-      if (inEntries) notInOk.push({ serial: s, reason: '수리 기록 있음 (출고 기준 미충족)' });
-      else notExist.push(s);
-    }
-  });
+  if(isPartialSearch) {
+    const s = inputSerials[0];
+    const okHits = [...allOk].filter(item => normalize(item).includes(s));
+    const holdHits = [...allHold].filter(item => normalize(item).includes(s));
+    const entryHits = entries.filter(e => normalize(e.serial).includes(s) &&
+      !okHits.some(o => normalize(o) === normalize(e.serial)) &&
+      !holdHits.some(h => normalize(h) === normalize(e.serial)));
+    okHits.forEach(o => found.push(o));
+    holdHits.forEach(h => notInOk.push({ serial: h, reason: '보류(에이징 진행 중)' }));
+    entryHits.forEach(e => notInOk.push({ serial: e.serial, reason: '수리 기록 있음 (출고 기준 미충족)' }));
+    if(!okHits.length && !holdHits.length && !entryHits.length) notExist.push(s);
+  } else {
+    inputSerials.forEach(s => {
+      const okHit = findInSet(s, allOk);
+      if (okHit) {
+        found.push(okHit);
+      } else if (matchSerial(s, allHold)) {
+        notInOk.push({ serial: s, reason: '보류(에이징 진행 중)' });
+      } else {
+        const inEntries = findEntry(s);
+        if (inEntries) notInOk.push({ serial: s, reason: '수리 기록 있음 (출고 기준 미충족)' });
+        else notExist.push(s);
+      }
+    });
+  }
 
   const resEl = document.getElementById('serial-search-result');
   if (!resEl) return;
@@ -9087,14 +9104,15 @@ function openEditModal(id) {
     // ⭐ 표준에 없는 부품(스피커 등 기타 부품)은 첫 작업에 기타 부품으로 복원
     const firstWork = ws0[0];
     if(firstWork) {
+      editExtraCounters = {}; // 카운터 초기화
       Object.entries(e.parts).forEach(([name, qty]) => {
         if(standardNames.has(name)) return;       // 표준 부품은 위에서 처리됨
         if(!name || Number(qty) <= 0) return;
-        if(!extraPartCounters[firstWork]) extraPartCounters[firstWork] = 0;
-        const idx = extraPartCounters[firstWork]++;
-        const exId = `extra-${firstWork}-${idx}`;
+        if(!editExtraCounters[firstWork]) editExtraCounters[firstWork] = 0;
+        const idx = editExtraCounters[firstWork]++;
+        const exId = `eextra-${firstWork}-${idx}-r`;
         if(!partQtys[firstWork]) partQtys[firstWork] = {};
-        partQtys[firstWork]['__extra_'+exId] = { name, qty: Number(qty), _restore: true };
+        partQtys[firstWork]['__extra_'+exId] = { name, qty: Number(qty) };
       });
     }
   }
@@ -9139,10 +9157,10 @@ function renderEditParts(ws) {
         </div>
       </div>`;
     });
-    // ⭐ 기타 부품 추가 (스피커 등 표준 외 부품)
-    html += `<div id="extra-parts-${k}"></div>
+    // ⭐ 기타 부품 추가 (수정 모달 전용 ID로 — 수리등록 화면과 충돌 방지)
+    html += `<div id="edit-extra-parts-${k}"></div>
       <div style="margin-top:6px;">
-        <button type="button" onclick="event.preventDefault();event.stopPropagation();addExtraPart('${k}')" style="font-size:11px;color:var(--accent);background:none;border:1px dashed var(--accent);border-radius:4px;padding:3px 8px;cursor:pointer;">+ 부품 추가</button>
+        <button type="button" onclick="event.preventDefault();event.stopPropagation();addEditExtraPart('${k}')" style="font-size:11px;color:var(--accent);background:none;border:1px dashed var(--accent);border-radius:4px;padding:3px 8px;cursor:pointer;">+ 부품 추가</button>
       </div>`;
     html += `</div>`;
   });
@@ -9155,30 +9173,62 @@ function renderEditParts(ws) {
     const extras = partQtys[k] || {};
     Object.entries(extras).forEach(([key, val]) => {
       if(!key.startsWith('__extra_')) return;
-      if(typeof val !== 'object' || !val._restore) return;
+      if(typeof val !== 'object') return;
       const id = key.replace('__extra_', '');
-      const el = document.getElementById('extra-parts-'+k);
-      if(!el || document.getElementById(id)) return;
-      const div = document.createElement('div');
-      div.id = id;
-      div.className = 'part-qty-row';
-      div.style.marginTop = '6px';
-      div.innerHTML = `
-        <input type="text" placeholder="부품명" id="extraname-${id}" value="${(val.name||'').replace(/"/g,'&quot;')}"
-          style="flex:1;height:26px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:4px;outline:none;"
-          oninput="syncExtraPart('${k}','${id}')">
-        <div style="display:flex;align-items:center;gap:4px;margin-left:8px;">
-          <button class="qty-btn" type="button" onclick="changeExtraQty('${k}','${id}',-1)">−</button>
-          <span class="qty-num" id="extraqty-${id}">${val.qty||1}</span>
-          <button class="qty-btn" type="button" onclick="changeExtraQty('${k}','${id}',1)">+</button>
-          <button type="button" onclick="removeExtraPart('${k}','${id}')" style="margin-left:4px;font-size:12px;color:var(--red-text);background:none;border:none;cursor:pointer;">✕</button>
-        </div>`;
-      el.appendChild(div);
-      // _restore 플래그 제거 (재렌더 시 중복 방지)
-      partQtys[k][key] = { name: val.name, qty: val.qty };
+      const el = document.getElementById('edit-extra-parts-'+k);
+      if(!el || document.getElementById('edit-'+id)) return;
+      _appendEditExtraRow(k, id, val.name||'', val.qty||1);
     });
   });
   return; // 아래 중복 분기 방지
+}
+
+/* ⭐ 수정 모달 전용 기타 부품 함수 (수리등록 화면과 ID 충돌 방지) */
+function _appendEditExtraRow(workKey, id, name, qty) {
+  const el = document.getElementById('edit-extra-parts-'+workKey);
+  if(!el || document.getElementById('edit-'+id)) return;
+  const div = document.createElement('div');
+  div.id = 'edit-'+id;
+  div.className = 'part-qty-row';
+  div.style.marginTop = '6px';
+  div.innerHTML = `
+    <input type="text" placeholder="부품명 (예: 스피커)" id="editextraname-${id}" value="${String(name||'').replace(/"/g,'&quot;')}"
+      style="flex:1;height:26px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:4px;outline:none;"
+      oninput="syncEditExtraPart('${workKey}','${id}')">
+    <div style="display:flex;align-items:center;gap:4px;margin-left:8px;">
+      <button class="qty-btn" type="button" onclick="changeEditExtraQty('${workKey}','${id}',-1)">−</button>
+      <span class="qty-num" id="editextraqty-${id}">${qty||1}</span>
+      <button class="qty-btn" type="button" onclick="changeEditExtraQty('${workKey}','${id}',1)">+</button>
+      <button type="button" onclick="removeEditExtraPart('${workKey}','${id}')" style="margin-left:4px;font-size:12px;color:var(--red-text);background:none;border:none;cursor:pointer;">✕</button>
+    </div>`;
+  el.appendChild(div);
+}
+let editExtraCounters = {};
+function addEditExtraPart(workKey) {
+  if(!editExtraCounters[workKey]) editExtraCounters[workKey] = 0;
+  const idx = editExtraCounters[workKey]++;
+  const id = `eextra-${workKey}-${idx}-${Date.now()%100000}`;
+  if(!partQtys[workKey]) partQtys[workKey] = {};
+  partQtys[workKey]['__extra_'+id] = { name:'', qty:1 };
+  _appendEditExtraRow(workKey, id, '', 1);
+}
+function syncEditExtraPart(workKey, id) {
+  const name = document.getElementById('editextraname-'+id)?.value.trim()||'';
+  if(!partQtys[workKey]) partQtys[workKey] = {};
+  const cur = partQtys[workKey]['__extra_'+id]||{name:'',qty:1};
+  partQtys[workKey]['__extra_'+id] = {name, qty:cur.qty};
+}
+function changeEditExtraQty(workKey, id, delta) {
+  if(!partQtys[workKey]) partQtys[workKey] = {};
+  const cur = partQtys[workKey]['__extra_'+id]||{name:'',qty:1};
+  const newVal = Math.max(0, cur.qty+delta);
+  partQtys[workKey]['__extra_'+id] = {name:cur.name, qty:newVal};
+  const el = document.getElementById('editextraqty-'+id);
+  if(el) el.textContent = newVal;
+}
+function removeEditExtraPart(workKey, id) {
+  document.getElementById('edit-'+id)?.remove();
+  if(partQtys[workKey]) delete partQtys[workKey]['__extra_'+id];
 }
 function updateEditPP() {
   const cs = [...document.querySelectorAll('#edit-work-checks input:checked')].map(c=>c.value);
