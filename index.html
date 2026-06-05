@@ -9265,6 +9265,18 @@ async function saveEdit() {
       - removed.reduce((s,k) => s + (WORKS[k]?.price||0), 0);
     // 수정된 부품 수량 계산
     const model = origEntry?.model || '';
+    // ⭐ 저장 직전 DOM에서 기타부품 입력값 강제 재동기화 (한글 조합중 oninput 누락 방지)
+    works.forEach(k => {
+      Object.keys(partQtys[k]||{}).forEach(key => {
+        if(!key.startsWith('__extra_')) return;
+        const id = key.replace('__extra_','');
+        const inp = document.getElementById('editextraname-'+id);
+        if(inp) {
+          const cur = partQtys[k][key];
+          partQtys[k][key] = { name: inp.value.trim(), qty: (typeof cur==='object'?cur.qty:1) };
+        }
+      });
+    });
     const editPartsResult = {};
     works.forEach(k => {
       (WORKS[k].parts||[]).forEach(p => {
@@ -9279,6 +9291,7 @@ async function saveEdit() {
         if(name && qty > 0) editPartsResult[name] = (editPartsResult[name]||0) + qty;
       });
     });
+    console.log('[부품저장 진단] works:', works, '| partQtys:', JSON.parse(JSON.stringify(partQtys)), '| 결과 editPartsResult:', editPartsResult);
     // parts를 안전한 형식으로 인코딩 (JSON 특수문자 URL 인코딩 오류 방지)
     // 형식: "부품명=수량|부품명=수량" → GAS에서 동일 형식으로 파싱
     const partsSafe = Object.entries(editPartsResult).map(([k,v])=>encodeURIComponent(k)+'='+v).join('|');
