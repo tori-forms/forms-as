@@ -6267,8 +6267,9 @@ function getFilteredShipHistory() {
 
   // 시리얼 검색
   if(svSerialQuery && svSerialQuery.trim()) {
-    const q = svSerialQuery.trim().toUpperCase();
-    list = list.filter(h => String(h.serial).toUpperCase().includes(q));
+    // ⭐ 언더스코어 제거 + 대문자 통일로 비교 (N/_N 유무, 끝 일부만 입력해도 매칭)
+    const q = svSerialQuery.trim().toUpperCase().replace(/[_\s]/g, '');
+    list = list.filter(h => String(h.serial).toUpperCase().replace(/[_\s]/g, '').includes(q));
   }
 
   return list;
@@ -8417,6 +8418,10 @@ function switchTab(name, btn) {
   // 다른 탭으로 이동 시 main 너비 복원
   const mainEl = document.querySelector('.main');
   if(mainEl) mainEl.style.maxWidth = '';
+  // ⭐ 출고목록 전체폭(ship-list-full) 해제 — 출고 관리 탭으로 갈 때만 유지
+  if(name !== 'shipping') {
+    document.body.classList.remove('ship-list-full');
+  }
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
@@ -9068,14 +9073,30 @@ function openEditModal(id) {
   // e.parts = { 부품명: 수량 } 형태 - 기존 저장 수량을 partQtys에 복원
   if(e.parts && typeof e.parts === 'object') {
     const ws0 = parseWorks(e.works);
+    // 표준 부품명 집합 (이 작업들에 정의된 부품)
+    const standardNames = new Set();
     ws0.forEach(k => {
       (WORKS[k]&&WORKS[k].parts||[]).forEach(p => {
+        standardNames.add(p.name);
         if(e.parts[p.name] !== undefined) {
           if(!partQtys[k]) partQtys[k] = {};
           partQtys[k][p.name] = Number(e.parts[p.name]);
         }
       });
     });
+    // ⭐ 표준에 없는 부품(스피커 등 기타 부품)은 첫 작업에 기타 부품으로 복원
+    const firstWork = ws0[0];
+    if(firstWork) {
+      Object.entries(e.parts).forEach(([name, qty]) => {
+        if(standardNames.has(name)) return;       // 표준 부품은 위에서 처리됨
+        if(!name || Number(qty) <= 0) return;
+        if(!extraPartCounters[firstWork]) extraPartCounters[firstWork] = 0;
+        const idx = extraPartCounters[firstWork]++;
+        const exId = `extra-${firstWork}-${idx}`;
+        if(!partQtys[firstWork]) partQtys[firstWork] = {};
+        partQtys[firstWork]['__extra_'+exId] = { name, qty: Number(qty), _restore: true };
+      });
+    }
   }
   document.getElementById('edit-serial-label').textContent = `시리얼: ${e.serial}  |  엔지니어: ${e.worker}`;
   const ws = parseWorks(e.works);
@@ -9096,15 +9117,16 @@ function openEditModal(id) {
 }
 function closeEditModal() { document.getElementById('edit-modal').classList.remove('open'); editTargetId = null; }
 function renderEditParts(ws) {
-  const model = typeof getModel === 'function' ? getModel() : '';
+  // ⭐ 수정 중인 entry의 model 사용 (getModel은 수리등록 화면용이라 부정확)
+  const origEntry = entries.find(x => String(x.id) === String(editTargetId));
+  const model = origEntry?.model || (typeof detectModel === 'function' ? detectModel(String(origEntry?.serial||'')) : '');
   let html = '';
   ws.forEach(k => {
     const v = WORKS[k];
-    if(!v || !v.parts || !v.parts.length) return;
-    const visibleParts = v.parts.filter(p => !p.modelOnly || p.modelOnly === model);
-    if(!visibleParts.length) return;
+    if(!v) return;
+    const visibleParts = (v.parts||[]).filter(p => !p.modelOnly || p.modelOnly === model);
     html += `<div style="margin-bottom:10px;">`;
-    html += `<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;">${v.tag}</div>`;
+    html += `<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;">${v.tag || v.label}</div>`;
     visibleParts.forEach(p => {
       const cur = partQtys[k]?.[p.name] ?? p.qty;
       const safeKey = (k+'-'+p.name).replace(/[^a-zA-Z0-9]/g,'_');
@@ -9117,12 +9139,46 @@ function renderEditParts(ws) {
         </div>
       </div>`;
     });
+    // ⭐ 기타 부품 추가 (스피커 등 표준 외 부품)
+    html += `<div id="extra-parts-${k}"></div>
+      <div style="margin-top:6px;">
+        <button type="button" onclick="event.preventDefault();event.stopPropagation();addExtraPart('${k}')" style="font-size:11px;color:var(--accent);background:none;border:1px dashed var(--accent);border-radius:4px;padding:3px 8px;cursor:pointer;">+ 부품 추가</button>
+      </div>`;
     html += `</div>`;
   });
   const section = document.getElementById('edit-parts-section');
   const container = document.getElementById('edit-parts-container');
   if(html) { container.innerHTML = html; section.style.display = 'block'; }
   else { section.style.display = 'none'; }
+  // ⭐ 복원된 기타 부품을 화면에 다시 그림 (openEditModal에서 _restore 플래그로 표시된 것)
+  ws.forEach(k => {
+    const extras = partQtys[k] || {};
+    Object.entries(extras).forEach(([key, val]) => {
+      if(!key.startsWith('__extra_')) return;
+      if(typeof val !== 'object' || !val._restore) return;
+      const id = key.replace('__extra_', '');
+      const el = document.getElementById('extra-parts-'+k);
+      if(!el || document.getElementById(id)) return;
+      const div = document.createElement('div');
+      div.id = id;
+      div.className = 'part-qty-row';
+      div.style.marginTop = '6px';
+      div.innerHTML = `
+        <input type="text" placeholder="부품명" id="extraname-${id}" value="${(val.name||'').replace(/"/g,'&quot;')}"
+          style="flex:1;height:26px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:4px;outline:none;"
+          oninput="syncExtraPart('${k}','${id}')">
+        <div style="display:flex;align-items:center;gap:4px;margin-left:8px;">
+          <button class="qty-btn" type="button" onclick="changeExtraQty('${k}','${id}',-1)">−</button>
+          <span class="qty-num" id="extraqty-${id}">${val.qty||1}</span>
+          <button class="qty-btn" type="button" onclick="changeExtraQty('${k}','${id}',1)">+</button>
+          <button type="button" onclick="removeExtraPart('${k}','${id}')" style="margin-left:4px;font-size:12px;color:var(--red-text);background:none;border:none;cursor:pointer;">✕</button>
+        </div>`;
+      el.appendChild(div);
+      // _restore 플래그 제거 (재렌더 시 중복 방지)
+      partQtys[k][key] = { name: val.name, qty: val.qty };
+    });
+  });
+  return; // 아래 중복 분기 방지
 }
 function updateEditPP() {
   const cs = [...document.querySelectorAll('#edit-work-checks input:checked')].map(c=>c.value);
