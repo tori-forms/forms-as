@@ -4485,14 +4485,9 @@ function renderInspectWaitList() {
   const el = document.getElementById('inspect-list');
   if(!el) return;
 
-  const list = getInspectWaitingEntries()
-    .sort((a,b) => {
-      const sa = new Date(a.agingStart || a.date || 0).getTime();
-      const sb = new Date(b.agingStart || b.date || 0).getTime();
-      return sa - sb;
-    });
+  const allList = getInspectWaitingEntries();
 
-  if(list.length === 0) {
+  if(allList.length === 0) {
     el.innerHTML = `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
       <div style="font-size:48px;margin-bottom:12px;">📭</div>
       <div style="font-size:15px;">검수 대기 중인 수리건이 없습니다.</div>
@@ -4500,48 +4495,105 @@ function renderInspectWaitList() {
     return;
   }
 
+  // ⭐ 재작업 여부 판별: 해당 시리얼에 fail 검수 이력이 있으면 재작업 복귀건
+  const failSerials = new Set(
+    (inspections || []).filter(i => i.result === 'fail').map(i => normalizeSerial(i.serial))
+  );
+  const isReworkEntry = (e) => failSerials.has(normalizeSerial(e.serial));
+
+  // 재작업건 / 신규건 분리
+  const reworkList = allList.filter(isReworkEntry);
+  const newList = allList.filter(e => !isReworkEntry(e));
+
   const canInsp = canInspect(currentUser);
 
-  let html = `<div class="card" style="padding:0;overflow:hidden;">
-    <div class="table-wrap"><table style="font-size:13px;">
-      <thead><tr>
-        <th>시리얼</th>
-        <th>기종</th>
-        <th>등록자</th>
-        <th>작업</th>
-        <th>에이징 완료</th>
-        <th>대기 시간</th>
-        <th style="text-align:center;">검수</th>
-      </tr></thead>
-      <tbody>`;
+  // 정렬: 등록자별 → 대기시간 오래된 순
+  const sortFn = (a,b) => {
+    const wa = String(a.worker||'').split('::')[0];
+    const wb = String(b.worker||'').split('::')[0];
+    if(wa !== wb) return wa.localeCompare(wb);
+    const sa = new Date(a.agingStart || a.date || 0).getTime();
+    const sb = new Date(b.agingStart || b.date || 0).getTime();
+    return sa - sb;
+  };
+  reworkList.sort(sortFn);
+  newList.sort(sortFn);
 
-  list.forEach(e => {
-    const works = (e.works||[]).map(w => WORKS[w]?.label || w).join(', ');
-    const startMs = e.agingStart ? new Date(e.agingStart).getTime() : 0;
-    const passMs = startMs + agingDurationMs;
-    const waitMs = Math.max(0, nowMs() - passMs);
-    const waitH = Math.floor(waitMs / 3600000);
-    const passFmt = passMs ? new Date(passMs).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
+  // 행 생성 (등록자가 바뀌면 그룹 구분선)
+  const buildRows = (list) => {
+    let rows = '';
+    let prevWorker = null;
+    list.forEach(e => {
+      const worker = String(e.worker||'').split('::')[0];
+      const rework = isReworkEntry(e);
+      const works = (e.works||[]).map(w => WORKS[w]?.label || w).join(', ');
+      const startMs = e.agingStart ? new Date(e.agingStart).getTime() : 0;
+      const passMs = startMs + agingDurationMs;
+      const waitMs = Math.max(0, nowMs() - passMs);
+      const waitH = Math.floor(waitMs / 3600000);
+      const passFmt = passMs ? new Date(passMs).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
 
-    html += `<tr>
-      <td style="font-weight:600;">${escapeHtml(e.serial)}</td>
-      <td>${escapeHtml(e.model||'')}</td>
-      <td>${escapeHtml(String(e.worker||'').split('::')[0])}</td>
-      <td style="font-size:12px;color:var(--text2);">${escapeHtml(works)}</td>
-      <td style="font-size:12px;">${passFmt}</td>
-      <td style="font-size:12px;color:${waitH>=24?'#ef4444':'var(--text2)'};">
-        ${waitH > 0 ? `${waitH}시간 대기` : '방금'}
-      </td>
-      <td style="text-align:center;white-space:nowrap;">
-        ${canInsp ? `
-          <button class="btn btn-primary" onclick="openInspectModal('${e.id}', 'pass')" style="height:30px;padding:0 12px;font-size:12px;background:#10b981;">✅ 검수완료</button>
-          <button class="btn btn-secondary" onclick="openInspectModal('${e.id}', 'fail')" style="height:30px;padding:0 12px;font-size:12px;color:#dc2626;border-color:#dc2626;margin-left:4px;">❌ 불량</button>
-        ` : `<span style="color:var(--muted);font-size:12px;">권한 없음</span>`}
-      </td>
-    </tr>`;
-  });
+      // 등록자 그룹 헤더
+      if(worker !== prevWorker) {
+        const groupCount = list.filter(x => String(x.worker||'').split('::')[0] === worker).length;
+        rows += `<tr style="background:var(--surface2,#f8fafc);">
+          <td colspan="7" style="padding:7px 12px;font-weight:700;font-size:12px;color:var(--accent);border-top:2px solid var(--border);">
+            👤 ${escapeHtml(worker)} <span style="color:var(--text3);font-weight:500;">(${groupCount}건)</span>
+          </td>
+        </tr>`;
+        prevWorker = worker;
+      }
 
-  html += `</tbody></table></div></div>`;
+      const reworkBadge = rework
+        ? `<span style="display:inline-block;background:#f59e0b;color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;margin-left:6px;">🔄 재작업</span>`
+        : '';
+
+      rows += `<tr ${rework?'style="background:rgba(245,158,11,.06);"':''}>
+        <td style="font-weight:600;">${escapeHtml(e.serial)}${reworkBadge}</td>
+        <td>${escapeHtml(e.model||'')}</td>
+        <td>${escapeHtml(worker)}</td>
+        <td style="font-size:12px;color:var(--text2);">${escapeHtml(works)}</td>
+        <td style="font-size:12px;">${passFmt}</td>
+        <td style="font-size:12px;color:${waitH>=24?'#ef4444':'var(--text2)'};">
+          ${waitH > 0 ? `${waitH}시간 대기` : '방금'}
+        </td>
+        <td style="text-align:center;white-space:nowrap;">
+          ${canInsp ? `
+            <button class="btn btn-primary" onclick="openInspectModal('${e.id}', 'pass')" style="height:30px;padding:0 12px;font-size:12px;background:#10b981;">✅ 검수완료</button>
+            <button class="btn btn-secondary" onclick="openInspectModal('${e.id}', 'fail')" style="height:30px;padding:0 12px;font-size:12px;color:#dc2626;border-color:#dc2626;margin-left:4px;">❌ 불량</button>
+          ` : `<span style="color:var(--muted);font-size:12px;">권한 없음</span>`}
+        </td>
+      </tr>`;
+    });
+    return rows;
+  };
+
+  const tableHead = `<thead><tr>
+    <th>시리얼</th><th>기종</th><th>등록자</th><th>작업</th>
+    <th>에이징 완료</th><th>대기 시간</th><th style="text-align:center;">검수</th>
+  </tr></thead>`;
+
+  let html = '';
+
+  // 🔄 재작업 복귀건 섹션 (있을 때만, 맨 위)
+  if(reworkList.length > 0) {
+    html += `<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px;border:2px solid #f59e0b;">
+      <div style="padding:10px 14px;background:rgba(245,158,11,.1);font-weight:700;font-size:13px;color:#b45309;border-bottom:1px solid var(--border);">
+        🔄 재작업 복귀건 <span style="background:#f59e0b;color:#fff;padding:1px 8px;border-radius:99px;font-size:11px;margin-left:4px;">${reworkList.length}</span>
+        <span style="font-weight:500;color:var(--text3);font-size:11px;margin-left:6px;">불량 → 재작업 후 다시 검수 대기</span>
+      </div>
+      <div class="table-wrap"><table style="font-size:13px;">${tableHead}<tbody>${buildRows(reworkList)}</tbody></table></div>
+    </div>`;
+  }
+
+  // 🆕 신규 검수건 섹션
+  html += `<div class="card" style="padding:0;overflow:hidden;">
+    <div style="padding:10px 14px;background:var(--surface2,#f8fafc);font-weight:700;font-size:13px;color:var(--text);border-bottom:1px solid var(--border);">
+      🆕 신규 검수 대기 <span style="background:#3b82f6;color:#fff;padding:1px 8px;border-radius:99px;font-size:11px;margin-left:4px;">${newList.length}</span>
+    </div>
+    <div class="table-wrap"><table style="font-size:13px;">${tableHead}<tbody>${newList.length > 0 ? buildRows(newList) : `<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--muted);">신규 검수 대기건 없음</td></tr>`}</tbody></table></div>
+  </div>`;
+
   el.innerHTML = html;
 }
 
