@@ -1156,6 +1156,13 @@ window.addEventListener('DOMContentLoaded', function(){
       <button class="today-btn" onclick="setToday('summary')">오늘</button>
       <span class="date-label-text" id="lbl-summary"></span>
     </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+      <input type="text" id="summary-serial-search" placeholder="🔍 시리얼번호 일부 입력 (해당 건만 표시)"
+        oninput="setSummarySerialQuery(this.value)"
+        style="flex:1;min-width:220px;max-width:340px;height:34px;padding:0 12px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);outline:none;">
+      <button class="btn btn-sm" onclick="document.getElementById('summary-serial-search').value='';setSummarySerialQuery('')" style="height:34px;">↺ 초기화</button>
+      <span id="summary-serial-hint" style="font-size:11px;color:var(--text3);"></span>
+    </div>
     <div id="summary-stats" class="stat-grid"></div>
     <div id="summary-workers"></div>
   </div>
@@ -8196,6 +8203,43 @@ function showCopyStatus(msg, color) {
   setTimeout(() => { el.textContent = ''; }, 5000);
 }
 
+/* ⭐ 범용 시리얼 복사 (일일현황·시리얼조회 공용) — 복사 후 토스트 알림 */
+function copySerial(serial) {
+  if(!serial) return;
+  const txt = String(serial);
+  const ok = () => { try { notify('📋 복사됨: ' + txt); } catch(e){} };
+  if(navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(ok).catch(() => fallbackCopy(txt));
+  } else {
+    fallbackCopy(txt);
+  }
+}
+
+/* ⭐ entry의 현재 상태 정보 반환 (검수대기/재작업/출고대기/출고완료 등) */
+function getEntryStatusInfo(e) {
+  const sn = normalizeSerial(e.serial);
+  // 1) 출고완료 — shipHistory에 있으면 최우선
+  const shipRec = (typeof shipHistory !== 'undefined' ? shipHistory : []).find(h => normalizeSerial(h.serial) === sn);
+  if(shipRec) {
+    const d = parseShipDate(shipRec.shipDate);
+    const ds = d ? `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : '';
+    return { label:'출고완료', color:'#16a34a', bg:'#dcfce7', icon:'📦', sub: ds ? `출고 ${ds}` : '' };
+  }
+  const s = String(e.status || '');
+  // 재작업 이력(fail 검수) 보유 여부
+  const hasFail = (typeof inspections !== 'undefined' ? inspections : []).some(i => i.result === 'fail' && normalizeSerial(i.serial) === sn);
+  if(s === STATUS_DEFECT)      return { label:'재작업 대기', color:'#dc2626', bg:'#fee2e2', icon:'🔄', sub:'불량 발견 — 엔지니어 재작업 필요' };
+  if(s === STATUS_AGING)       return { label:'에이징 중',   color:'#d97706', bg:'#fef3c7', icon:'🕐', sub:'24시간 경과 대기' };
+  if(s === STATUS_AGING_PASS)  return { label:'검수대기',     color:'#2563eb', bg:'#dbeafe', icon:'🧪', sub: hasFail ? '🔄 재작업 복귀건' : '신규' };
+  if(s === STATUS_INSPECTED || s === '') return { label:'출고대기', color:'#7c3aed', bg:'#ede9fe', icon:'🚚', sub:'검수완료 — 출고 가능' };
+  if(s === STATUS_SHIPPED)     return { label:'출고완료',     color:'#16a34a', bg:'#dcfce7', icon:'📦', sub:'' };
+  return { label: s || '-', color:'var(--text2)', bg:'var(--surface)', icon:'', sub:'' };
+}
+function statusBadgeHtml(e) {
+  const st = getEntryStatusInfo(e);
+  return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;background:${st.bg};color:${st.color};">${st.icon} ${st.label}</span>${st.sub?`<span style="font-size:11px;color:var(--text3);margin-left:6px;">${st.sub}</span>`:''}`;
+}
+
 /* HTML 이스케이프 (XSS 방지) */
 function escapeHtml(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -9431,12 +9475,21 @@ async function getDailyTarget(dateStr) {
 }
 
 /* ===== 일일 마감 ===== */
+/* ⭐ 일일현황 시리얼 검색 */
+let summarySerialQuery = '';
+function setSummarySerialQuery(v) {
+  summarySerialQuery = String(v||'').toUpperCase().replace(/_/g,'');
+  renderSummary();
+}
 async function renderSummary() {
   updateLbl('summary');
   const sel = getDate('summary');
   // ⭐ 타임존 버그 수정: UTC ISO 저장값도 로컬(KST) 날짜로 변환 비교
   const list = entries.filter(e => toLocalDay(e.date) === sel);
   const rev = list.reduce((s,e)=>s+Number(e.total),0);
+  // ⭐ 시리얼 검색 필터 (표시용 — 통계/KPI는 전체 기준 유지)
+  const sq = summarySerialQuery.trim();
+  const matchSq = e => !sq || normalizeSerial(e.serial).includes(sq);
 
   const dailyTarget = await getDailyTarget(sel);
   // ⭐ v2.5: MASTER + T4 + QC 전용 제외한 실제 수리 엔지니어만 카운트
@@ -9485,10 +9538,17 @@ async function renderSummary() {
     return cb - ca;
   });
 
-  const activeToday = sortedWorkers.filter(w => list.filter(e=>e.worker===w).length > 0);
+  const activeToday = sortedWorkers.filter(w => list.filter(e=>e.worker===w && matchSq(e)).length > 0);
+  // 검색 힌트 표시
+  const hintEl = document.getElementById('summary-serial-hint');
+  if(hintEl) {
+    const matchCnt = list.filter(matchSq).length;
+    hintEl.textContent = sq ? `"${sq}" 일치 ${matchCnt}건` : '';
+  }
   we.innerHTML = activeToday.map(w=>{
-    const wl = list.filter(e=>e.worker===w);
-    const cnt = wl.length, wrev = wl.reduce((s,e)=>s+Number(e.total),0);
+    const wlAll = list.filter(e=>e.worker===w);   // 통계용 (전체)
+    const wl = wlAll.filter(matchSq);              // 표시용 (검색 필터)
+    const cnt = wlAll.length, wrev = wlAll.reduce((s,e)=>s+Number(e.total),0);
     // 작업자 본인 목표 사용 (T1=개별 입력, T2~T4=자동 평균)
     const target = getPersonalDailyTarget(w, dailyTarget);
     const diff = target ? cnt - target : 0;
@@ -9503,7 +9563,7 @@ async function renderSummary() {
     const blockId = 'wb-'+w.replace(/\s/g,'_');
     const tbl = wl.length
       ? `<div class="table-wrap"><table>
-          <thead><tr><th>기종</th><th>시리얼 번호</th><th>수리 항목</th><th>특이사항</th><th style="text-align:right">공임비</th></tr></thead>
+          <thead><tr><th>기종</th><th>시리얼 번호</th><th>수리 항목</th><th>특이사항</th><th style="text-align:right">공임비</th><th></th></tr></thead>
           <tbody>${wl.map(e=>{const ws=parseWorks(e.works);return`<tr>
             <td>${(() => { const __m = normalizeModel(e.model); return `<span style="font-size:10px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 7px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
             <td class="mono">${e.serial}</td>
@@ -9511,6 +9571,7 @@ async function renderSummary() {
             <td>${e.note?`<span class="note-badge" title="${e.note}">${e.note}</span>`:'<span style="color:var(--text3);font-size:11px;">-</span>'}</td>
             <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fmt(e.total)}원</td>
             <td style="display:flex;gap:4px;">
+              <button class="btn btn-sm" onclick="copySerial('${escapeJs(e.serial)}')" title="시리얼 복사">📋</button>
               <button class="btn btn-sm" onclick="openEditModal(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>수정</button>
               <button class="btn btn-sm btn-danger" onclick="delEntry(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>삭제</button>
             </td>
@@ -10218,10 +10279,12 @@ function doSearch() {
           <div style="font-size:12px;color:var(--text2);font-family:'JetBrains Mono',monospace;margin-top:2px;">${fmt(e.total)}원</div>
         </div>
       </div>
+      <div style="margin-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;">${statusBadgeHtml(e)}</div>
       <div style="margin-bottom:6px;">${(() => { const __m = normalizeModel(e.model); return __m?`<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;margin-right:4px;">${__m}</span>`:''; })()}</div>
       <div style="margin-bottom:8px;">${workTags(e.works)}</div>
       ${e.note?`<div style="font-size:12px;color:var(--amber-text);background:var(--amber-bg);padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:8px;">📝 ${e.note}</div>`:''}
       <div style="display:flex;gap:6px;">
+        <button class="btn btn-sm" onclick="copySerial('${escapeJs(e.serial)}')" title="시리얼 복사">📋 복사</button>
         <button class="btn btn-sm" onclick="openEditModal(${e.id});lastSearch='${document.getElementById('inp-search').value.trim()}'" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>수정</button>
         <button class="btn btn-sm btn-danger" onclick="delSearch(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>삭제</button>
       </div>
