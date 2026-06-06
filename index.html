@@ -10116,8 +10116,13 @@ async function renderHistory() {
         if(e.parts && Object.keys(e.parts).length) {
           Object.entries(e.parts).forEach(([n,q]) => {
             const std = stdQty[n] || 0;
-            if(q > std) extraParts.push(`${n}×${q-std}`);
-            else if(!std) extraParts.push(`${n}×${q}`); // 기준에 없는 추가 부품
+            if(std > 0) {
+              // 기준 있는 부품: 기준 초과분만 초과로 카운트
+              if(q > std) extraParts.push(`${n}×${q-std}`);
+            } else {
+              // 기준에 없는 추가 부품: 2개부터 초과 (1개는 정상 추가)
+              if(q >= 2) extraParts.push(`${n}×${q-1}`);
+            }
           });
         }
         return`<tr>
