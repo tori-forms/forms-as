@@ -10750,75 +10750,101 @@ async function renderReport() {
     </div>
   </div>`;
 
-  // 엔지니어별 실적
+  // 엔지니어별 실적 — ⭐ B안: 월 요약 + 주차별 미니바 (수리 등록 기준)
+  // 이 달의 주(월요일 정렬) 구간 미리 계산 + 각 구간 평일 수
+  const monthFirst = new Date(y, m-1, 1);
+  const monthLast = new Date(y, m, 0);
+  const segs = [];
+  let cur = new Date(monthFirst);
+  while(cur.getDay() !== 1) cur.setDate(cur.getDate() - 1); // 첫 주 월요일로
+  while(cur.getTime() <= monthLast.getTime()) {
+    const wkEnd = new Date(cur); wkEnd.setDate(wkEnd.getDate() + 6);
+    const segStart = new Date(Math.max(cur.getTime(), monthFirst.getTime()));
+    const segEnd = new Date(Math.min(wkEnd.getTime(), monthLast.getTime()));
+    const mid = new Date((segStart.getTime() + segEnd.getTime()) / 2);
+    segs.push({ start: segStart, end: segEnd, mid });
+    cur.setDate(cur.getDate() + 7);
+  }
+  for(const s of segs) {
+    s.wd = await countWorkdays(s.start, s.end);
+    s.sKey = `${s.start.getFullYear()}-${pad(s.start.getMonth()+1)}-${pad(s.start.getDate())}`;
+    s.eKey = `${s.end.getFullYear()}-${pad(s.end.getMonth()+1)}-${pad(s.end.getDate())}`;
+  }
+
   h += `<div class="card" style="padding:0;">
-    <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">엔지니어별 실적</div>
+    <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">엔지니어별 실적 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 수리 등록 기준 · 주차별 추이</span></div>
     <div class="table-wrap"><table>
       <thead><tr>
         <th>엔지니어</th>
         <th style="text-align:right">수리 건수</th>
-        <th style="text-align:right">달성률</th>
-        <th>달성 현황</th>
+        <th style="text-align:right">월 달성률</th>
+        <th style="min-width:160px;">주차별 추이 (목표 대비)</th>
         <th style="text-align:right">공임비 합계</th>
-        <th style="text-align:right">1인 목표 대비</th>
+        <th style="text-align:right">월 목표 대비</th>
       </tr></thead>
       <tbody>`;
 
+  let footReg = 0;
   activeWorkers.forEach(w => {
-    // ⭐ 출고 기준: 이 달 출고된 건 중 이 엔지니어가 작업한 것
-    const wShipped = monthShipped.filter(h => (h.worker||'') === w);
-    const cnt = wShipped.length;
-    const wrev = wShipped.reduce((s,h) => s+Number(h.fee||0), 0);
+    // 이 엔지니어가 이 달에 등록한 건
+    const wEntries = monthEntries.filter(e => String(e.worker||'').split('::')[0] === w);
+    const cnt = wEntries.length;
+    footReg += cnt;
+    const wrev = wEntries.reduce((s,e) => s + Number(e.total||0), 0);
 
-    // ⭐ 개인 월 목표 계산 (C 방식)
-    //  - 개별 목표(workerDailyTargets) 설정 시 → 그 일일목표 × 평일수
-    //  - 미설정 T2/T3 → 공통 KPI 자동분배 (분모는 KPI 대상 T2/T3 수)
-    //  - 미설정 T1 → 0 (KPI 미설정으로 표시)
-    let workerTarget = 0;
     const manualDaily = workerDailyTargets[w];
-    if(manualDaily !== undefined && manualDaily !== null && manualDaily > 0) {
-      // 개별 목표 있음 (T1 포함) — 최우선
-      workerTarget = wd ? manualDaily * wd : 0;
-    } else if(isKpiTarget(w) && wd) {
-      // ⭐ 입사일 기준 주차별 목표 (해당 월 15일 시점의 주차 적용). 입사일 없으면 표준 12.
-      const midOfMonth = new Date(y, m-1, 15);
-      const recDaily = tenureDailyTarget(w, midOfMonth) || KPI_STD_DAILY;
-      workerTarget = recDaily * wd;
-    }
-    // T1 미설정은 workerTarget = 0 → "KPI 미설정" 표시
+    const hasManual = (manualDaily !== undefined && manualDaily !== null && manualDaily > 0);
+    const isTarget = hasManual || isKpiTarget(w);
 
-    const wpct = workerTarget ? Math.min(100, Math.round(cnt/workerTarget*100)) : 0;
-    const diff = workerTarget ? cnt - workerTarget : 0;
+    // 주차별 목표/실적
+    let monthTarget = 0;
+    const segCells = segs.map((s, i) => {
+      const segDone = wEntries.filter(e => { const dk = toLocalDay(e.date); return dk >= s.sKey && dk <= s.eKey; }).length;
+      let segDaily = 0;
+      if(isTarget) {
+        segDaily = hasManual ? manualDaily : (tenureDailyTarget(w, s.mid) || KPI_STD_DAILY);
+      }
+      const segTarget = segDaily * s.wd;
+      monthTarget += segTarget;
+      const segPct = segTarget ? Math.round(segDone / segTarget * 100) : 0;
+      const fillH = segTarget ? Math.max(3, Math.round(30 * Math.min(1, segPct/100))) : 3;
+      const col = !segTarget ? 'var(--border)' : (segPct>=100?'var(--green)':segPct>=70?'var(--amber)':'var(--red)');
+      const tip = segTarget ? `${i+1}주차 (${s.sKey.slice(5)}~${s.eKey.slice(5)}): ${segDone}/${segTarget}건 ${segPct}%` : `${i+1}주차: 목표 없음`;
+      return `<div title="${tip}" style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+        <div style="display:flex;align-items:flex-end;height:30px;"><div style="width:13px;height:${fillH}px;background:${col};border-radius:2px 2px 0 0;"></div></div>
+        <span style="font-size:8px;color:var(--text3);">${i+1}</span>
+      </div>`;
+    }).join('');
+
+    const wpct = monthTarget ? Math.min(999, Math.round(cnt/monthTarget*100)) : 0;
+    const diff = monthTarget ? cnt - monthTarget : 0;
     let bc, bt;
-    if(!workerTarget){bc='badge-blue';bt='KPI 미설정';}
+    if(!monthTarget){bc='badge-blue';bt='KPI 미설정';}
     else if(diff>=0){bc='badge-ok';bt='목표 달성';}
     else{bc='badge-under';bt=`${Math.abs(diff)}건 미달`;}
-    const barColor = wpct>=100?'var(--green)':wpct>=70?'var(--amber)':'var(--red)';
+    const pctColor = wpct>=100?'var(--green)':wpct>=70?'var(--amber)':'var(--red)';
     h += `<tr>
-      <td style="font-weight:600;">${w}</td>
+      <td style="font-weight:600;">${w}${hasManual?'<span style="font-size:9px;color:var(--text3);margin-left:4px;">(개별)</span>':''}</td>
       <td style="text-align:right;font-weight:600;">${cnt}건</td>
-      <td style="text-align:right;font-weight:700;color:${barColor};">${workerTarget?wpct+'%':'-'}</td>
-      <td><div style="display:flex;align-items:center;gap:8px;">
-        <div style="flex:1;background:var(--surface2);border-radius:4px;height:6px;overflow:hidden;min-width:80px;">
-          <div style="height:100%;border-radius:4px;background:${barColor};width:${wpct}%;"></div>
-        </div>
-        <span class="badge ${bc}">${bt}</span>
-      </div></td>
+      <td style="text-align:right;font-weight:700;color:${pctColor};">${monthTarget?wpct+'%':'-'}</td>
+      <td><div style="display:flex;align-items:flex-end;gap:5px;">${segCells}</div></td>
       <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;">${fmt(wrev)}원</td>
-      <td style="text-align:right;color:${diff>=0?'var(--green)':'var(--red)'};font-weight:600;">${workerTarget?(diff>=0?'+'+diff:diff)+'건':'-'}</td>
+      <td style="text-align:right;color:${diff>=0?'var(--green)':'var(--red)'};font-weight:600;">${monthTarget?`${diff>=0?'+'+diff:diff}건 <span style="font-size:10px;color:var(--text3);">/ ${monthTarget}</span>`:'-'}</td>
     </tr>`;
   });
 
+  const footRev = monthEntries.reduce((s,e)=>s+Number(e.total||0),0);
   h += `</tbody>
     <tfoot><tr>
       <td style="font-weight:700;padding:10px 12px;">합계</td>
-      <td style="text-align:right;font-weight:700;">${totalDone}건</td>
-      <td style="text-align:right;font-weight:700;color:${progColor};">${monthKPI?pct+'%':'-'}</td>
-      <td></td>
-      <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);">${fmt(totalRev)}원</td>
-      <td></td>
+      <td style="text-align:right;font-weight:700;">${footReg}건</td>
+      <td colspan="3"></td>
+      <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);">${fmt(footRev)}원</td>
     </tr></tfoot>
-  </table></div></div>`;
+  </table></div>
+  <div style="padding:10px 18px;font-size:11px;color:var(--text3);border-top:1px solid var(--border);">
+    📊 막대 = 그 주의 목표 대비 달성 (초록 100%↑ · 노랑 70%↑ · 빨강 70%↓ · 회색 목표없음). 월 목표 = 주차별 목표의 합 (입사 주차 상승 반영).
+  </div></div>`;
 
   el.innerHTML = h;
 }
