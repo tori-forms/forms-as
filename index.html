@@ -9406,7 +9406,7 @@ async function renderMyDash() {
       <!-- 2. 이번 주 목표 달성률 (수리 등록 기준, 주차별) -->
       <div style="${cardBaseClickable}" onclick="gotoTab('history')" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
         <div style="${iconStyle}">🎯</div>
-        <div style="${labelStyle}">이번 주 목표 달성률 ${curWeekNo?`<span style="font-size:9px;color:var(--text3);font-weight:500;">(입사 ${curWeekNo}주차 · 일 ${dailyTarget}건)</span>`:`<span style="font-size:9px;color:var(--text3);font-weight:500;">(일 ${dailyTarget}건)</span>`}</div>
+        <div style="${labelStyle}">이번 주 목표 달성률 <span style="font-size:9px;color:var(--text3);font-weight:500;">(일 ${dailyTarget}건)</span></div>
         <div style="display:flex;align-items:baseline;gap:6px;">
           <span style="font-size:32px;font-weight:700;letter-spacing:-1px;color:${pctColor};line-height:1.1;">${achievePct}</span>
           <span style="font-size:16px;color:var(--text2);font-weight:500;">%</span>
@@ -10752,101 +10752,73 @@ async function renderReport() {
     </div>
   </div>`;
 
-  // 엔지니어별 실적 — ⭐ B안: 월 요약 + 주차별 미니바 (수리 등록 기준)
-  const pad = n => String(n).padStart(2,'0');
-  // 이 달의 주(월요일 정렬) 구간 미리 계산 + 각 구간 평일 수
-  const monthFirst = new Date(y, m-1, 1);
-  const monthLast = new Date(y, m, 0);
-  const segs = [];
-  let cur = new Date(monthFirst);
-  while(cur.getDay() !== 1) cur.setDate(cur.getDate() - 1); // 첫 주 월요일로
-  while(cur.getTime() <= monthLast.getTime()) {
-    const wkEnd = new Date(cur); wkEnd.setDate(wkEnd.getDate() + 6);
-    const segStart = new Date(Math.max(cur.getTime(), monthFirst.getTime()));
-    const segEnd = new Date(Math.min(wkEnd.getTime(), monthLast.getTime()));
-    const mid = new Date((segStart.getTime() + segEnd.getTime()) / 2);
-    segs.push({ start: segStart, end: segEnd, mid });
-    cur.setDate(cur.getDate() + 7);
-  }
-  for(const s of segs) {
-    s.wd = await countWorkdays(s.start, s.end);
-    s.sKey = `${s.start.getFullYear()}-${pad(s.start.getMonth()+1)}-${pad(s.start.getDate())}`;
-    s.eKey = `${s.end.getFullYear()}-${pad(s.end.getMonth()+1)}-${pad(s.end.getDate())}`;
-  }
+  // 엔지니어별 실적 — ⭐ KPI 기여도 (출고 건수 기준)
+  //  핵심: 검수 통과해서 "출고관리로 넘어간(=출고 완료)" 건을 만든 사람이 KPI에 기여
+  const contribByWorker = {};
+  monthShipped.forEach(hs => {
+    let wn = String(hs.worker || '').split('::')[0];
+    if(!wn) { const en = findEntryBySerial(hs.serial); wn = String(en?.worker || '').split('::')[0]; }
+    if(!wn) wn = '(미상)';
+    if(!contribByWorker[wn]) contribByWorker[wn] = { cnt: 0, rev: 0 };
+    contribByWorker[wn].cnt++;
+    const en = findEntryBySerial(hs.serial);
+    contribByWorker[wn].rev += Number(en?.total || hs.fee || 0);
+  });
+  const contribRows = Object.entries(contribByWorker)
+    .map(([name, v]) => ({ name, cnt: v.cnt, rev: v.rev, share: totalDone ? (v.cnt / totalDone * 100) : 0 }))
+    .sort((a, b) => b.cnt - a.cnt);
+  const maxShare = contribRows.length ? contribRows[0].share : 0;
+  const medals = ['🥇', '🥈', '🥉'];
 
   h += `<div class="card" style="padding:0;">
-    <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">엔지니어별 실적 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 수리 등록 기준 · 주차별 추이</span></div>
+    <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">엔지니어별 KPI 기여도 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 출고 완료 건 기준</span></div>
     <div class="table-wrap"><table>
       <thead><tr>
+        <th style="width:48px;text-align:center">순위</th>
         <th>엔지니어</th>
-        <th style="text-align:right">수리 건수</th>
-        <th style="text-align:right">월 달성률</th>
-        <th style="min-width:160px;">주차별 추이 (목표 대비)</th>
+        <th style="text-align:right">출고 건수</th>
+        <th style="min-width:180px;">기여도</th>
         <th style="text-align:right">공임비 합계</th>
-        <th style="text-align:right">월 목표 대비</th>
       </tr></thead>
       <tbody>`;
 
-  let footReg = 0;
-  activeWorkers.forEach(w => {
-    // 이 엔지니어가 이 달에 등록한 건
-    const wEntries = monthEntries.filter(e => String(e.worker||'').split('::')[0] === w);
-    const cnt = wEntries.length;
-    footReg += cnt;
-    const wrev = wEntries.reduce((s,e) => s + Number(e.total||0), 0);
-
-    const manualDaily = workerDailyTargets[w];
-    const hasManual = (manualDaily !== undefined && manualDaily !== null && manualDaily > 0);
-    const isTarget = hasManual || isKpiTarget(w);
-
-    // 주차별 목표/실적
-    let monthTarget = 0;
-    const segCells = segs.map((s, i) => {
-      const segDone = wEntries.filter(e => { const dk = toLocalDay(e.date); return dk >= s.sKey && dk <= s.eKey; }).length;
-      let segDaily = 0;
-      if(isTarget) {
-        segDaily = hasManual ? manualDaily : (tenureDailyTarget(w, s.mid) || KPI_STD_DAILY);
-      }
-      const segTarget = segDaily * s.wd;
-      monthTarget += segTarget;
-      const segPct = segTarget ? Math.round(segDone / segTarget * 100) : 0;
-      const fillH = segTarget ? Math.max(3, Math.round(30 * Math.min(1, segPct/100))) : 3;
-      const col = !segTarget ? 'var(--border)' : (segPct>=100?'var(--green)':segPct>=70?'var(--amber)':'var(--red)');
-      const tip = segTarget ? `${i+1}주차 (${s.sKey.slice(5)}~${s.eKey.slice(5)}): ${segDone}/${segTarget}건 ${segPct}%` : `${i+1}주차: 목표 없음`;
-      return `<div title="${tip}" style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-        <div style="display:flex;align-items:flex-end;height:30px;"><div style="width:13px;height:${fillH}px;background:${col};border-radius:2px 2px 0 0;"></div></div>
-        <span style="font-size:8px;color:var(--text3);">${i+1}</span>
-      </div>`;
-    }).join('');
-
-    const wpct = monthTarget ? Math.min(999, Math.round(cnt/monthTarget*100)) : 0;
-    const diff = monthTarget ? cnt - monthTarget : 0;
-    let bc, bt;
-    if(!monthTarget){bc='badge-blue';bt='KPI 미설정';}
-    else if(diff>=0){bc='badge-ok';bt='목표 달성';}
-    else{bc='badge-under';bt=`${Math.abs(diff)}건 미달`;}
-    const pctColor = wpct>=100?'var(--green)':wpct>=70?'var(--amber)':'var(--red)';
-    h += `<tr>
-      <td style="font-weight:600;">${w}${hasManual?'<span style="font-size:9px;color:var(--text3);margin-left:4px;">(개별)</span>':''}</td>
-      <td style="text-align:right;font-weight:600;">${cnt}건</td>
-      <td style="text-align:right;font-weight:700;color:${pctColor};">${monthTarget?wpct+'%':'-'}</td>
-      <td><div style="display:flex;align-items:flex-end;gap:5px;">${segCells}</div></td>
-      <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;">${fmt(wrev)}원</td>
-      <td style="text-align:right;color:${diff>=0?'var(--green)':'var(--red)'};font-weight:600;">${monthTarget?`${diff>=0?'+'+diff:diff}건 <span style="font-size:10px;color:var(--text3);">/ ${monthTarget}</span>`:'-'}</td>
+  if(!contribRows.length) {
+    h += `<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--text3);">이 달 출고 완료된 건이 없습니다.</td></tr>`;
+  }
+  contribRows.forEach((r, i) => {
+    const rank = i + 1;
+    const rankCell = rank <= 3 ? `<span style="font-size:16px;">${medals[i]}</span>` : `<span style="color:var(--text3);font-weight:600;">${rank}</span>`;
+    const barW = maxShare ? Math.max(4, Math.round(r.share / maxShare * 100)) : 0; // 1등 기준 상대 길이
+    const barColor = rank === 1 ? 'var(--accent)' : 'var(--text2)';
+    const tierB = tierBadge(tierMap[r.name] || '');
+    h += `<tr${rank===1?' style="background:var(--accent-bg,rgba(45,212,191,.06));"':''}>
+      <td style="text-align:center;">${rankCell}</td>
+      <td style="font-weight:600;">${r.name} ${tierB}</td>
+      <td style="text-align:right;font-weight:700;font-size:15px;">${r.cnt}<span style="font-size:11px;color:var(--text2);font-weight:500;">건</span></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="flex:1;background:var(--surface2);border-radius:4px;height:8px;overflow:hidden;min-width:90px;">
+            <div style="height:100%;border-radius:4px;background:${barColor};width:${barW}%;transition:width .4s;"></div>
+          </div>
+          <span style="font-weight:700;color:${rank===1?'var(--accent)':'var(--text)'};min-width:46px;text-align:right;">${r.share.toFixed(1)}%</span>
+        </div>
+      </td>
+      <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;">${fmt(r.rev)}원</td>
     </tr>`;
   });
 
-  const footRev = monthEntries.reduce((s,e)=>s+Number(e.total||0),0);
+  const footRev = contribRows.reduce((s, r) => s + r.rev, 0);
   h += `</tbody>
     <tfoot><tr>
-      <td style="font-weight:700;padding:10px 12px;">합계</td>
-      <td style="text-align:right;font-weight:700;">${footReg}건</td>
-      <td colspan="3"></td>
+      <td></td>
+      <td style="font-weight:700;padding:10px 12px;">합계 (${contribRows.length}명)</td>
+      <td style="text-align:right;font-weight:700;">${totalDone}건</td>
+      <td style="text-align:right;font-weight:700;color:var(--accent);padding-right:54px;">100%</td>
       <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);">${fmt(footRev)}원</td>
     </tr></tfoot>
   </table></div>
   <div style="padding:10px 18px;font-size:11px;color:var(--text3);border-top:1px solid var(--border);">
-    📊 막대 = 그 주의 목표 대비 달성 (초록 100%↑ · 노랑 70%↑ · 빨강 70%↓ · 회색 목표없음). 월 목표 = 주차별 목표의 합 (입사 주차 상승 반영).
+    💡 기여도 = 그 엔지니어의 <strong>출고 완료 건수</strong> ÷ 이 달 전체 출고 건수. 막대는 1위 대비 상대 길이. 검수 통과해 출고로 넘어간 건만 집계됩니다.
   </div></div>`;
 
   el.innerHTML = h;
