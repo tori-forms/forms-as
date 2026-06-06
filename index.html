@@ -9120,7 +9120,7 @@ function openEditModal(id) {
         const idx = editExtraCounters[firstWork]++;
         const exId = `eextra-${firstWork}-${idx}-r`;
         if(!partQtys[firstWork]) partQtys[firstWork] = {};
-        partQtys[firstWork]['__extra_'+exId] = { name, qty: Number(qty) };
+        partQtys[firstWork]['__extra_'+exId] = { name, qty: Number(qty), fixed: true };
       });
     }
   }
@@ -9185,30 +9185,42 @@ function renderEditParts(ws) {
       const id = key.replace('__extra_', '');
       const el = document.getElementById('edit-extra-parts-'+k);
       if(!el || document.getElementById('edit-'+id)) return;
-      _appendEditExtraRow(k, id, val.name||'', val.qty||1);
+      _appendEditExtraRow(k, id, val.name||'', val.qty||1, val.fixed);
     });
   });
   return; // 아래 중복 분기 방지
 }
 
 /* ⭐ 수정 모달 전용 기타 부품 함수 (수리등록 화면과 ID 충돌 방지) */
-function _appendEditExtraRow(workKey, id, name, qty) {
+function _appendEditExtraRow(workKey, id, name, qty, fixed) {
   const el = document.getElementById('edit-extra-parts-'+workKey);
   if(!el || document.getElementById('edit-'+id)) return;
   const div = document.createElement('div');
   div.id = 'edit-'+id;
   div.className = 'part-qty-row';
   div.style.marginTop = '6px';
-  div.innerHTML = `
-    <input type="text" placeholder="부품명 (예: 스피커)" id="editextraname-${id}" value="${String(name||'').replace(/"/g,'&quot;')}"
-      style="flex:1;height:26px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:4px;outline:none;"
-      oninput="syncEditExtraPart('${workKey}','${id}')">
-    <div style="display:flex;align-items:center;gap:4px;margin-left:8px;">
-      <button class="qty-btn" type="button" onclick="changeEditExtraQty('${workKey}','${id}',-1)">−</button>
-      <span class="qty-num" id="editextraqty-${id}">${qty||1}</span>
-      <button class="qty-btn" type="button" onclick="changeEditExtraQty('${workKey}','${id}',1)">+</button>
-      <button type="button" onclick="removeEditExtraPart('${workKey}','${id}')" style="margin-left:4px;font-size:12px;color:var(--red-text);background:none;border:none;cursor:pointer;">✕</button>
-    </div>`;
+  if(fixed) {
+    // 저장된 기타 부품 — 표준 부품처럼 고정 라벨 (이름 수정 불가, 수량/삭제 가능)
+    div.innerHTML = `
+      <span style="color:var(--text2);font-size:12px;">${String(name||'').replace(/</g,'&lt;')}</span>
+      <div style="display:flex;align-items:center;gap:4px;margin-left:8px;">
+        <button class="qty-btn" type="button" onclick="changeEditExtraQty('${workKey}','${id}',-1)">−</button>
+        <span class="qty-num" id="editextraqty-${id}">${qty||1}</span>
+        <button class="qty-btn" type="button" onclick="changeEditExtraQty('${workKey}','${id}',1)">+</button>
+        <button type="button" onclick="removeEditExtraPart('${workKey}','${id}')" style="margin-left:4px;font-size:12px;color:var(--red-text);background:none;border:none;cursor:pointer;">✕</button>
+      </div>`;
+  } else {
+    div.innerHTML = `
+      <input type="text" placeholder="부품명 (예: 스피커)" id="editextraname-${id}" value="${String(name||'').replace(/"/g,'&quot;')}"
+        style="flex:1;height:26px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:4px;outline:none;"
+        oninput="syncEditExtraPart('${workKey}','${id}')">
+      <div style="display:flex;align-items:center;gap:4px;margin-left:8px;">
+        <button class="qty-btn" type="button" onclick="changeEditExtraQty('${workKey}','${id}',-1)">−</button>
+        <span class="qty-num" id="editextraqty-${id}">${qty||1}</span>
+        <button class="qty-btn" type="button" onclick="changeEditExtraQty('${workKey}','${id}',1)">+</button>
+        <button type="button" onclick="removeEditExtraPart('${workKey}','${id}')" style="margin-left:4px;font-size:12px;color:var(--red-text);background:none;border:none;cursor:pointer;">✕</button>
+      </div>`;
+  }
   el.appendChild(div);
 }
 let editExtraCounters = {};
@@ -9230,7 +9242,7 @@ function changeEditExtraQty(workKey, id, delta) {
   if(!partQtys[workKey]) partQtys[workKey] = {};
   const cur = partQtys[workKey]['__extra_'+id]||{name:'',qty:1};
   const newVal = Math.max(0, cur.qty+delta);
-  partQtys[workKey]['__extra_'+id] = {name:cur.name, qty:newVal};
+  partQtys[workKey]['__extra_'+id] = {name:cur.name, qty:newVal, fixed:cur.fixed};
   const el = document.getElementById('editextraqty-'+id);
   if(el) el.textContent = newVal;
 }
