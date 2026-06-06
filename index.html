@@ -1093,9 +1093,9 @@ window.addEventListener('DOMContentLoaded', function(){
   <button class="nav-btn" id="nav-mydash" onclick="switchTab('mydash',this)" style="display:none;">✨ 내 대시보드</button>
   <button class="nav-btn active" onclick="switchTab('input',this)">🔧 수리 등록</button>
   <button class="nav-btn" onclick="switchTab('exchange',this)">💸 교품 처리</button>
+  <button class="nav-btn" onclick="switchTab('summary',this)">📊 일일 현황</button>
   <button class="nav-btn" id="nav-aging" onclick="switchTab('aging',this)">🕐 에이징</button>
   <button class="nav-btn" id="nav-inspect" onclick="switchTab('inspect',this)">🧪 검수대기</button>
-  <button class="nav-btn" onclick="switchTab('summary',this)">📊 일일 현황</button>
   <button class="nav-btn" onclick="switchTab('history',this)">📋 전체 기록</button>
   <button class="nav-btn" onclick="switchTab('search',this)">🔍 시리얼 조회</button>
   <button class="nav-btn" onclick="switchTab('docs',this)">📚 교육 자료</button>
@@ -3704,7 +3704,6 @@ function renderAging() {
   <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
     <button class="btn btn-secondary" onclick="agingExpandAll()" style="height:32px;padding:0 12px;font-size:12px;">▼ 전체 펼치기</button>
     <button class="btn btn-secondary" onclick="agingCollapseAll()" style="height:32px;padding:0 12px;font-size:12px;">▶ 전체 접기</button>
-    ${passedCount > 0 ? `<button class="btn btn-primary" onclick="moveAllPassedToInspect()" style="height:32px;padding:0 14px;font-size:12px;margin-left:auto;">✅ 에이징 완료 ${passedCount}건 전체 검수대기로</button>` : ''}
   </div>`;
 
   // 엔지니어별 카드
@@ -3736,11 +3735,16 @@ function renderAging() {
         </span>
       </div>
       <div style="display:${isExpanded?'block':'none'};">
-        ${workerPassed > 0 ? `<div style="padding:8px 14px;border-bottom:1px solid var(--border);background:var(--surface2);">
-          <button class="btn btn-primary" onclick="moveAllPassedToInspect('${escapeHtml(worker)}')" style="height:30px;padding:0 12px;font-size:12px;">✅ 완료 ${workerPassed}건 일괄 검수대기</button>
+        ${workerPassed > 0 ? `<div style="padding:8px 14px;border-bottom:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;">
+            <input type="checkbox" onclick="agingToggleAll('${escapeHtml(worker)}',this.checked)"> 완료건 전체 선택
+          </label>
+          <button class="btn btn-primary" onclick="moveSelectedToInspect('${escapeHtml(worker)}')" style="height:30px;padding:0 12px;font-size:12px;">→ 선택 항목 검수대기로</button>
+          <span style="font-size:11px;color:var(--text3);">에이징 완료 ${workerPassed}건</span>
         </div>` : ''}
         <div class="table-wrap"><table style="font-size:13px;">
           <thead><tr>
+            <th style="width:34px;text-align:center;"></th>
             <th>시리얼</th>
             <th>기종</th>
             <th>작업</th>
@@ -3757,7 +3761,8 @@ function renderAging() {
       const passed = c.isPassed;
       const startFmt = e.agingStart ? new Date(e.agingStart).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
 
-      html += `<tr data-aging-row data-entry-id="${e.id}">
+      html += `<tr data-aging-row data-entry-id="${e.id}" data-aging-worker="${escapeHtml(worker)}">
+        <td style="text-align:center;">${passed ? `<input type="checkbox" class="aging-chk" data-chk-worker="${escapeHtml(worker)}" data-chk-id="${e.id}">` : ''}</td>
         <td style="font-weight:600;">${escapeHtml(e.serial)}</td>
         <td>${escapeHtml(e.model||'')}</td>
         <td style="font-size:12px;color:var(--text2);">${escapeHtml(works)}</td>
@@ -3815,16 +3820,21 @@ function agingCollapseAll() {
   renderAging();
 }
 
-// ⭐ 에이징 완료건 일괄 검수대기 이동 (worker 지정 시 해당 엔지니어만, 없으면 전체)
-function moveAllPassedToInspect(worker) {
-  const targets = getAgingEntries().filter(e => {
-    if(!calcAging(e.agingStart).isPassed) return false;
-    if(worker) return String(e.worker||'').split('::')[0] === worker;
-    return true;
-  });
-  if(!targets.length) { notify('이동할 에이징 완료 건이 없습니다.', 'error'); return; }
-  const who = worker ? `${worker}님의 ` : '';
-  openModal('일괄 검수대기 이동', `${who}에이징 완료 ${targets.length}건을 모두 검수대기로 이동할까요?`, async () => {
+// ⭐ 엔지니어 카드 내 '완료건 전체 선택' 체크박스 토글
+function agingToggleAll(worker, checked) {
+  document.querySelectorAll(`.aging-chk[data-chk-worker="${worker}"]`).forEach(cb => { cb.checked = checked; });
+}
+
+// ⭐ 선택한 에이징 완료건만 검수대기로 이동 (본인이 고른 것만 — 남의 것 일괄 처리 방지)
+function moveSelectedToInspect(worker) {
+  const ids = Array.from(document.querySelectorAll(`.aging-chk[data-chk-worker="${worker}"]:checked`))
+    .map(cb => cb.getAttribute('data-chk-id'));
+  if(!ids.length) { notify('이동할 항목을 선택하세요.', 'error'); return; }
+  const targets = ids
+    .map(id => entries.find(x => String(x.id) === String(id)))
+    .filter(e => e && calcAging(e.agingStart).isPassed);
+  if(!targets.length) { notify('이동 가능한(에이징 완료) 항목이 없습니다.', 'error'); return; }
+  openModal('검수대기 이동', `선택한 ${targets.length}건을 검수대기로 이동할까요?`, async () => {
     let ok = 0, fail = 0;
     notifyPersist(`이동 중... 0/${targets.length}`);
     for(const e of targets) {
@@ -3836,12 +3846,12 @@ function moveAllPassedToInspect(worker) {
         markPendingChange('entries', e.id, { type:'update', data:{ status: STATUS_AGING_PASS } }, 8000);
         ok++;
         notifyPersist(`이동 중... ${ok}/${targets.length}`);
-      } catch(err) { fail++; console.warn('[일괄 검수대기] 실패', e.id, err); }
+      } catch(err) { fail++; console.warn('[선택 검수대기] 실패', e.id, err); }
     }
     notify(`검수대기로 ${ok}건 이동 완료${fail?` (${fail}건 실패)`:''}.`);
     renderAging();
     setTimeout(async () => { try { await syncData(true, true); renderAging(); } catch(e){} }, 2000);
-  }, '일괄 이동');
+  }, '이동');
 }
 
 // 검수대기로 이동
