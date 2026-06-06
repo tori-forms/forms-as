@@ -155,6 +155,12 @@ tr:hover td{background:var(--surface2);}
 .search-result-item{border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin-top:12px;background:var(--surface);}
 .search-serial{font-size:16px;font-weight:700;color:var(--text);letter-spacing:-0.2px;}
 .search-worker{font-size:13px;color:var(--accent);font-weight:600;}
+/* 클릭하면 복사되는 시리얼 */
+.serial-copy{cursor:pointer;border-bottom:1px dashed var(--text3);transition:color .12s,border-color .12s;position:relative;}
+.serial-copy:hover{color:var(--accent);border-bottom-color:var(--accent);}
+.serial-copy:active{opacity:.6;}
+.serial-copy::after{content:"📋";font-size:10px;margin-left:5px;opacity:0;transition:opacity .12s;}
+.serial-copy:hover::after{opacity:.7;}
 
 .worker-mgmt-item{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;background:var(--surface);}
 
@@ -270,6 +276,14 @@ tr:hover td{background:var(--surface2);}
   border-color:#a855f7;
   background:#1f1f23;
   color:#fafafa;
+}
+/* 선택 유지 — 보라 테두리 + 글로우 */
+[data-theme="dark"] .login-overlay .login-grid .name-btn.selected,
+[data-theme="dark"] .login-overlay .login-grid .admin-name-btn.selected{
+  border-color:#a855f7 !important;
+  background:#241b33 !important;
+  color:#fafafa !important;
+  box-shadow:0 0 0 1px #a855f7, 0 4px 16px rgba(168,85,247,.25);
 }
 /* 다크 - 비밀번호 입력 */
 [data-theme="dark"] .login-overlay #master-pw{
@@ -2179,9 +2193,51 @@ let tierMap = {}; // { 이름: 'T1'|'T2'|'T3'|'T4' }
 let partMap = {}; // { 이름: 'nonbat'|'battery'|'all' }
 let statusMap = {}; // { 이름: 'active'|'training'|'inactive' } - 기본값 active
 let roleMap = {}; // { 이름: 'engineer'|'inspector'|'both' } - 검수 역할 (Phase2 추가)
+let hireDateMap = {}; // { 이름: 'YYYY-MM-DD' } - 입사일 (주차별 KPI 램프업용)
 let inspections = []; // 검수 이력 (Phase2 추가)
 let agingDurationMs = 24*60*60*1000; // 에이징 24h (서버에서 받아 덮어씀)
 let serverTimeOffset = 0; // 서버-클라이언트 시간 차이 (ms)
+
+// === ⭐ 입사일 기준 주차별(램프업) KPI 목표 ===
+const KPI_STD_DAILY = 12;   // 표준 1일 목표 (3개월차 도달 후 유지 상한)
+// 입사 후 주차별 1일 목표 (1주차 → 12주차). 12주 이후는 KPI_STD_DAILY 유지.
+//  토리 기준: 1주1 · 2주3 · 3주4 · 4주5(≈1개월) · 5~8주 6~8(2개월차) · 9~12주 9~12(3개월차)
+let KPI_RAMP_SCHEDULE = [1, 3, 4, 5, 6, 7, 7, 8, 9, 10, 11, 12];
+// 입사일(YYYY-MM-DD) + 기준일 → 그 시점의 권장 1일 목표
+function tenureDailyTarget(name, asOf) {
+  const hd = (typeof hireDateMap !== 'undefined') ? hireDateMap[name] : null;
+  if(!hd) return null; // 입사일 미설정
+  const start = new Date(String(hd) + 'T00:00:00');
+  if(isNaN(start.getTime())) return null;
+  const ref = (asOf instanceof Date && !isNaN(asOf.getTime())) ? asOf : new Date();
+  const days = Math.floor((ref.getTime() - start.getTime()) / 86400000);
+  const week = Math.floor(Math.max(0, days) / 7); // 0-index: 0 = 1주차
+  if(week < KPI_RAMP_SCHEDULE.length) return KPI_RAMP_SCHEDULE[week];
+  return KPI_STD_DAILY;
+}
+// 입사 후 경과 주차(1-index, 표시용). 입사일 없으면 null.
+function tenureWeek(name, asOf) {
+  const hd = (typeof hireDateMap !== 'undefined') ? hireDateMap[name] : null;
+  if(!hd) return null;
+  const start = new Date(String(hd) + 'T00:00:00');
+  if(isNaN(start.getTime())) return null;
+  const ref = (asOf instanceof Date && !isNaN(asOf.getTime())) ? asOf : new Date();
+  const days = Math.floor((ref.getTime() - start.getTime()) / 86400000);
+  return Math.floor(Math.max(0, days) / 7) + 1;
+}
+// 최근 N개월 "수리 등록" 기준 실제 일평균(건/일). 작업일 = 등록일이 서로 다른 날의 수. (참고 지표)
+function getWorkerDailyPace(name, months = 3) {
+  const now = new Date();
+  const startTime = new Date(now.getFullYear(), now.getMonth() - months, now.getDate()).getTime();
+  const endTime = now.getTime();
+  const mine = (entries || []).filter(e => {
+    if(String(e.worker || '').split('::')[0] !== name) return false;
+    const t = new Date(e.date || 0).getTime();
+    return t >= startTime && t <= endTime;
+  });
+  const days = new Set(mine.map(e => toLocalDay(e.date)));
+  return days.size > 0 ? mine.length / days.size : 0;
+}
 
 // === 검수 시스템: 상태 상수 ===
 const STATUS_AGING = 'aging';
@@ -2512,6 +2568,7 @@ async function syncData(silent=false, force=false) {
     partMap = {};
     statusMap = {};
     roleMap = {}; // Phase2: 검수 역할
+    hireDateMap = {}; // 입사일
     workerDailyTargets = {};
     rawWorkers.forEach(w => {
       const parts = String(w).split('::');
@@ -2527,6 +2584,8 @@ async function syncData(silent=false, force=false) {
       }
       // role (옵션, Phase2): name::tier::part::status::dailyTarget::role
       roleMap[name] = (parts[5] || 'engineer');
+      // hireDate (옵션): name::tier::part::status::dailyTarget::role::hireDate
+      if(parts[6] !== undefined && parts[6] !== '') hireDateMap[name] = parts[6];
     });
     const rawKpi = data.kpiMap || {};
     kpiMap = {};
@@ -9566,12 +9625,11 @@ async function renderSummary() {
           <thead><tr><th>기종</th><th>시리얼 번호</th><th>수리 항목</th><th>특이사항</th><th style="text-align:right">공임비</th><th></th></tr></thead>
           <tbody>${wl.map(e=>{const ws=parseWorks(e.works);return`<tr>
             <td>${(() => { const __m = normalizeModel(e.model); return `<span style="font-size:10px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 7px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
-            <td class="mono">${e.serial}</td>
+            <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${e.serial}</span></td>
             <td>${workTags(e.works)}</td>
             <td>${e.note?`<span class="note-badge" title="${e.note}">${e.note}</span>`:'<span style="color:var(--text3);font-size:11px;">-</span>'}</td>
             <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fmt(e.total)}원</td>
             <td style="display:flex;gap:4px;">
-              <button class="btn btn-sm" onclick="copySerial('${escapeJs(e.serial)}')" title="시리얼 복사">📋</button>
               <button class="btn btn-sm" onclick="openEditModal(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>수정</button>
               <button class="btn btn-sm btn-danger" onclick="delEntry(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>삭제</button>
             </td>
@@ -10272,7 +10330,7 @@ function doSearch() {
   html += found.map(e=>`
     <div class="search-result-item">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
-        <div><div class="search-serial">${e.serial}</div>
+        <div><div class="search-serial"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${e.serial}</span></div>
           <div style="font-size:11px;color:var(--text3);margin-top:2px;font-family:'JetBrains Mono',monospace;">${fmtDT(e.date)}</div>
         </div>
         <div style="text-align:right;"><div class="search-worker">${e.worker}</div>
@@ -10284,7 +10342,6 @@ function doSearch() {
       <div style="margin-bottom:8px;">${workTags(e.works)}</div>
       ${e.note?`<div style="font-size:12px;color:var(--amber-text);background:var(--amber-bg);padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:8px;">📝 ${e.note}</div>`:''}
       <div style="display:flex;gap:6px;">
-        <button class="btn btn-sm" onclick="copySerial('${escapeJs(e.serial)}')" title="시리얼 복사">📋 복사</button>
         <button class="btn btn-sm" onclick="openEditModal(${e.id});lastSearch='${document.getElementById('inp-search').value.trim()}'" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>수정</button>
         <button class="btn btn-sm btn-danger" onclick="delSearch(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>삭제</button>
       </div>
@@ -10377,8 +10434,8 @@ async function renderReport() {
         <div style="font-size:18px;font-weight:700;">${wd||'-'}<span style="font-size:11px;color:var(--text2);">${wd?'일':''}</span></div>
       </div>
       <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">1인 하루 목표</div>
-        <div style="font-size:18px;font-weight:700;">${dailyTarget||'-'}<span style="font-size:11px;color:var(--text2);">${dailyTarget?'건':''}</span></div>
+        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">표준 1일 목표</div>
+        <div style="font-size:18px;font-weight:700;">${KPI_STD_DAILY}<span style="font-size:11px;color:var(--text2);">건</span></div>
       </div>
     </div>
   </div>`;
@@ -10410,11 +10467,13 @@ async function renderReport() {
     let workerTarget = 0;
     const manualDaily = workerDailyTargets[w];
     if(manualDaily !== undefined && manualDaily !== null && manualDaily > 0) {
-      // 개별 목표 있음 (T1 포함)
+      // 개별 목표 있음 (T1 포함) — 최우선
       workerTarget = wd ? manualDaily * wd : 0;
-    } else if(isKpiTarget(w) && monthKPI && wd && kpiTargetCount) {
-      // 미설정 T2/T3 → 공통 자동분배 (T2/T3 인원수로 나눔)
-      workerTarget = Math.ceil(monthKPI / wd / kpiTargetCount) * wd;
+    } else if(isKpiTarget(w) && wd) {
+      // ⭐ 입사일 기준 주차별 목표 (해당 월 15일 시점의 주차 적용). 입사일 없으면 표준 12.
+      const midOfMonth = new Date(y, m-1, 15);
+      const recDaily = tenureDailyTarget(w, midOfMonth) || KPI_STD_DAILY;
+      workerTarget = recDaily * wd;
     }
     // T1 미설정은 workerTarget = 0 → "KPI 미설정" 표시
 
@@ -10569,36 +10628,45 @@ async function renderKPIRecommend(listId = 'kpi-recommend-list') {
   const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const wdNextMonth = await getWorkdays(nextMonth.getFullYear(), nextMonth.getMonth() + 1);
 
-  // 각 작업자별 분석
+  // 각 작업자별 분석 — ⭐ 출고일이 아닌 "수리 등록" 기준 (실제 작업 페이스)
   const analyses = targetWorkers.map(name => {
-    // 본인이 작업한 entries 중, 출고 이력이 최근 3개월 내에 있는 것
-    const myShipped = (shipHistory || []).filter(h => {
-      const shipT = new Date(h.shipDate || 0).getTime();
-      if(shipT < startTime || shipT > endTime) return false;
-      const entry = findEntryBySerial(h.serial);
-      if(!entry) return false;
-      const workerName = String(entry.worker || '').split('::')[0];
-      return workerName === name;
+    // 본인이 최근 3개월 내에 등록한 수리건
+    const myEntries = (entries || []).filter(e => {
+      const wn = String(e.worker || '').split('::')[0];
+      if(wn !== name) return false;
+      const t = new Date(e.date || 0).getTime();
+      return t >= startTime && t <= endTime;
     });
 
-    // 출고일자 Set (출고 이력이 있는 날 = 근무일로 추정)
+    // 실제 작업일 = 등록일이 서로 다른 날의 수 (그 날 일을 했다는 증거)
     const workDaySet = new Set();
-    myShipped.forEach(h => {
-      workDaySet.add(String(h.shipDate || '').substring(0, 10)); // YYYY-MM-DD
-    });
+    myEntries.forEach(e => { workDaySet.add(toLocalDay(e.date)); });
 
-    const totalShipped = myShipped.length;
+    const totalDone = myEntries.length;
     const workDays = workDaySet.size;
-    const dailyAvg = workDays > 0 ? (totalShipped / workDays) : 0;
-    const recommendedMonthly = Math.round(dailyAvg * wdNextMonth);
+    const dailyAvg = workDays > 0 ? (totalDone / workDays) : 0;
+    // ⭐ 입사일 기준 주차별 권장 1일 목표 (다음 달 1일 시점)
+    const recDaily = tenureDailyTarget(name, nextMonth);
+    const tw = tenureWeek(name, nextMonth);
+    const recommendedMonthly = recDaily != null ? Math.round(recDaily * wdNextMonth) : Math.round(KPI_STD_DAILY * wdNextMonth);
+    // 상태 라벨: 입사일 없으면 안내, 있으면 주차/유지 표시
+    let rampStatus;
+    if(recDaily == null) rampStatus = '입사일 미설정';
+    else if(recDaily >= KPI_STD_DAILY) rampStatus = `${tw}주차 · 표준`;
+    else rampStatus = `${tw}주차 · 램프업`;
+    // 실제 페이스 대비 (정보용): 현재 페이스가 권장보다 높/낮은지
+    const refDaily = recDaily != null ? recDaily : KPI_STD_DAILY;
 
     return {
       name,
       tier: tierMap[name] || '',
-      totalShipped,
+      totalShipped: totalDone,   // (표시 호환용 키 유지)
       workDays,
       dailyAvg,
-      recommendedMonthly
+      recDaily: refDaily,
+      hasHire: recDaily != null,
+      recommendedMonthly,
+      rampStatus
     };
   }).sort((a, b) => b.recommendedMonthly - a.recommendedMonthly);
 
@@ -10607,25 +10675,18 @@ async function renderKPIRecommend(listId = 'kpi-recommend-list') {
 
   // 렌더
   let html = `<div style="padding:12px 18px;font-size:11px;color:var(--text3);border-bottom:1px solid var(--border);background:var(--surface2);">
-    📅 분석 기간: ${periodLabel} · 권장값 계산 기준: 다음 달(${nextMonth.getFullYear()}.${nextMonth.getMonth()+1}) 평일 ${wdNextMonth}일
+    📅 분석 기간: ${periodLabel} · 표준 ${KPI_STD_DAILY}건/일 · 권장값은 입사일 기준 주차별 · 다음 달(${nextMonth.getFullYear()}.${nextMonth.getMonth()+1}) 평일 ${wdNextMonth}일 기준
   </div>`;
-
-  if(analyses.every(a => a.totalShipped === 0)) {
-    html += `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px;">
-      최근 3개월 출고 데이터가 없습니다.
-    </div>`;
-    el.innerHTML = html;
-    return;
-  }
 
   html += `<div style="overflow-x:auto;">
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead>
         <tr style="background:var(--surface2);">
           <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:600;color:var(--text2);">엔지니어</th>
-          <th style="padding:10px 14px;text-align:right;font-size:11px;font-weight:600;color:var(--text2);">3개월 출고</th>
-          <th style="padding:10px 14px;text-align:right;font-size:11px;font-weight:600;color:var(--text2);">근무일</th>
-          <th style="padding:10px 14px;text-align:right;font-size:11px;font-weight:600;color:var(--text2);">일평균</th>
+          <th style="padding:10px 14px;text-align:right;font-size:11px;font-weight:600;color:var(--text2);">3개월 수리</th>
+          <th style="padding:10px 14px;text-align:right;font-size:11px;font-weight:600;color:var(--text2);">작업일</th>
+          <th style="padding:10px 14px;text-align:right;font-size:11px;font-weight:600;color:var(--text2);">현재 일평균</th>
+          <th style="padding:10px 14px;text-align:center;font-size:11px;font-weight:600;color:var(--text2);">권장 일목표</th>
           <th style="padding:10px 14px;text-align:right;font-size:11px;font-weight:600;color:#8b5cf6;">권장 월 KPI</th>
         </tr>
       </thead>
@@ -10633,6 +10694,13 @@ async function renderKPIRecommend(listId = 'kpi-recommend-list') {
 
   analyses.forEach(a => {
     const hasData = a.totalShipped > 0;
+    const isStd = a.rampStatus.includes('표준');
+    const isRamp = a.rampStatus.includes('램프업');
+    const statusColor = isStd ? '#16a34a' : (isRamp ? '#d97706' : 'var(--text3)');
+    const statusBg = isStd ? '#dcfce7' : (isRamp ? '#fef3c7' : 'var(--surface)');
+    // 실제 페이스가 권장보다 낮으면 주의 표시
+    const paceFlag = (a.hasHire && hasData && a.dailyAvg + 0.5 < a.recDaily)
+      ? ` <span title="현재 페이스가 권장보다 낮음" style="color:var(--red);">▼</span>` : '';
     html += `<tr style="border-top:1px solid var(--border);">
       <td style="padding:12px 14px;">
         <span style="font-weight:700;color:var(--text);">${escapeHtml(a.name)}</span>
@@ -10640,11 +10708,12 @@ async function renderKPIRecommend(listId = 'kpi-recommend-list') {
       </td>
       <td style="padding:12px 14px;text-align:right;color:var(--text);">${hasData ? fmt(a.totalShipped) + '건' : '<span style="color:var(--text3);">-</span>'}</td>
       <td style="padding:12px 14px;text-align:right;color:var(--text2);">${hasData ? a.workDays + '일' : '<span style="color:var(--text3);">-</span>'}</td>
-      <td style="padding:12px 14px;text-align:right;color:var(--text);">${hasData ? a.dailyAvg.toFixed(1) + '건' : '<span style="color:var(--text3);">-</span>'}</td>
+      <td style="padding:12px 14px;text-align:right;color:var(--text);">${hasData ? a.dailyAvg.toFixed(1) + '건' + paceFlag : '<span style="color:var(--text3);">-</span>'}</td>
+      <td style="padding:12px 14px;text-align:center;">
+        <span style="font-weight:700;color:var(--text);">${a.hasHire ? a.recDaily + '건' : '<span style="color:var(--text3);">'+a.recDaily+'건</span>'}</span><br><span style="display:inline-block;margin-top:3px;font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:${statusBg};color:${statusColor};">${a.rampStatus}</span>
+      </td>
       <td style="padding:12px 14px;text-align:right;">
-        ${hasData
-          ? `<span style="font-size:16px;font-weight:700;color:#8b5cf6;">${fmt(a.recommendedMonthly)}</span><span style="font-size:11px;color:var(--text2);margin-left:2px;">건</span>`
-          : '<span style="color:var(--text3);">-</span>'}
+        <span style="font-size:16px;font-weight:700;color:#8b5cf6;">${fmt(a.recommendedMonthly)}</span><span style="font-size:11px;color:var(--text2);margin-left:2px;">건</span>
       </td>
     </tr>`;
   });
@@ -10652,7 +10721,7 @@ async function renderKPIRecommend(listId = 'kpi-recommend-list') {
   // 합계 행
   html += `<tr style="border-top:2px solid var(--border);background:var(--surface2);">
     <td style="padding:12px 14px;font-weight:700;color:var(--text);">💡 권장 합계 (${analyses.length}명)</td>
-    <td colspan="3"></td>
+    <td colspan="4"></td>
     <td style="padding:12px 14px;text-align:right;">
       <span style="font-size:18px;font-weight:700;color:#8b5cf6;">${fmt(totalRecommended)}</span><span style="font-size:11px;color:var(--text2);margin-left:2px;">건/월</span>
     </td>
@@ -10661,11 +10730,13 @@ async function renderKPIRecommend(listId = 'kpi-recommend-list') {
   html += `</tbody></table></div>`;
 
   // 안내 메시지
-  html += `<div style="padding:12px 18px;font-size:11px;color:var(--text2);border-top:1px solid var(--border);background:var(--surface2);line-height:1.6;">
-    💡 <strong>계산 방식:</strong> 본인이 작업한 시리얼 중 최근 3개월 출고 데이터를 분석.
-    출고 이력 0건인 날은 휴무/연차로 자동 간주.
+  const schedTxt = KPI_RAMP_SCHEDULE.map((v,i)=>`${i+1}주 ${v}`).join(' · ');
+  html += `<div style="padding:12px 18px;font-size:11px;color:var(--text2);border-top:1px solid var(--border);background:var(--surface2);line-height:1.7;">
+    💡 <strong>권장 일목표 = 입사일 기준 주차별</strong> (신입 적응 곡선): ${schedTxt} · 이후 ${KPI_STD_DAILY} 유지.
     <br>
-    💡 <strong>권장값 의미:</strong> 이 엔지니어가 현재 페이스로 다음 달 평일 ${wdNextMonth}일을 일하면 예상되는 출고량.
+    💡 <strong>현재 일평균</strong>은 최근 3개월 <strong>수리 등록</strong> 기준 실제 페이스(참고용). 권장보다 낮으면 ▼ 표시.
+    <br>
+    📌 <strong>입사일 미설정</strong> 엔지니어는 표준 ${KPI_STD_DAILY}건으로 계산됩니다. 작업자 관리에서 입사일을 넣어주세요.
     <br>
     📌 합계를 다음 달 월 KPI 목표로 설정하면 현실적인 달성률이 나옵니다.
   </div>`;
@@ -10853,16 +10924,20 @@ function serializeWorkers() {
     const s = statusMap[w] || 'active';
     const dt = workerDailyTargets[w];
     const r = roleMap[w] || 'engineer'; // Phase2: 역할
+    const hire = hireDateMap[w] || '';   // 입사일
     // 0건도 명시적 저장 (undefined만 자동)
     const hasDt = (dt !== undefined && dt !== null);
     const hasRole = (r && r !== 'engineer'); // engineer는 기본값이라 생략
+    const hasHire = !!hire;
+    const dtStr = hasDt ? String(dt) : '';
+    // ⭐ 입사일이 있으면 7필드 전부 명시 (뒤 필드가 있으면 앞 필드도 채워야 파싱 정합)
+    if(hasHire) return `${w}::${t}::${p}::${s}::${dtStr}::${r}::${hire}`;
     if(!t && !p && s === 'active' && !hasDt && !hasRole) return w;
     if(!p && s === 'active' && !hasDt && !hasRole) return `${w}::${t}`;
     if(s === 'active' && !hasDt && !hasRole) return `${w}::${t}::${p}`;
     if(!hasDt && !hasRole) return `${w}::${t}::${p}::${s}`;
     if(!hasRole) return `${w}::${t}::${p}::${s}::${dt}`;
     // role 포함: 6필드 모두 명시 (dt 빈 값은 '' 처리)
-    const dtStr = hasDt ? String(dt) : '';
     return `${w}::${t}::${p}::${s}::${dtStr}::${r}`;
   }).join('||');
 }
@@ -10889,6 +10964,7 @@ function removeWorker(name) {
       delete partMap[name];
       delete statusMap[name];
       delete workerDailyTargets[name];
+      delete hireDateMap[name];
       try {
         await gasCall({action:'saveWorkers', workers: serializeWorkers()});
         renderWorkerSel(); renderWorkers(); notify(`${name} 삭제됨 (수리 기록은 보존)`);
@@ -10963,12 +11039,19 @@ function renderWorkers() {
 
     const status = statusMap[w] || 'active';
     const dtVal = workerDailyTargets[w]; // 개별 일일 목표 (없으면 undefined)
+    const hireVal = hireDateMap[w] || '';
+    const tWeek = tenureWeek(w);
+    const tTarget = tenureDailyTarget(w);
+    const tenureLabel = (tWeek != null)
+      ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:${tTarget>=KPI_STD_DAILY?'#dcfce7':'#fef3c7'};color:${tTarget>=KPI_STD_DAILY?'#16a34a':'#d97706'};" title="입사 ${tWeek}주차 권장 ${tTarget}건/일">📅 ${tWeek}주차 · ${tTarget}건/일</span>`
+      : `<span style="font-size:11px;color:var(--text3);">입사일 미설정</span>`;
     return `<div class="worker-mgmt-item">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <span style="font-size:14px;font-weight:500;">${w}</span>
         ${tierBadge(tier)}
         ${partBadge(part)}
         <span style="font-size:12px;color:var(--text2);">오늘 ${ct}건 / 전체 ${ca}건</span>
+        ${tenureLabel}
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
         ${canManage ? `
@@ -10985,7 +11068,8 @@ function renderWorkers() {
           <option value="inspector" ${roleMap[w]==='inspector'?'selected':''}>🔍 QC</option>
           <option value="both" ${roleMap[w]==='both'?'selected':''}>🔧+🔍 겸직</option>
         </select>
-<input type="number" min="0" step="1" placeholder="자동" value="${dtVal!==undefined&&dtVal!==null?dtVal:''}" onchange="saveWorkerDailyTarget('${w}',this.value)" title="일일 목표 (비우면 자동 분배)" style="width:64px;height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);text-align:right;" />
+        <input type="date" value="${hireVal}" onchange="saveWorkerHireDate('${w}',this.value)" title="입사일 (주차별 KPI 목표 산정)" style="height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);" />
+<input type="number" min="0" step="1" placeholder="자동" value="${dtVal!==undefined&&dtVal!==null?dtVal:''}" onchange="saveWorkerDailyTarget('${w}',this.value)" title="일일 목표 직접 지정 (비우면 입사일 기준 자동)" style="width:64px;height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);text-align:right;" />
         <span style="font-size:11px;color:var(--text3);">건/일</span>
         <button class="btn btn-sm btn-danger" onclick="removeWorker('${w}')">삭제</button>` 
         : `<span style="font-size:11px;color:var(--text3);">권한 없음</span>`}
@@ -11127,6 +11211,25 @@ async function saveWorkerRole(name, role) {
   } catch {
     roleMap[name] = oldRole || 'engineer';
     notify('역할 저장 실패.','error');
+  }
+}
+
+async function saveWorkerHireDate(name, value) {
+  if(!canManageWorker(name)) {
+    notify('해당 엔지니어를 관리할 권한이 없습니다.', 'error');
+    renderWorkers();
+    return;
+  }
+  const old = hireDateMap[name];
+  if(value) hireDateMap[name] = value; else delete hireDateMap[name];
+  try {
+    await gasCall({action:'saveWorkers', workers: serializeWorkers()});
+    renderWorkers();
+    notify(value ? `${name} 입사일: ${value} (주차별 목표 적용)` : `${name} 입사일 해제`);
+  } catch {
+    if(old) hireDateMap[name] = old; else delete hireDateMap[name];
+    notify('입사일 저장 실패.','error');
+    renderWorkers();
   }
 }
 
