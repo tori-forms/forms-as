@@ -1369,15 +1369,6 @@ window.addEventListener('DOMContentLoaded', function(){
         <div style="padding:14px 18px;font-size:13px;font-weight:600;border-bottom:1px solid var(--border);">저장된 KPI 목록</div>
         <div id="kpi-list"></div>
       </div>
-
-      <!-- ⭐ v2.42: 권장 KPI 분석 (최근 3개월 출고 데이터 기반) -->
-      <div class="card" style="padding:0;margin-top:16px;">
-        <div style="padding:14px 18px;font-size:13px;font-weight:600;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <span>📊 권장 KPI 분석</span>
-          <span style="font-size:11px;color:var(--text3);font-weight:400;">최근 3개월 출고 데이터 기준 (T2·T3 대상)</span>
-        </div>
-        <div id="kpi-recommend-list"></div>
-      </div>
     </div>
 
     <!-- 단가 설정 (관리자 탭으로 이동) -->
@@ -1544,13 +1535,6 @@ window.addEventListener('DOMContentLoaded', function(){
           </div>
         </div>
         <div class="card"><div class="card-title">저장된 KPI 목록</div><div id="kpi-list2"></div></div>
-        <div class="card" style="padding:0;">
-          <div style="padding:14px 18px;font-size:13px;font-weight:600;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <span>📊 권장 KPI 분석</span>
-            <span style="font-size:11px;color:var(--text3);font-weight:400;">최근 3개월 출고 데이터 기준 (T2·T3 대상)</span>
-          </div>
-          <div id="kpi-recommend-list2"></div>
-        </div>
       </div>
     <div id="admin-report" style="display:none;">
         <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:16px;">
@@ -7641,7 +7625,6 @@ function switchAdminTab(tab) {
     const km = document.getElementById('kpi-month2');
     if(km && !km.value) km.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
     renderKPIList('kpi-list2');
-    renderKPIRecommend('kpi-recommend-list2'); // ⭐ v2.42
     loadPriceSettings();
   }
   if(tab === 'report') {
@@ -9305,8 +9288,7 @@ async function renderMyDash() {
   });
   const myTodayShippedCount = myTodayShipped.length;
 
-  // ⭐ 본인 월 목표 — 입사일 기준 주차별(또는 개별 지정). 탑다운(월KPI÷인원) 폐기
-  const wd = await getWorkdays(now.getFullYear(), now.getMonth()+1);
+  // ⭐ 이번 주 기준 목표 — 입사일 주차별 일목표가 매주 달라지므로 주 단위로 끊음
   const manualDaily = (workerDailyTargets||{})[currentUser];
   let dailyTarget;
   if(manualDaily !== undefined && manualDaily !== null && manualDaily > 0) {
@@ -9314,10 +9296,26 @@ async function renderMyDash() {
   } else {
     dailyTarget = tenureDailyTarget(currentUser, now) || KPI_STD_DAILY;
   }
-  const myMonthTarget = dailyTarget * wd;
-  // ⭐ 달성률 = 이번 달 본인 "수리 등록" 건 / 목표 (출고는 배치라 개인 지표로 부적합)
-  const myMonthDone = monthEntries.length;
-  const achievePct = myMonthTarget ? Math.min(999, Math.round(myMonthDone / myMonthTarget * 100)) : 0;
+  // 이번 주 월요일 ~ 금요일 범위
+  const dayIdx = now.getDay(); // 0=일 .. 6=토
+  const monOffset = (dayIdx === 0 ? -6 : 1 - dayIdx);
+  const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + monOffset);
+  const weekFri = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 4);
+  const wsKey = `${weekStart.getFullYear()}-${pad(weekStart.getMonth()+1)}-${pad(weekStart.getDate())}`;
+  // 이번 주 등록 건
+  const weekEntries = myEntries.filter(e => {
+    const dk = toLocalDay(e.date);
+    return dk >= wsKey && dk <= todayKey;
+  });
+  const weekDone = weekEntries.length;
+  // 이번 주 전체 평일 수(월~금) & 오늘까지 경과 평일 수
+  const weekWorkdaysFull = await countWorkdays(weekStart, weekFri);
+  const weekWorkdaysSoFar = await countWorkdays(weekStart, now);
+  const weekTargetFull = dailyTarget * weekWorkdaysFull;       // 이번 주 목표
+  const weekTargetSoFar = dailyTarget * weekWorkdaysSoFar;     // 오늘까지 와야 할 양(페이스)
+  const achievePct = weekTargetFull ? Math.min(999, Math.round(weekDone / weekTargetFull * 100)) : 0;
+  const pacePct = weekTargetSoFar ? Math.round(weekDone / weekTargetSoFar * 100) : 0;
+  const curWeekNo = tenureWeek(currentUser, now); // 입사 N주차 (없으면 null)
 
   // 평균 처리 시간 — 같은 날 내 연속된 수리 등록 간격의 평균
   // (점심/공백 구간 제외: 90분 넘는 간격은 제외)
@@ -9399,14 +9397,14 @@ async function renderMyDash() {
       <div style="${cardBaseClickable}" onclick="gotoTab('summary')" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
         <div style="${iconStyle}">🔧</div>
         <div style="${labelStyle}">오늘 처리 건수</div>
-        <div style="${valStyle}">${todayEntries.length}<span style="font-size:16px;color:var(--text2);font-weight:500;"> 건</span></div>
-        <div style="${subStyle}">공임비 ${fmt(todayRev)}원 ${dailyTarget ? `· 오늘 목표 ${dailyTarget}건` : ''}</div>
+        <div style="${valStyle}">${todayEntries.length}<span style="font-size:16px;color:var(--text2);font-weight:500;"> / ${dailyTarget}건</span></div>
+        <div style="${subStyle}">공임비 ${fmt(todayRev)}원 · 오늘 목표 ${dailyTarget}건${todayEntries.length>=dailyTarget?' ✅ 달성!':''}</div>
       </div>
 
-      <!-- 2. 월 목표 달성률 (수리 등록 기준) -->
+      <!-- 2. 이번 주 목표 달성률 (수리 등록 기준, 주차별) -->
       <div style="${cardBaseClickable}" onclick="gotoTab('history')" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
         <div style="${iconStyle}">🎯</div>
-        <div style="${labelStyle}">${monthLabel} 목표 달성률 <span style="font-size:9px;color:var(--text3);font-weight:500;">(수리 등록 기준)</span></div>
+        <div style="${labelStyle}">이번 주 목표 달성률 ${curWeekNo?`<span style="font-size:9px;color:var(--text3);font-weight:500;">(입사 ${curWeekNo}주차 · 일 ${dailyTarget}건)</span>`:`<span style="font-size:9px;color:var(--text3);font-weight:500;">(일 ${dailyTarget}건)</span>`}</div>
         <div style="display:flex;align-items:baseline;gap:6px;">
           <span style="font-size:32px;font-weight:700;letter-spacing:-1px;color:${pctColor};line-height:1.1;">${achievePct}</span>
           <span style="font-size:16px;color:var(--text2);font-weight:500;">%</span>
@@ -9414,7 +9412,7 @@ async function renderMyDash() {
         <div style="margin-top:10px;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;">
           <div style="height:100%;width:${pctClamp}%;background:${pctColor};transition:width .4s;"></div>
         </div>
-        <div style="${subStyle}">${myMonthTarget ? `이번 달 ${myMonthDone}건 처리 / 목표 ${myMonthTarget}건 (${dailyTarget}건/일 × ${wd}일)` : '목표 미설정'}</div>
+        <div style="${subStyle}">${weekTargetFull ? `이번 주 ${weekDone}건 / 목표 ${weekTargetFull}건 · 오늘까지 페이스 ${pacePct}%` : '목표 미설정'}</div>
       </div>
 
       <!-- 3. 검수대기 건 (에이징 끝났는데 아직 안 누른 건) -->
@@ -9806,6 +9804,25 @@ async function getWorkdays(year, month) {
     const ds = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     if(holidays.includes(ds)) continue;
     count++;
+  }
+  return count;
+}
+
+// ⭐ 날짜 범위(start~end 포함)의 평일 수 — 월~금, 공휴일 제외. 월 경계 넘어가도 처리.
+async function countWorkdays(start, end) {
+  let count = 0;
+  const holCache = {};
+  const d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  while(d.getTime() <= last.getTime()) {
+    const dow = d.getDay();
+    if(dow !== 0 && dow !== 6) {
+      const y = d.getFullYear(), m = d.getMonth()+1, key = y+'-'+m;
+      if(!holCache[key]) holCache[key] = await fetchHolidays(y, m);
+      const ds = `${y}-${String(m).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      if(!holCache[key].includes(ds)) count++;
+    }
+    d.setDate(d.getDate()+1);
   }
   return count;
 }
@@ -10842,7 +10859,6 @@ async function renderKPI() {
     document.getElementById('kpi-month').value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   }
   renderKPIList();
-  renderKPIRecommend('kpi-recommend-list'); // ⭐ v2.42: 권장 KPI 분석
 }
 
 function renderKPIList(listId = 'kpi-list') {
