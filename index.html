@@ -2694,7 +2694,9 @@ function renderAll() {
   // 관리자 탭
   if(tab?.includes('관리자')) { try { renderAdmin && renderAdmin(); } catch {} }
   // ⭐ v2.7: 에이징/검수대기 탭 추가
-  if(tab?.includes('에이징')) { try { renderAging && renderAging(); } catch {} }
+  // 에이징 체크박스 선택 중이면 재렌더 스킵 (동기화로 체크 날아가는 것 방지)
+  const agingHasChecks = document.querySelectorAll('.aging-chk:checked').length > 0;
+  if(tab?.includes('에이징') && !agingHasChecks) { try { renderAging && renderAging(); } catch {} }
   if(tab?.includes('검수대기') || tab?.includes('검수 관리')) { try { renderInspect && renderInspect(); } catch {} }
 }
 // ⭐ v2.15: 자동 동기화 5초 주기 (거의 실시간, GAS 부담 안전 범위)
@@ -10918,34 +10920,15 @@ function renderKPIList(listId = 'kpi-list') {
         <span style="color:var(--text2);font-size:13px;margin-left:12px;">월 목표 ${fmt(kpiMap[k])}대</span>
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
-        <span style="font-size:12px;color:var(--text3);" id="wd-${k.replace('-','_')}">계산 중...</span>
         <button class="btn btn-sm btn-danger" onclick="deleteKPI('${k}')">삭제</button>
       </div>
     </div>`;
   }).join('');
-  // 각 월 평일 수 표시
-  keys.forEach(async k => {
-    const [y,m] = k.split('-').map(Number);
-    const wd = await getWorkdays(y, m);
-    // ⭐ v2.30: KPI 1인 하루 목표 계산은 isKpiTarget(T2, T3만) 기준
-    const ac = workers.filter(isKpiTarget).length;
-    const daily = ac ? Math.ceil(kpiMap[k]/wd/ac) : 0;
-    const el2 = document.getElementById('wd-'+k.replace('-','_'));
-    if(el2) el2.textContent = `평일 ${wd}일 · ${ac}명(T2·T3) · 1인 하루 ${daily}건`;
-  });
 }
 
 async function updateKPIPreview() {
-  const monthVal = document.getElementById('kpi-month').value;
-  const kpiVal = Number(document.getElementById('kpi-value').value);
   const el = document.getElementById('kpi-calc-preview');
-  if(!monthVal || !kpiVal){ el.textContent=''; return; }
-  const [y,m] = monthVal.split('-').map(Number);
-  const wd = await getWorkdays(y, m);
-  // ⭐ v2.30: KPI 1인 하루 목표 = isKpiTarget(T2, T3만) 기준으로 계산
-  const ac = workers.filter(isKpiTarget).length;
-  const daily = ac && wd ? Math.ceil(kpiVal/wd/ac) : 0;
-  el.textContent = `→ 평일 ${wd}일 · KPI 대상 ${ac}명 (T2·T3) · 1인 하루 목표 ${daily}건`;
+  if(el) el.textContent = '';
 }
 
 // ⭐ v2.42: 권장 KPI 분석 — 최근 3개월 출고 데이터로 엔지니어별 권장 월 KPI 계산
