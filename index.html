@@ -1045,6 +1045,8 @@ window.addEventListener('DOMContentLoaded', function(){
   }
 });
 </script>
+<!-- SheetJS (엑셀 내보내기). 로드 실패해도 downloadCSV가 CSV로 폴백 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -10751,6 +10753,7 @@ async function renderReport() {
   </div>`;
 
   // 엔지니어별 실적 — ⭐ B안: 월 요약 + 주차별 미니바 (수리 등록 기준)
+  const pad = n => String(n).padStart(2,'0');
   // 이 달의 주(월요일 정렬) 구간 미리 계산 + 각 구간 평일 수
   const monthFirst = new Date(y, m-1, 1);
   const monthLast = new Date(y, m, 0);
@@ -11597,6 +11600,18 @@ function exportCSV(mode) {
 }
 
 function downloadCSV(content, filename) {
+  // XLSX(SheetJS) 미로드 시 → UTF-8 BOM CSV로 폴백 (한글 깨짐 방지)
+  if(typeof XLSX === 'undefined') {
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename.replace(/\.xlsx$/i, '.csv');
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return;
+  }
   // SheetJS로 진짜 엑셀(.xlsx) 파일 생성 - 인코딩 문제 완전 해결
   const lines = content.split('\r\n').map(line => {
     const cells = [];
