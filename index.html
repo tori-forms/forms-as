@@ -3526,12 +3526,14 @@ function renderShippingList() {
       </div>
       <div id="${groupId}" style="display:${isOpen?'block':'none'};margin-top:6px;">
         <!-- 상단 액션 바 -->
-        <div style="padding:8px 14px;background:var(--bg2,#f9fafb);border-radius:6px 6px 0 0;display:flex;align-items:center;gap:10px;">
+        <div style="padding:8px 14px;background:var(--bg2,#f9fafb);border-radius:6px 6px 0 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
             <input type="checkbox" onchange="toggleShipListGroupAll('${groupId}', this.checked)" style="accent-color:var(--accent);cursor:pointer;">
             <span>전체선택</span>
           </label>
-          <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();cancelSelectedShip('${groupId}')" style="height:28px;padding:0 12px;font-size:12px;">선택 출고 취소</button>
+          <button class="btn btn-sm" onclick="event.stopPropagation();issueQuote('${groupId}')" style="height:28px;padding:0 12px;font-size:12px;">🧾 견적서 발행</button>
+          <button class="btn btn-sm" onclick="event.stopPropagation();issueShipList('${groupId}')" style="height:28px;padding:0 12px;font-size:12px;">📋 출고 리스트 발행</button>
+          <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();cancelSelectedShip('${groupId}')" style="height:28px;padding:0 12px;font-size:12px;margin-left:auto;">선택 출고 취소</button>
         </div>
         <div class="table-wrap"><table style="font-size:13px;">
           <thead><tr>
@@ -3593,6 +3595,185 @@ function toggleShipListGroup(groupId) {
 function toggleShipListGroupAll(groupId, checked) {
   document.querySelectorAll(`.sv-check[data-group="${groupId}"]`).forEach(cb => cb.checked = checked);
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// 견적서 / 출고 리스트 발행 (출고 목록에서 체크한 건 기준)
+// ═══════════════════════════════════════════════════════════════════
+// 회사 정보 (고정)
+const VOLTALES_INFO = {
+  bizNo: '449-86-03619',
+  company: '주식회사 볼타레스 / 손성완',
+  addr: '서울특별시 마포구 월드컵로 196, 비101-이171',
+  bizType: '소매업 / 전자상거래 소매업',
+  manager: '최민규',
+  tel: '01034661699',
+  receiver: '㈜티오더'
+};
+// 기종 → 견적서 품목코드/품목명 (필요시 추가)
+const MODEL_QUOTE = {
+  'S2PRO_N': { code: '00007', name: 'S2Pro_N태블릿' },
+  'S2_N':    { code: '',      name: 'S2_N태블릿' },
+  'S2':      { code: '',      name: 'S2태블릿' }
+};
+
+function getCheckedShipItems(groupId) {
+  const idxs = [...document.querySelectorAll(`.sv-check[data-group="${groupId}"]:checked`)]
+    .map(cb => Number(cb.getAttribute('data-idx')));
+  return idxs.map(i => {
+    const h = shipHistory[i];
+    if(!h) return null;
+    const e = findEntryBySerial(h.serial);
+    const model = normalizeModel(h.model || e?.model || '-');
+    const works = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k) : String(h.works||'').split('|').filter(Boolean);
+    const total = e ? Number(e.total||0) : Number(h.fee||0); // VAT 포함가
+    return { serial: h.serial, model, works, total };
+  }).filter(Boolean);
+}
+
+// 숫자 → 한글 금액 (예: 1229250 → 일백이십이만구천이백오십)
+function numToKorean(num) {
+  if(num === 0) return '영';
+  const d = ['','일','이','삼','사','오','육','칠','팔','구'];
+  const small = ['','십','백','천'];
+  const big = ['','만','억','조'];
+  let res = '';
+  let groups = [];
+  let n = Math.floor(num);
+  while(n > 0) { groups.push(n % 10000); n = Math.floor(n/10000); }
+  for(let g = groups.length-1; g >= 0; g--) {
+    let v = groups[g];
+    if(v === 0) continue;
+    let part = '';
+    const digits = [Math.floor(v/1000)%10, Math.floor(v/100)%10, Math.floor(v/10)%10, v%10];
+    for(let i = 0; i < 4; i++) {
+      if(digits[i] !== 0) part += d[digits[i]] + small[3-i];
+    }
+    res += part + big[g];
+  }
+  return res;
+}
+
+function _printDoc(title, bodyHtml) {
+  const w = window.open('', '_blank', 'width=900,height=1100');
+  if(!w) { notify('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.', 'error'); return; }
+  w.document.write(`<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><title>${title}</title>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0;}
+      body{font-family:'Malgun Gothic','맑은 고딕',sans-serif;color:#000;padding:24px;background:#fff;}
+      table{border-collapse:collapse;width:100%;}
+      .q-title{text-align:center;font-size:26px;font-weight:700;letter-spacing:12px;margin-bottom:14px;}
+      .hdr td{border:1px solid #000;padding:5px 8px;font-size:12px;vertical-align:middle;}
+      .hdr .lbl{background:#f0f0f0;font-weight:700;text-align:center;white-space:nowrap;}
+      .logo{font-size:30px;font-weight:800;letter-spacing:-1px;text-align:center;color:#111;}
+      .amt-bar{border:1px solid #000;border-top:none;padding:7px 10px;font-size:14px;font-weight:700;display:flex;justify-content:space-between;align-items:center;}
+      .items td,.items th{border:1px solid #000;padding:6px 8px;font-size:12px;}
+      .items th{background:#f0f0f0;font-weight:700;text-align:center;}
+      .items .r{text-align:right;}
+      .items .c{text-align:center;}
+      .tot td{border:1px solid #000;padding:7px 8px;font-size:12px;font-weight:700;background:#fafafa;}
+      .note{font-size:12px;line-height:1.9;padding:6px 2px;}
+      @media print{ body{padding:0;} .no-print{display:none;} }
+      .no-print{margin-bottom:16px;text-align:center;}
+      .no-print button{padding:8px 20px;font-size:14px;font-weight:700;cursor:pointer;border:1px solid #333;border-radius:6px;background:#7c3aed;color:#fff;}
+    </style></head><body>
+    <div class="no-print"><button onclick="window.print()">🖨️ 인쇄 / PDF 저장</button></div>
+    ${bodyHtml}
+    </body></html>`);
+  w.document.close();
+}
+
+function issueQuote(groupId) {
+  const items = getCheckedShipItems(groupId);
+  if(!items.length) { notify('견적서를 발행할 항목을 선택하세요.', 'error'); return; }
+  // 기종별 묶음
+  const byModel = {};
+  items.forEach(it => {
+    if(!byModel[it.model]) byModel[it.model] = { cnt:0, total:0 };
+    byModel[it.model].cnt++;
+    byModel[it.model].total += it.total;
+  });
+  const today = new Date();
+  const ymd = `${today.getFullYear()}/${String(today.getMonth()+1).padStart(2,'0')}/${String(today.getDate()).padStart(2,'0')}`;
+  let grandSupply = 0, grandVat = 0, grandQty = 0, grandTotal = 0;
+  const rows = Object.entries(byModel).map(([model, v]) => {
+    const supply = Math.round(v.total / 1.1);
+    const vat = v.total - supply;
+    grandSupply += supply; grandVat += vat; grandQty += v.cnt; grandTotal += v.total;
+    const mq = MODEL_QUOTE[model] || { code:'', name: model+'태블릿' };
+    return `<tr>
+      <td class="c">${mq.code||''}</td>
+      <td>${mq.name}</td>
+      <td class="c">${v.cnt}</td>
+      <td class="r">${fmt(supply)}</td>
+      <td class="r">${fmt(vat)}</td>
+    </tr>`;
+  }).join('');
+  const I = VOLTALES_INFO;
+  const body = `
+    <div class="q-title">견 적 서</div>
+    <table class="hdr"><tr>
+      <td style="width:50%;padding:0;border:none;"><table style="width:100%;border-collapse:collapse;">
+        <tr><td class="lbl" style="width:90px;">일련번호</td><td>${ymd} -1</td></tr>
+        <tr><td class="lbl">수 신</td><td>${I.receiver}</td></tr>
+        <tr><td class="lbl">참 조</td><td>&nbsp;</td></tr>
+        <tr><td class="lbl">TEL/FAX</td><td>&nbsp;</td></tr>
+        <tr><td class="lbl">결제조건</td><td>&nbsp;</td></tr>
+        <tr><td class="lbl">유효기간</td><td>&nbsp;</td></tr>
+      </table></td>
+      <td style="width:50%;padding:0;border:none;vertical-align:top;"><table style="width:100%;border-collapse:collapse;">
+        <tr><td colspan="2" class="logo" style="height:54px;">+ VOLTALES</td></tr>
+        <tr><td class="lbl" style="width:90px;">사업자등록번호</td><td>${I.bizNo}</td></tr>
+        <tr><td class="lbl">회사명/대표</td><td>${I.company}</td></tr>
+        <tr><td class="lbl">주 소</td><td>${I.addr}</td></tr>
+        <tr><td class="lbl">업태/종목</td><td>${I.bizType}</td></tr>
+        <tr><td class="lbl">담당자</td><td>${I.manager}</td></tr>
+        <tr><td class="lbl">TEL/FAX</td><td>${I.tel}</td></tr>
+      </table></td>
+    </tr></table>
+    <div class="amt-bar"><span>금 액 : ${numToKorean(grandTotal)}원 정</span><span>(￦ ${fmt(grandTotal)}원) / VAT포함</span></div>
+    <div class="note">1. 귀사의 일익 번창하심을 기원합니다.<br>2. 하기와 같이 견적드리오니 검토하기 바랍니다.</div>
+    <table class="items">
+      <thead><tr><th style="width:80px;">품목코드</th><th>품목명(규격)</th><th style="width:70px;">수량<br>(단위포함)</th><th style="width:120px;">공급가액</th><th style="width:110px;">부가세</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <table class="tot" style="margin-top:-1px;"><tr>
+      <td class="c" style="width:80px;">수량</td><td class="r" style="width:90px;">${grandQty}</td>
+      <td class="c" style="width:80px;">공급가액</td><td class="r">${fmt(grandSupply)}</td>
+      <td class="c" style="width:60px;">VAT</td><td class="r" style="width:110px;">${fmt(grandVat)}</td>
+      <td class="c" style="width:60px;">합계</td><td class="r" style="width:120px;">${fmt(grandTotal)}</td>
+    </tr></table>`;
+  _printDoc('볼타레스 견적서 ' + ymd, body);
+}
+
+function issueShipList(groupId) {
+  const items = getCheckedShipItems(groupId);
+  if(!items.length) { notify('출고 리스트를 발행할 항목을 선택하세요.', 'error'); return; }
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  let total = 0;
+  const rows = items.map((it, i) => {
+    total += it.total;
+    return `<tr>
+      <td class="c">${i+1}</td>
+      <td style="font-family:monospace;">${escapeHtml(it.serial)}</td>
+      <td class="c">${escapeHtml(it.model)}</td>
+      <td>${it.works.join(' / ')}</td>
+      <td class="r">₩${fmt(it.total)}</td>
+    </tr>`;
+  }).join('');
+  const body = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:12px;">
+      <div style="font-size:22px;font-weight:800;">출고 리스트</div>
+      <div style="font-size:13px;color:#444;">발행일 ${ymd} · 총 ${items.length}건</div>
+    </div>
+    <table class="items">
+      <thead><tr><th style="width:44px;">No</th><th>시리얼번호</th><th style="width:110px;">기종</th><th>수리항목</th><th style="width:120px;">수리비용</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr class="tot"><td colspan="4" class="r">합계 (VAT포함)</td><td class="r">₩${fmt(total)}</td></tr></tfoot>
+    </table>`;
+  _printDoc('출고 리스트 ' + ymd, body);
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 // 검수 시스템 (Phase2) — 에이징 / 검수대기 / 검수처리 / 불량처리
