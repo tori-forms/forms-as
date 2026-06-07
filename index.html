@@ -2354,16 +2354,18 @@ function getKpiTargetCount() {
 // - T1: t1DailyTarget (관리자 설정)
 // - T2~T4: 월 KPI 기반 (공통)
 // - 비활동/MASTER: 0
-function getPersonalDailyTarget(name, baseTarget) {
+function getPersonalDailyTarget(name, asOf) {
   if(name === MASTER_NAME) return 0;
   if(!isActiveWorker(name)) return 0; // 비활동 제외
+  if(mentoringMap[name]) return 0;    // 교육 중 → 목표 면제
   // 개별 입력값 우선 (양수일 때)
   const manual = workerDailyTargets[name];
   if(manual !== undefined && manual !== null && manual > 0) return manual;
-  // 미입력 시: T1은 0, T2~T4는 자동 계산값
-  const tier = tierMap[name];
-  if(tier === 'T1') return 0;
-  return baseTarget;
+  // 수리 엔지니어가 아니면(QC 전담·T4 등) 목표 없음
+  if(!isRepairEngineer(name)) return 0;
+  // 입사일 기준 그 시점 일 목표 (입사일 없으면 정착 기준)
+  const ref = (asOf instanceof Date && !isNaN(asOf.getTime())) ? asOf : new Date();
+  return tenureDailyTarget(name, ref) || KPI_STD_DAILY;
 }
 
 // 파트 정의 (UI 표시용)
@@ -9933,8 +9935,9 @@ async function renderSummary() {
   const dailyTarget = await getDailyTarget(sel);
   // ⭐ v2.5: MASTER + T4 + QC 전용 제외한 실제 수리 엔지니어만 카운트
   const activeWorkers = workers.filter(isRepairEngineer);
-  // 개인별 목표: 개별 입력 우선, T1 기본 0, T2~T4 자동
-  const personalTarget = (w) => getPersonalDailyTarget(w, dailyTarget);
+  // 개인별 목표: 교육중=면제, 개별 입력 우선, 그 외 입사 주차 기준
+  const refD = new Date(sel + 'T00:00:00');
+  const personalTarget = (w) => getPersonalDailyTarget(w, refD);
   // "목표 달성 엔지니어"는 목표 있는 사람만 카운트 (일관성)
   // T1 작업도 KPI 분자(list.length)에는 모두 포함됨
   const targetedWorkers = activeWorkers.filter(w => personalTarget(w) > 0);
@@ -9988,13 +9991,14 @@ async function renderSummary() {
     const wlAll = list.filter(e=>e.worker===w);   // 통계용 (전체)
     const wl = wlAll.filter(matchSq);              // 표시용 (검색 필터)
     const cnt = wlAll.length, wrev = wlAll.reduce((s,e)=>s+Number(e.total),0);
-    // 작업자 본인 목표 사용 (T1=개별 입력, T2~T4=자동 평균)
-    const target = getPersonalDailyTarget(w, dailyTarget);
+    // 작업자 본인 목표 (교육중=면제, 입사 주차 기준)
+    const target = getPersonalDailyTarget(w, refD);
     const diff = target ? cnt - target : 0;
     const pct = target ? Math.min(100, Math.round(cnt/target*100)) : 0;
     const isMe = w === currentUser;
     let bc,bt,pc,blockAccent,blockStyle;
     if(w === MASTER_NAME) {bc='badge-blue';bt='관리자';pc='prog-ok';blockAccent='var(--border)';blockStyle='';}
+    else if(mentoringMap[w]){bc='badge-blue';bt='🎓 교육 중';pc='prog-ok';blockAccent='#7c3aed';blockStyle='';}
     else if(!target){bc='badge-blue';bt='학습 중';pc='prog-ok';blockAccent='var(--border)';blockStyle='';}
     else if(diff>0){bc='badge-over';bt=`⭐ ${diff}건 초과`;pc='prog-over';blockAccent='#6366f1';blockStyle='box-shadow:0 0 0 2px #6366f1,0 4px 16px rgba(99,102,241,.18);';}
     else if(diff<0){bc='badge-under';bt=`${Math.abs(diff)}건 미달`;pc='prog-under';blockAccent='var(--red)';blockStyle='box-shadow:0 0 0 2px var(--red);';}
@@ -10834,13 +10838,21 @@ async function renderReport() {
   // 표시 대상 = 수리 엔지니어 전원 ∪ 출고 기여자 (0건 엔지니어도 노출)
   const allNames = new Set(workers.filter(isRepairEngineer));
   Object.keys(contribByWorker).forEach(n => allNames.add(n));
+  // 엔지니어별 수리 등록(생성) 건수 — 그 달 본인이 등록한 건
+  const regCntByWorker = {};
+  monthEntries.forEach(e => {
+    const wn = String(e.worker||'').split('::')[0];
+    if(!wn) return;
+    regCntByWorker[wn] = (regCntByWorker[wn] || 0) + 1;
+  });
   const rows = [...allNames].map(name => {
     const cnt = contribByWorker[name]?.cnt || 0;
     const rev = contribByWorker[name]?.rev || 0;
+    const reg = regCntByWorker[name] || 0;
     const tw = tenureWeek(name, refDate);            // 입사 주차 (없으면 null)
     const daily = tenureDailyTarget(name, refDate);  // 그 시점 일 목표 (없으면 null)
     const manual = workerDailyTargets[name];
-    return { name, cnt, rev, tw, daily, manual, share: totalDone ? (cnt/totalDone*100) : 0 };
+    return { name, cnt, reg, rev, tw, daily, manual, share: totalDone ? (cnt/totalDone*100) : 0 };
   }).sort((a, b) => b.cnt - a.cnt);
   const maxShare = rows.length ? Math.max(...rows.map(r => r.share)) : 0;
   const medals = ['🥇', '🥈', '🥉'];
@@ -10852,14 +10864,15 @@ async function renderReport() {
         <th style="width:44px;text-align:center">순위</th>
         <th>엔지니어</th>
         <th>현재 단계 <span style="font-size:10px;color:var(--text3);font-weight:400;">(입사 주차·일 목표)</span></th>
+        <th style="text-align:right">수리 등록</th>
         <th style="text-align:right">출고(실적)</th>
-        <th style="min-width:150px;">기여도</th>
+        <th style="min-width:130px;">기여도</th>
         <th style="text-align:right">공임비 합계</th>
       </tr></thead>
       <tbody>`;
 
   if(!rows.length) {
-    h += `<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--text3);">표시할 엔지니어가 없습니다.</td></tr>`;
+    h += `<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--text3);">표시할 엔지니어가 없습니다.</td></tr>`;
   }
   rows.forEach((r, i) => {
     const rank = i + 1;
@@ -10883,6 +10896,7 @@ async function renderReport() {
       <td style="text-align:center;">${rankCell}</td>
       <td style="font-weight:600;">${r.name} ${tierB}</td>
       <td style="font-size:12px;color:var(--text2);">${stage}</td>
+      <td style="text-align:right;color:var(--text2);">${r.reg}<span style="font-size:11px;color:var(--text3);">건</span></td>
       <td style="text-align:right;font-weight:700;font-size:15px;">${r.cnt}<span style="font-size:11px;color:var(--text2);font-weight:500;">건</span></td>
       <td>
         <div style="display:flex;align-items:center;gap:8px;">
@@ -10897,13 +10911,15 @@ async function renderReport() {
   });
 
   const footRev = rows.reduce((s, r) => s + r.rev, 0);
+  const footReg = rows.reduce((s, r) => s + r.reg, 0);
   h += `</tbody>
     <tfoot><tr>
       <td></td>
       <td style="font-weight:700;padding:10px 12px;">합계 (${rows.length}명)</td>
       <td></td>
+      <td style="text-align:right;font-weight:700;color:var(--text2);">${footReg}건</td>
       <td style="text-align:right;font-weight:700;">${totalDone}건</td>
-      <td style="text-align:right;font-weight:700;color:var(--accent);padding-right:52px;">100%</td>
+      <td style="text-align:right;font-weight:700;color:var(--accent);padding-right:42px;">100%</td>
       <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);">${fmt(footRev)}원</td>
     </tr></tfoot>
   </table></div>`;
@@ -11235,7 +11251,7 @@ function checkAchievements(list, dailyTarget, activeWorkers) {
   const newAchievers = [];
   activeWorkers.forEach(w => {
     // 본인 목표 사용 (T1은 개별, T2~T4는 dailyTarget)
-    const myTarget = getPersonalDailyTarget(w, dailyTarget);
+    const myTarget = getPersonalDailyTarget(w, new Date(sel + 'T00:00:00'));
     if(myTarget <= 0) return; // 목표 없는 사람은 축하 제외
     const key = `${sel}_${w}`;
     const cnt = list.filter(e=>e.worker===w).length;
