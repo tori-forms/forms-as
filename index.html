@@ -3531,8 +3531,6 @@ function renderShippingList() {
             <input type="checkbox" onchange="toggleShipListGroupAll('${groupId}', this.checked)" style="accent-color:var(--accent);cursor:pointer;">
             <span>전체선택</span>
           </label>
-          <button class="btn btn-sm" onclick="event.stopPropagation();issueQuote('${groupId}')" style="height:28px;padding:0 12px;font-size:12px;">🧾 견적서 발행</button>
-          <button class="btn btn-sm" onclick="event.stopPropagation();issueShipList('${groupId}')" style="height:28px;padding:0 12px;font-size:12px;">📋 출고 리스트 발행</button>
           <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();cancelSelectedShip('${groupId}')" style="height:28px;padding:0 12px;font-size:12px;margin-left:auto;">선택 출고 취소</button>
         </div>
         <div class="table-wrap"><table style="font-size:13px;">
@@ -3616,18 +3614,14 @@ const MODEL_QUOTE = {
   'S2':      { code: '',      name: 'S2태블릿' }
 };
 
-function getCheckedShipItems(groupId) {
-  const idxs = [...document.querySelectorAll(`.sv-check[data-group="${groupId}"]:checked`)]
-    .map(cb => Number(cb.getAttribute('data-idx')));
-  return idxs.map(i => {
-    const h = shipHistory[i];
-    if(!h) return null;
+function getShipItemsByDate(dateKey) {
+  return (shipHistory||[]).filter(h => shipDateKey(h.shipDate) === dateKey).map(h => {
     const e = findEntryBySerial(h.serial);
     const model = normalizeModel(h.model || e?.model || '-');
     const works = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k) : String(h.works||'').split('|').filter(Boolean);
     const total = e ? Number(e.total||0) : Number(h.fee||0); // VAT 포함가
     return { serial: h.serial, model, works, total };
-  }).filter(Boolean);
+  });
 }
 
 // 숫자 → 한글 금액 (예: 1229250 → 일백이십이만구천이백오십)
@@ -3682,9 +3676,9 @@ function _printDoc(title, bodyHtml) {
   w.document.close();
 }
 
-function issueQuote(groupId) {
-  const items = getCheckedShipItems(groupId);
-  if(!items.length) { notify('견적서를 발행할 항목을 선택하세요.', 'error'); return; }
+function issueQuote(dateKey) {
+  const items = getShipItemsByDate(dateKey);
+  if(!items.length) { notify('해당 날짜의 출고 건이 없습니다.', 'error'); return; }
   // 기종별 묶음
   const byModel = {};
   items.forEach(it => {
@@ -3692,8 +3686,7 @@ function issueQuote(groupId) {
     byModel[it.model].cnt++;
     byModel[it.model].total += it.total;
   });
-  const today = new Date();
-  const ymd = `${today.getFullYear()}/${String(today.getMonth()+1).padStart(2,'0')}/${String(today.getDate()).padStart(2,'0')}`;
+  const serialYmd = String(dateKey).replace(/-/g,'/'); // 출고일 → 일련번호
   let grandSupply = 0, grandVat = 0, grandQty = 0, grandTotal = 0;
   const rows = Object.entries(byModel).map(([model, v]) => {
     const supply = Math.round(v.total / 1.1);
@@ -3713,7 +3706,7 @@ function issueQuote(groupId) {
     <div class="q-title">견 적 서</div>
     <table class="hdr"><tr>
       <td style="width:50%;padding:0;border:none;"><table style="width:100%;border-collapse:collapse;">
-        <tr><td class="lbl" style="width:90px;">일련번호</td><td>${ymd} -1</td></tr>
+        <tr><td class="lbl" style="width:90px;">일련번호</td><td>${serialYmd} -1</td></tr>
         <tr><td class="lbl">수 신</td><td>${I.receiver}</td></tr>
         <tr><td class="lbl">참 조</td><td>&nbsp;</td></tr>
         <tr><td class="lbl">TEL/FAX</td><td>&nbsp;</td></tr>
@@ -3742,14 +3735,12 @@ function issueQuote(groupId) {
       <td class="c" style="width:60px;">VAT</td><td class="r" style="width:110px;">${fmt(grandVat)}</td>
       <td class="c" style="width:60px;">합계</td><td class="r" style="width:120px;">${fmt(grandTotal)}</td>
     </tr></table>`;
-  _printDoc('볼타레스 견적서 ' + ymd, body);
+  _printDoc('볼타레스 견적서 ' + dateKey, body);
 }
 
-function issueShipList(groupId) {
-  const items = getCheckedShipItems(groupId);
-  if(!items.length) { notify('출고 리스트를 발행할 항목을 선택하세요.', 'error'); return; }
-  const today = new Date();
-  const ymd = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+function issueShipList(dateKey) {
+  const items = getShipItemsByDate(dateKey);
+  if(!items.length) { notify('해당 날짜의 출고 건이 없습니다.', 'error'); return; }
   let total = 0;
   const rows = items.map((it, i) => {
     total += it.total;
@@ -3764,14 +3755,14 @@ function issueShipList(groupId) {
   const body = `
     <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:12px;">
       <div style="font-size:22px;font-weight:800;">출고 리스트</div>
-      <div style="font-size:13px;color:#444;">발행일 ${ymd} · 총 ${items.length}건</div>
+      <div style="font-size:13px;color:#444;">출고일 ${dateKey} · 총 ${items.length}건</div>
     </div>
     <table class="items">
       <thead><tr><th style="width:44px;">No</th><th>시리얼번호</th><th style="width:110px;">기종</th><th>수리항목</th><th style="width:120px;">수리비용</th></tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr class="tot"><td colspan="4" class="r">합계 (VAT포함)</td><td class="r">₩${fmt(total)}</td></tr></tfoot>
     </table>`;
-  _printDoc('출고 리스트 ' + ymd, body);
+  _printDoc('출고 리스트 ' + dateKey, body);
 }
 
 
@@ -7466,7 +7457,9 @@ function renderShipview() {
       <div class="date-group-header" style="cursor:pointer;user-select:none;flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px;" onclick="toggleSvGroup('${groupId}')">
         <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
           <span class="date-group-title" style="font-size:14px;font-weight:700;">${formatShipDate(date)}</span>
-          <div style="display:flex;align-items:center;gap:12px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            ${!clientMode ? `<button class="btn btn-sm" onclick="event.stopPropagation();issueQuote('${date}')" style="height:26px;padding:0 10px;font-size:11px;">🧾 견적서</button>
+            <button class="btn btn-sm" onclick="event.stopPropagation();issueShipList('${date}')" style="height:26px;padding:0 10px;font-size:11px;">📋 출고리스트</button>` : ''}
             <span class="date-group-meta">${gList.length}건 · ${fmt(totalFee)}원</span>
             <span id="${groupId}-arrow" style="font-size:13px;color:var(--text3);">${window._expandedSvGroups.has(groupId)?'▲':'▼'}</span>
           </div>
