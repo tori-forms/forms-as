@@ -2493,6 +2493,36 @@ function setSyncStatus(state) {
 
 /* 전체 로드 */
 let _syncInProgress = false;
+// ⭐ rawWorkers(::구분 문자열 배열) → 전역 맵 파싱 (syncData/캐시부팅 공용)
+function __applyRawWorkers(rawWorkers) {
+  workers = rawWorkers.map(w => String(w).split('::')[0]);
+  tierMap = {}; partMap = {}; statusMap = {}; roleMap = {}; hireDateMap = {}; workerDailyTargets = {};
+  rawWorkers.forEach(w => {
+    const parts = String(w).split('::');
+    const name = parts[0];
+    if(parts[1]) tierMap[name] = parts[1];
+    if(parts[2]) partMap[name] = parts[2];
+    statusMap[name] = (parts[3] || 'active');
+    if(parts[4] !== undefined && parts[4] !== '') { const v = Number(parts[4]); if(!isNaN(v) && v >= 0) workerDailyTargets[name] = v; }
+    roleMap[name] = (parts[5] || 'engineer');
+    if(parts[6] !== undefined && parts[6] !== '') hireDateMap[name] = parts[6];
+  });
+}
+
+// ⭐ 캐시된 명단으로 로그인 화면 즉시 구성 (GAS 응답 전에 이름부터 표시)
+function buildLoginFromCache() {
+  if(currentUser || ENGRAVE_MODE) return;
+  try {
+    const raw = JSON.parse(localStorage.getItem('fa_workers_v1') || 'null');
+    if(Array.isArray(raw) && raw.length) {
+      __applyRawWorkers(raw);
+      buildLoginGrid();
+      if(typeof buildAdminGrid === 'function') buildAdminGrid();
+      if(typeof buildQCGrid === 'function') buildQCGrid();
+    }
+  } catch(e) {}
+}
+
 async function syncData(silent=false, force=false) {
   // ⭐ v2.12: 중복 실행 방지 — 이전 syncData가 진행 중이면 스킵
   if(_syncInProgress) {
@@ -2548,32 +2578,11 @@ async function syncData(silent=false, force=false) {
     });
     // ⭐ v2.33: 변경 보호 적용 (status 변경 등 보호)
     entries = applyPendingChanges(entries, 'entries', 'id');
-    // workers: 'name::T2::part::status::dailyTarget::role' 형식 지원
+    // workers: 'name::T2::part::status::dailyTarget::role::hireDate' 형식 지원
     const rawWorkers = data.workers || [];
-    workers = rawWorkers.map(w => String(w).split('::')[0]);
-    tierMap = {};
-    partMap = {};
-    statusMap = {};
-    roleMap = {}; // Phase2: 검수 역할
-    hireDateMap = {}; // 입사일
-    workerDailyTargets = {};
-    rawWorkers.forEach(w => {
-      const parts = String(w).split('::');
-      const name = parts[0];
-      if(parts[1]) tierMap[name] = parts[1];
-      if(parts[2]) partMap[name] = parts[2];
-      // status (없으면 active 기본): name::tier::part::status
-      statusMap[name] = (parts[3] || 'active');
-      // dailyTarget (옵션): name::tier::part::status::dailyTarget
-      if(parts[4] !== undefined && parts[4] !== '') {
-        const v = Number(parts[4]);
-        if(!isNaN(v) && v >= 0) workerDailyTargets[name] = v;
-      }
-      // role (옵션, Phase2): name::tier::part::status::dailyTarget::role
-      roleMap[name] = (parts[5] || 'engineer');
-      // hireDate (옵션): name::tier::part::status::dailyTarget::role::hireDate
-      if(parts[6] !== undefined && parts[6] !== '') hireDateMap[name] = parts[6];
-    });
+    __applyRawWorkers(rawWorkers);
+    // ⭐ 로그인 명단 캐시 — 다음 방문 시 즉시 표시 (GAS 응답 기다리지 않음)
+    try { localStorage.setItem('fa_workers_v1', JSON.stringify(rawWorkers)); } catch(e){}
     const rawKpi = data.kpiMap || {};
     kpiMap = {};
     Object.entries(rawKpi).forEach(([k, v]) => {
@@ -8565,6 +8574,7 @@ function init() {
   setRangeMonth();
   loadPriceSettings();
   buildChecks();
+  buildLoginFromCache(); // ⭐ 캐시된 명단으로 로그인 이름 즉시 표시 (그 사이 syncData가 최신 로드)
   syncData();
   initClientMode();
   // 출고 날짜 기본값: 오늘
@@ -10788,11 +10798,6 @@ async function renderReport() {
         <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">평일 수</div>
         <div style="font-size:18px;font-weight:700;">${wd||'-'}<span style="font-size:11px;color:var(--text2);">${wd?'일':''}</span></div>
       </div>
-      <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">정착 1일 목표</div>
-        <div style="font-size:18px;font-weight:700;">${KPI_STD_DAILY}<span style="font-size:11px;color:var(--text2);">건</span></div>
-        <div style="font-size:10px;color:var(--text3);margin-top:3px;">3개월차 도달 기준 · 신입은 주차별 상향</div>
-      </div>
     </div>
   </div>`;
 
@@ -10808,61 +10813,97 @@ async function renderReport() {
     const en = findEntryBySerial(hs.serial);
     contribByWorker[wn].rev += Number(en?.total || hs.fee || 0);
   });
-  const contribRows = Object.entries(contribByWorker)
-    .map(([name, v]) => ({ name, cnt: v.cnt, rev: v.rev, share: totalDone ? (v.cnt / totalDone * 100) : 0 }))
-    .sort((a, b) => b.cnt - a.cnt);
-  const maxShare = contribRows.length ? contribRows[0].share : 0;
+  // 월 평일 + 주 구간(입사 주차별 목표 산정용)
+  const monthWd = await getWorkdays(y, m);
+  const rMonthFirst = new Date(y, m-1, 1), rMonthLast = new Date(y, m, 0);
+  const rsegs = [];
+  let rcur = new Date(rMonthFirst);
+  while(rcur.getDay() !== 1) rcur.setDate(rcur.getDate()-1);
+  while(rcur.getTime() <= rMonthLast.getTime()) {
+    const we = new Date(rcur); we.setDate(we.getDate()+6);
+    const sS = new Date(Math.max(rcur.getTime(), rMonthFirst.getTime()));
+    const sE = new Date(Math.min(we.getTime(), rMonthLast.getTime()));
+    rsegs.push({ start:sS, end:sE, mid:new Date((sS.getTime()+sE.getTime())/2) });
+    rcur.setDate(rcur.getDate()+7);
+  }
+  for(const s of rsegs) s.wd = await countWorkdays(s.start, s.end);
+  // 엔지니어 월 목표 = 개별목표×평일 / 입사 주차별 합 / 대상 아니면 0
+  const monthlyTargetFor = (name) => {
+    const md = workerDailyTargets[name];
+    if(md !== undefined && md !== null && md > 0) return md * monthWd;
+    if(!isKpiTarget(name)) return 0;
+    return Math.round(rsegs.reduce((s, seg) => s + (tenureDailyTarget(name, seg.mid) || KPI_STD_DAILY) * seg.wd, 0));
+  };
+
+  // 표시 대상 = 수리 엔지니어 전원 ∪ 출고 기여자 (0건 엔지니어도 노출)
+  const allNames = new Set(workers.filter(isRepairEngineer));
+  Object.keys(contribByWorker).forEach(n => allNames.add(n));
+  const rows = [...allNames].map(name => {
+    const cnt = contribByWorker[name]?.cnt || 0;
+    const rev = contribByWorker[name]?.rev || 0;
+    const target = monthlyTargetFor(name);
+    return { name, cnt, rev, target, share: totalDone ? (cnt/totalDone*100) : 0, achieve: target ? Math.round(cnt/target*100) : null };
+  }).sort((a, b) => b.cnt - a.cnt);
+  const maxShare = rows.length ? Math.max(...rows.map(r => r.share)) : 0;
   const medals = ['🥇', '🥈', '🥉'];
 
   h += `<div class="card" style="padding:0;">
     <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">엔지니어별 KPI 기여도 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 출고 완료 건 기준</span></div>
     <div class="table-wrap"><table>
       <thead><tr>
-        <th style="width:48px;text-align:center">순위</th>
+        <th style="width:44px;text-align:center">순위</th>
         <th>엔지니어</th>
-        <th style="text-align:right">출고 건수</th>
-        <th style="min-width:180px;">기여도</th>
+        <th style="text-align:right">월 목표</th>
+        <th style="text-align:right">출고(실적)</th>
+        <th style="text-align:right">달성률</th>
+        <th style="min-width:150px;">기여도</th>
         <th style="text-align:right">공임비 합계</th>
       </tr></thead>
       <tbody>`;
 
-  if(!contribRows.length) {
-    h += `<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--text3);">이 달 출고 완료된 건이 없습니다.</td></tr>`;
+  if(!rows.length) {
+    h += `<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--text3);">표시할 엔지니어가 없습니다.</td></tr>`;
   }
-  contribRows.forEach((r, i) => {
+  rows.forEach((r, i) => {
     const rank = i + 1;
-    const rankCell = rank <= 3 ? `<span style="font-size:16px;">${medals[i]}</span>` : `<span style="color:var(--text3);font-weight:600;">${rank}</span>`;
-    const barW = maxShare ? Math.max(4, Math.round(r.share / maxShare * 100)) : 0; // 1등 기준 상대 길이
-    const barColor = rank === 1 ? 'var(--accent)' : 'var(--text2)';
+    const rankCell = (r.cnt > 0 && rank <= 3) ? `<span style="font-size:16px;">${medals[rank-1]}</span>` : `<span style="color:var(--text3);font-weight:600;">${rank}</span>`;
+    const barW = maxShare ? Math.max(2, Math.round(r.share / maxShare * 100)) : 0;
+    const barColor = (r.cnt > 0 && rank === 1) ? 'var(--accent)' : 'var(--text2)';
     const tierB = tierBadge(tierMap[r.name] || '');
-    h += `<tr${rank===1?' style="background:var(--accent-bg,rgba(45,212,191,.06));"':''}>
+    const acColor = r.achieve == null ? 'var(--text3)' : (r.achieve >= 100 ? 'var(--green)' : r.achieve >= 70 ? 'var(--amber)' : 'var(--red)');
+    h += `<tr${(r.cnt>0&&rank===1)?' style="background:var(--accent-bg,rgba(45,212,191,.06));"':''}>
       <td style="text-align:center;">${rankCell}</td>
       <td style="font-weight:600;">${r.name} ${tierB}</td>
+      <td style="text-align:right;color:var(--text2);">${r.target ? r.target+'건' : '<span style="color:var(--text3);">-</span>'}</td>
       <td style="text-align:right;font-weight:700;font-size:15px;">${r.cnt}<span style="font-size:11px;color:var(--text2);font-weight:500;">건</span></td>
+      <td style="text-align:right;font-weight:700;color:${acColor};">${r.achieve == null ? '-' : r.achieve+'%'}</td>
       <td>
         <div style="display:flex;align-items:center;gap:8px;">
-          <div style="flex:1;background:var(--surface2);border-radius:4px;height:8px;overflow:hidden;min-width:90px;">
+          <div style="flex:1;background:var(--surface2);border-radius:4px;height:8px;overflow:hidden;min-width:70px;">
             <div style="height:100%;border-radius:4px;background:${barColor};width:${barW}%;transition:width .4s;"></div>
           </div>
-          <span style="font-weight:700;color:${rank===1?'var(--accent)':'var(--text)'};min-width:46px;text-align:right;">${r.share.toFixed(1)}%</span>
+          <span style="font-weight:700;color:${(r.cnt>0&&rank===1)?'var(--accent)':'var(--text)'};min-width:44px;text-align:right;">${r.share.toFixed(1)}%</span>
         </div>
       </td>
       <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;">${fmt(r.rev)}원</td>
     </tr>`;
   });
 
-  const footRev = contribRows.reduce((s, r) => s + r.rev, 0);
+  const footRev = rows.reduce((s, r) => s + r.rev, 0);
+  const footTarget = rows.reduce((s, r) => s + r.target, 0);
   h += `</tbody>
     <tfoot><tr>
       <td></td>
-      <td style="font-weight:700;padding:10px 12px;">합계 (${contribRows.length}명)</td>
+      <td style="font-weight:700;padding:10px 12px;">합계 (${rows.length}명)</td>
+      <td style="text-align:right;font-weight:700;color:var(--text2);">${footTarget?footTarget+'건':'-'}</td>
       <td style="text-align:right;font-weight:700;">${totalDone}건</td>
-      <td style="text-align:right;font-weight:700;color:var(--accent);padding-right:54px;">100%</td>
+      <td></td>
+      <td style="text-align:right;font-weight:700;color:var(--accent);padding-right:52px;">100%</td>
       <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);">${fmt(footRev)}원</td>
     </tr></tfoot>
   </table></div>
-  <div style="padding:10px 18px;font-size:11px;color:var(--text3);border-top:1px solid var(--border);">
-    💡 기여도 = 그 엔지니어의 <strong>출고 완료 건수</strong> ÷ 이 달 전체 출고 건수. 막대는 1위 대비 상대 길이. 검수 통과해 출고로 넘어간 건만 집계됩니다.
+  <div style="padding:10px 18px;font-size:11px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">
+    💡 <strong>월 목표</strong> = 그 엔지니어가 이 달에 쳐야 할 양 (입사 주차별 목표 합산 · 개별 목표 설정 시 우선). <strong>기여도</strong> = 출고 완료 건수 ÷ 전체 출고. 검수 통과해 출고로 넘어간 건만 집계됩니다.
   </div></div>`;
 
   el.innerHTML = h;
