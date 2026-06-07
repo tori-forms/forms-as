@@ -1047,6 +1047,8 @@ window.addEventListener('DOMContentLoaded', function(){
 </script>
 <!-- SheetJS (엑셀 내보내기). 로드 실패해도 downloadCSV가 CSV로 폴백 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- JSZip (견적서 .docx 생성용) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 
@@ -3655,7 +3657,46 @@ function _downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-function issueQuote(dateKey) {
+// ── OOXML(.docx) 빌더 ─────────────────────────────────────
+function _xe(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// 셀: {t:텍스트, b:볼드, a:'left|center|right', shd:'EEEEEE', span:열병합, w:너비(twips)}
+function _docxCell(o){
+  const a = o.a || 'left';
+  const jc = a==='center'?'center':a==='right'?'right':'left';
+  const shd = o.shd ? `<w:shd w:val="clear" w:color="auto" w:fill="${o.shd}"/>` : '';
+  const span = o.span ? `<w:gridSpan w:val="${o.span}"/>` : '';
+  const wEl = o.w ? `<w:tcW w:w="${o.w}" w:type="dxa"/>` : '';
+  const rpr = `<w:rPr><w:rFonts w:ascii="Malgun Gothic" w:eastAsia="Malgun Gothic" w:hAnsi="Malgun Gothic"/><w:sz w:val="${o.sz||20}"/>${o.b?'<w:b/>':''}</w:rPr>`;
+  const lines = String(o.t==null?'':o.t).split('\n');
+  const runs = lines.map((ln,i)=>`<w:r>${rpr}${i>0?'<w:br/>':''}<w:t xml:space="preserve">${_xe(ln)}</w:t></w:r>`).join('');
+  return `<w:tc><w:tcPr>${wEl}${span}${shd}<w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:jc w:val="${jc}"/><w:spacing w:before="20" w:after="20"/></w:pPr>${runs}</w:p></w:tc>`;
+}
+function _docxRow(cells){return `<w:tr>${cells.map(_docxCell).join('')}</w:tr>`;}
+function _docxTable(rows, grid){
+  const gridXml = grid.map(w=>`<w:gridCol w:w="${w}"/>`).join('');
+  const borders = `<w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tblBorders>`;
+  return `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/>${borders}<w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid>${gridXml}</w:tblGrid>${rows.join('')}</w:tbl>`;
+}
+function _docxPara(text, {b,sz,a,spacing}={}){
+  const jc = a==='center'?'center':a==='right'?'right':'left';
+  return `<w:p><w:pPr><w:jc w:val="${jc}"/>${spacing?`<w:spacing w:before="${spacing}" w:after="${spacing}"/>`:''}</w:pPr><w:r><w:rPr><w:rFonts w:ascii="Malgun Gothic" w:eastAsia="Malgun Gothic" w:hAnsi="Malgun Gothic"/><w:sz w:val="${sz||20}"/>${b?'<w:b/>':''}</w:rPr><w:t xml:space="preserve">${_xe(text)}</w:t></w:r></w:p>`;
+}
+async function _buildDocx(bodyXml){
+  if(typeof JSZip === 'undefined') throw new Error('JSZip 미로드');
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`);
+  zip.folder('_rels').file('.rels',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`);
+  zip.folder('word').file('document.xml',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${bodyXml}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`);
+  return await zip.generateAsync({type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+}
+
+async function issueQuote(dateKey) {
   const items = getShipItemsByDate(dateKey);
   if(!items.length) { notify('해당 날짜의 출고 건이 없습니다.', 'error'); return; }
   const byModel = {};
@@ -3665,75 +3706,57 @@ function issueQuote(dateKey) {
     byModel[it.model].total += it.total;
   });
   const serialYmd = String(dateKey).replace(/-/g,'/');
-  let gSupply = 0, gVat = 0, gQty = 0, gTotal = 0;
-  const itemRows = Object.entries(byModel).map(([model, v]) => {
-    const supply = Math.round(v.total / 1.1);
-    const vat = v.total - supply;
-    gSupply += supply; gVat += vat; gQty += v.cnt; gTotal += v.total;
+  let gSupply=0, gVat=0, gQty=0, gTotal=0;
+  const modelRows = Object.entries(byModel).map(([model, v]) => {
+    const supply = Math.round(v.total/1.1), vat = v.total - supply;
+    gSupply+=supply; gVat+=vat; gQty+=v.cnt; gTotal+=v.total;
     const mq = MODEL_QUOTE[model] || { code:'', name: model+'태블릿' };
-    return `<tr>
-      <td class=c>${mq.code||''}</td><td>${mq.name}</td>
-      <td class=c>${v.cnt}</td><td class=r>${fmt(supply)}</td><td class=r>${fmt(vat)}</td></tr>`;
-  }).join('');
-  // 품목표 빈 줄 채우기(양식감)
-  let blanks = '';
-  for(let i=Object.keys(byModel).length; i<12; i++) blanks += '<tr><td class=c>&nbsp;</td><td></td><td></td><td></td><td></td></tr>';
+    return { code: mq.code||'', name: mq.name, qty: v.cnt, supply, vat };
+  });
   const I = VOLTALES_INFO;
 
-  const docHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="utf-8">
-<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
-<style>
-  @page{size:A4;margin:1.6cm;}
-  body{font-family:'Malgun Gothic','맑은 고딕',sans-serif;color:#000;font-size:10.5pt;}
-  table{border-collapse:collapse;width:100%;}
-  td,th{border:1px solid #000;padding:4px 7px;vertical-align:middle;mso-line-height-rule:exactly;}
-  .title{text-align:center;font-size:22pt;font-weight:bold;letter-spacing:10px;border:none;padding:0 0 10px 0;}
-  .lbl{background:#eee;font-weight:bold;text-align:center;white-space:nowrap;}
-  .logo{font-size:24pt;font-weight:bold;text-align:center;border:none;}
-  .nb{border:none;}
-  .c{text-align:center;} .r{text-align:right;}
-  .amt{font-weight:bold;font-size:12pt;}
-  .hd{background:#eee;font-weight:bold;text-align:center;}
-</style></head><body>
-<table class=nb><tr><td class="title nb" colspan=2>견 적 서</td></tr></table>
-<table>
-  <tr>
-    <td class=lbl style="width:14%">일련번호</td><td style="width:36%">${serialYmd} -1</td>
-    <td class="logo" colspan=2 rowspan=1>+ VOLTALES</td>
-  </tr>
-  <tr>
-    <td class=lbl>수 신</td><td>${I.receiver}</td>
-    <td class=lbl style="width:16%">사업자등록번호</td><td style="width:34%">${I.bizNo}</td>
-  </tr>
-  <tr><td class=lbl>참 조</td><td>&nbsp;</td><td class=lbl>회사명/대표</td><td>${I.company}</td></tr>
-  <tr><td class=lbl>TEL/FAX</td><td>&nbsp;</td><td class=lbl>주 소</td><td>${I.addr}</td></tr>
-  <tr><td class=lbl>결제조건</td><td>&nbsp;</td><td class=lbl>업태/종목</td><td>${I.bizType}</td></tr>
-  <tr><td class=lbl>유효기간</td><td>&nbsp;</td><td class=lbl>담당자</td><td>${I.manager}</td></tr>
-  <tr>
-    <td colspan=2 style="font-size:9.5pt;line-height:1.7;">1. 귀사의 일익 번창하심을 기원합니다.<br>2. 하기와 같이 견적드리오니 검토하기 바랍니다.</td>
-    <td class=lbl>TEL/FAX</td><td>${I.tel}</td>
-  </tr>
-  <tr><td colspan=4 class=amt>금 액 : ${numToKorean(gTotal)}원 정 &nbsp;&nbsp;&nbsp;(￦ ${fmt(gTotal)}원) / VAT포함</td></tr>
-</table>
-<br>
-<table>
-  <thead><tr><th class=hd style="width:16%">품목코드</th><th class=hd>품목명(규격)</th><th class=hd style="width:14%">수량(단위포함)</th><th class=hd style="width:20%">공급가액</th><th class=hd style="width:18%">부가세</th></tr></thead>
-  <tbody>${itemRows}${blanks}</tbody>
-</table>
-<table style="margin-top:-1px;">
-  <tr>
-    <td class=lbl style="width:10%">수량</td><td class=r style="width:14%">${gQty}</td>
-    <td class=lbl style="width:12%">공급가액</td><td class=r style="width:22%">${fmt(gSupply)}</td>
-    <td class=lbl style="width:8%">VAT</td><td class=r style="width:16%">${fmt(gVat)}</td>
-    <td class=lbl style="width:8%">합계</td><td class=r>${fmt(gTotal)}</td>
-  </tr>
-</table>
-</body></html>`;
+  try {
+    // ── 제목
+    let body = _docxPara('견 적 서', {b:true, sz:40, a:'center', spacing:120});
+    // ── 헤더 표 (4열): 좌 라벨/값, 우 라벨/값
+    const G4 = [1500,3300,1900,3200];
+    const hdr = [];
+    hdr.push(_docxRow([{t:'일련번호',b:true,a:'center',shd:'EEEEEE'},{t:serialYmd+' -1'},{t:'+ VOLTALES',b:true,a:'center',sz:36,span:2}]));
+    hdr.push(_docxRow([{t:'수 신',b:true,a:'center',shd:'EEEEEE'},{t:I.receiver},{t:'사업자등록번호',b:true,a:'center',shd:'EEEEEE'},{t:I.bizNo}]));
+    hdr.push(_docxRow([{t:'참 조',b:true,a:'center',shd:'EEEEEE'},{t:''},{t:'회사명/대표',b:true,a:'center',shd:'EEEEEE'},{t:I.company}]));
+    hdr.push(_docxRow([{t:'TEL/FAX',b:true,a:'center',shd:'EEEEEE'},{t:''},{t:'주 소',b:true,a:'center',shd:'EEEEEE'},{t:I.addr}]));
+    hdr.push(_docxRow([{t:'결제조건',b:true,a:'center',shd:'EEEEEE'},{t:''},{t:'업태/종목',b:true,a:'center',shd:'EEEEEE'},{t:I.bizType}]));
+    hdr.push(_docxRow([{t:'유효기간',b:true,a:'center',shd:'EEEEEE'},{t:''},{t:'담당자',b:true,a:'center',shd:'EEEEEE'},{t:I.manager}]));
+    hdr.push(_docxRow([{t:'1. 귀사의 일익 번창하심을 기원합니다.\n2. 하기와 같이 견적드리오니 검토하기 바랍니다.',sz:18,span:2},{t:'TEL/FAX',b:true,a:'center',shd:'EEEEEE'},{t:I.tel}]));
+    hdr.push(_docxRow([{t:`금 액 : ${numToKorean(gTotal)}원 정          (￦ ${fmt(gTotal)}원) / VAT포함`,b:true,sz:24,span:4}]));
+    body += _docxTable(hdr, G4);
+    body += _docxPara('', {sz:8});
+    // ── 품목 표 (5열)
+    const G5 = [1600,3900,1500,1900,1900];
+    const itm = [];
+    itm.push(_docxRow([{t:'품목코드',b:true,a:'center',shd:'EEEEEE'},{t:'품목명(규격)',b:true,a:'center',shd:'EEEEEE'},{t:'수량(단위포함)',b:true,a:'center',shd:'EEEEEE'},{t:'공급가액',b:true,a:'center',shd:'EEEEEE'},{t:'부가세',b:true,a:'center',shd:'EEEEEE'}]));
+    modelRows.forEach(r=>{
+      itm.push(_docxRow([{t:r.code,a:'center'},{t:r.name},{t:String(r.qty),a:'center'},{t:fmt(r.supply),a:'right'},{t:fmt(r.vat),a:'right'}]));
+    });
+    for(let i=modelRows.length;i<10;i++) itm.push(_docxRow([{t:''},{t:''},{t:''},{t:''},{t:''}]));
+    body += _docxTable(itm, G5);
+    // ── 합계 표 (8열)
+    const G8 = [1100,1500,1300,2300,900,1700,900,2100];
+    const tot = [_docxRow([
+      {t:'수량',b:true,a:'center',shd:'EEEEEE'},{t:String(gQty),a:'right'},
+      {t:'공급가액',b:true,a:'center',shd:'EEEEEE'},{t:fmt(gSupply),a:'right'},
+      {t:'VAT',b:true,a:'center',shd:'EEEEEE'},{t:fmt(gVat),a:'right'},
+      {t:'합계',b:true,a:'center',shd:'EEEEEE'},{t:fmt(gTotal),b:true,a:'right'}
+    ])];
+    body += _docxTable(tot, G8);
 
-  const blob = new Blob(['\ufeff' + docHtml], { type: 'application/msword' });
-  _downloadBlob(blob, `볼타레스_견적서_${dateKey}.doc`);
-  notify(`견적서 발행: ${dateKey} (${gQty}건 · ${fmt(gTotal)}원)`);
+    const blob = await _buildDocx(body);
+    _downloadBlob(blob, `볼타레스_견적서_${dateKey}.docx`);
+    notify(`견적서 발행: ${dateKey} (${gQty}건 · ${fmt(gTotal)}원)`);
+  } catch(err) {
+    console.error('[견적서] 생성 실패', err);
+    notify('견적서 생성 실패: ' + (err.message||err), 'error');
+  }
 }
 
 function issueShipList(dateKey) {
