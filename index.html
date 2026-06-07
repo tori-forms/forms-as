@@ -5890,7 +5890,7 @@ function renderShipping() {
       <tbody>${ok.map((x,i) => `<tr>
         <td style="text-align:center;"><input type="checkbox" class="ship-row-check" data-idx="${i}" data-serial="${x.entry.serial}" style="accent-color:var(--accent);" onchange="onShipCheckChange()"></td>
         <td>${(() => { const __m = normalizeModel(x.entry.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
-        <td class="mono">${x.entry.serial}</td>
+        <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${x.entry.serial}</span></td>
         <td>${x.entry.worker}</td>
         <td>${workTags(x.entry.works)}</td>
         <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
@@ -5920,7 +5920,7 @@ function renderShipping() {
           }[x.status] || 'var(--text2)';
           return `<tr>
           <td>${(() => { const __m = normalizeModel(x.entry.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
-          <td class="mono">${x.entry.serial}</td>
+          <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${x.entry.serial}</span></td>
           <td>${x.entry.worker}</td>
           <td>${workTags(x.entry.works)}</td>
           <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
@@ -5944,7 +5944,7 @@ function renderShipping() {
           const e = findEntryBySerial(x.serial);
           return `<tr>
             <td>${(() => { const __m = normalizeModel(x.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
-            <td class="mono">${x.serial}</td>
+            <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.serial)}')" title="클릭하면 복사">${x.serial}</span></td>
             <td>${x.worker||'-'}</td>
             <td>${workTags(e?e.works:'[]')}</td>
             <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(new Date(x.shipDate))}</td>
@@ -6303,7 +6303,7 @@ function renderShipHistory() {
           return `<tr>
             <td style="text-align:center;color:var(--text2);">${curNo}</td>
             <td>${(() => { const __m = normalizeModel(x.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
-            <td class="mono" style="font-size:11px;">${x.serial}</td>
+            <td class="mono" style="font-size:11px;"><span class="serial-copy" onclick="copySerial('${escapeJs(x.serial)}')" title="클릭하면 복사">${x.serial}</span></td>
             <td style="color:var(--text);">${worksText||'-'}</td>
             <td style="text-align:right;">${labor?fmt(labor):'0'}원</td>
             <td style="text-align:right;">0원</td>
@@ -9761,10 +9761,12 @@ function gotoTab(name) {
 function renderToday() {
   updateLbl('input');
   const sel = getDate('input');
-  const list = entries.filter(e => toLocalDay(e.date) === sel);
+  // ⭐ 로그인한 본인이 등록한 건만 표시 (관리자/마스터는 전체)
+  const showAll = !currentUser || currentUser === MASTER_NAME || (typeof isAdmin !== 'undefined' && isAdmin);
+  const list = entries.filter(e => toLocalDay(e.date) === sel && (showAll || String(e.worker||'').split('::')[0] === currentUser));
   const el = document.getElementById('today-list');
   document.getElementById('today-count').textContent = `(${list.length}건)`;
-  if(!list.length){ el.innerHTML=`<div class="empty"><div class="empty-icon">📋</div>${dateLabel(sel)} 수리 내역이 없습니다.</div>`; return; }
+  if(!list.length){ el.innerHTML=`<div class="empty"><div class="empty-icon">📋</div>${dateLabel(sel)} ${showAll?'':'내가 등록한 '}수리 내역이 없습니다.</div>`; return; }
   const rev = list.reduce((s,e)=>s+Number(e.total),0);
   let h = `<div class="table-wrap"><table><thead><tr>
     <th>#</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th>
