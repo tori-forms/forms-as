@@ -10751,7 +10751,10 @@ async function renderReport() {
   // ⭐ KPI 집계는 출고 기준 — 해당 월에 출고된 건수
   const monthShipped = (shipHistory || []).filter(h => shipDateKey(h.shipDate).startsWith(monthVal));
   const totalDone = monthShipped.length;
-  const totalRev = monthShipped.reduce((s,h) => s+Number(h.fee||0), 0);
+  const totalRev = monthShipped.reduce((s,h) => {
+    const en = findEntryBySerial(h.serial);
+    return s + Number(en?.total || h.fee || 0);
+  }, 0);
   const pct = monthKPI ? Math.min(100, Math.round(totalDone/monthKPI*100)) : 0;
   const progColor = pct>=100?'var(--green)':pct>=70?'var(--amber)':'var(--red)';
 
@@ -10786,8 +10789,9 @@ async function renderReport() {
         <div style="font-size:18px;font-weight:700;">${wd||'-'}<span style="font-size:11px;color:var(--text2);">${wd?'일':''}</span></div>
       </div>
       <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">표준 1일 목표</div>
+        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">정착 1일 목표</div>
         <div style="font-size:18px;font-weight:700;">${KPI_STD_DAILY}<span style="font-size:11px;color:var(--text2);">건</span></div>
+        <div style="font-size:10px;color:var(--text3);margin-top:3px;">3개월차 도달 기준 · 신입은 주차별 상향</div>
       </div>
     </div>
   </div>`;
