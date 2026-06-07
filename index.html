@@ -1157,8 +1157,12 @@ window.addEventListener('DOMContentLoaded', function(){
   <!-- hidden elements for compatibility -->
   <input type="date" id="date-input" style="display:none;">
   <span id="lbl-input" style="display:none;"></span>
-  <span id="today-count" style="display:none;"></span>
-  <div id="today-list" style="display:none;"></div>
+
+  <!-- ⭐ 오늘 등록 내역 -->
+  <div class="section-header" style="margin-top:18px;">
+    <span class="section-title">📋 오늘 등록 내역 <span id="today-count" style="font-size:13px;color:var(--text2);font-weight:500;"></span></span>
+  </div>
+  <div id="today-list"></div>
   </div>
 
   <!-- 일일 현황 -->
@@ -3986,7 +3990,7 @@ function renderAging() {
 
       html += `<tr data-aging-row data-entry-id="${e.id}" data-aging-worker="${escapeHtml(worker)}">
         <td style="text-align:center;">${passed ? `<input type="checkbox" class="aging-chk" data-chk-worker="${escapeHtml(worker)}" data-chk-id="${e.id}">` : ''}</td>
-        <td style="font-weight:600;">${escapeHtml(e.serial)}</td>
+        <td style="font-weight:600;"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${escapeHtml(e.serial)}</span></td>
         <td>${escapeHtml(e.model||'')}</td>
         <td style="font-size:12px;color:var(--text2);">${escapeHtml(works)}</td>
         <td style="font-size:12px;">${startFmt}</td>
@@ -4936,7 +4940,7 @@ function renderInspectWaitList() {
         : '';
 
       rows += `<tr ${isRework?'style="background:rgba(245,158,11,.06);"':''}>
-        <td style="font-weight:600;">${escapeHtml(e.serial)}${reworkBadge}</td>
+        <td style="font-weight:600;"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${escapeHtml(e.serial)}</span>${reworkBadge}</td>
         <td style="white-space:nowrap;">${escapeHtml(e.model||'')}</td>
         <td style="white-space:nowrap;">${escapeHtml(worker)}</td>
         <td>${workCell}</td>
@@ -5445,7 +5449,7 @@ function renderDefectList() {
       }
 
       html += `<tr style="${isOld?'background:#fef2f2;':''}">
-        <td style="font-weight:600;">${escapeHtml(e.serial)}${isOld?' 🚨':''}</td>
+        <td style="font-weight:600;"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${escapeHtml(e.serial)}</span>${isOld?' 🚨':''}</td>
         <td>${escapeHtml(e.model||'')}</td>
         <td style="font-size:12px;color:var(--text2);">${escapeHtml(works)}</td>
         <td style="font-size:12px;">${defectFmt}</td>
@@ -7558,7 +7562,7 @@ function renderShipview() {
                 ${!clientMode ? `<td style="text-align:center;"><input type="checkbox" class="sv-check" data-group="${groupId}" data-idx="${svIdx}" style="accent-color:var(--accent);"></td>` : ''}
                 <td style="text-align:center;color:var(--text3);">${i+1}</td>
                 <td><span style="font-size:11px;font-weight:700;background:${xModel==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${xModel==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${xModel||'-'}</span></td>
-                <td class="mono" style="font-size:11px;white-space:nowrap;">${x.serial}</td>
+                <td class="mono" style="font-size:11px;white-space:nowrap;"><span class="serial-copy" onclick="event.stopPropagation();copySerial('${escapeJs(x.serial)}')" title="클릭하면 복사">${x.serial}</span></td>
                 <td style="font-size:12px;">${worksText||'-'}</td>
                 <td style="text-align:center;font-weight:600;font-size:12px;white-space:nowrap;">${fee?fmt(fee)+' 원':'-'}</td>
                 <td style="text-align:center;font-weight:600;font-size:12px;white-space:nowrap;">${partsFee ? fmt(partsFee)+' 원' : '-'}</td>
@@ -9770,7 +9774,7 @@ function renderToday() {
     const ws = parseWorks(e.works);
     h += `<tr>
       <td style="color:var(--text3);width:36px;">${i+1}</td>
-      <td class="mono">${e.serial}</td><td>${e.worker}</td>
+      <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${e.serial}</span></td><td>${e.worker}</td>
       <td>${workTags(e.works)}</td>
       <td>${e.note ? `<span class="note-badge" title="${e.note}">${e.note}</span>` : '<span style="color:var(--text3);font-size:11px;">-</span>'}</td>
       <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fmt(e.total)}원</td>
@@ -10476,7 +10480,7 @@ function renderExchangeList() {
       const reasonLabel = x.reason === '비용초과' ? '비용초과' : (x.reason||'-');
       return `<tr>
         <td style="white-space:nowrap;font-size:12px;color:var(--text2);">${fmtDT(x.date)}</td>
-        <td class="mono" style="font-weight:600;white-space:nowrap;">${x.serial}</td>
+        <td class="mono" style="font-weight:600;white-space:nowrap;"><span class="serial-copy" onclick="copySerial('${escapeJs(x.serial)}')" title="클릭하면 복사">${x.serial}</span></td>
         <td style="white-space:nowrap;">${(() => { const __m = normalizeModel(x.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
         <td style="white-space:nowrap;">${x.worker}</td>
         <td style="white-space:nowrap;">${workTagsInline}</td>
