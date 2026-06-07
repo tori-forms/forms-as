@@ -2180,6 +2180,7 @@ let partMap = {}; // { 이름: 'nonbat'|'battery'|'all' }
 let statusMap = {}; // { 이름: 'active'|'training'|'inactive' } - 기본값 active
 let roleMap = {}; // { 이름: 'engineer'|'inspector'|'both' } - 검수 역할 (Phase2 추가)
 let hireDateMap = {}; // { 이름: 'YYYY-MM-DD' } - 입사일 (주차별 KPI 램프업용)
+let mentoringMap = {}; // { 이름: true } - 교육 중(신입 멘토) → 목표 면제
 let inspections = []; // 검수 이력 (Phase2 추가)
 let agingDurationMs = 24*60*60*1000; // 에이징 24h (서버에서 받아 덮어씀)
 let serverTimeOffset = 0; // 서버-클라이언트 시간 차이 (ms)
@@ -2496,7 +2497,7 @@ let _syncInProgress = false;
 // ⭐ rawWorkers(::구분 문자열 배열) → 전역 맵 파싱 (syncData/캐시부팅 공용)
 function __applyRawWorkers(rawWorkers) {
   workers = rawWorkers.map(w => String(w).split('::')[0]);
-  tierMap = {}; partMap = {}; statusMap = {}; roleMap = {}; hireDateMap = {}; workerDailyTargets = {};
+  tierMap = {}; partMap = {}; statusMap = {}; roleMap = {}; hireDateMap = {}; workerDailyTargets = {}; mentoringMap = {};
   rawWorkers.forEach(w => {
     const parts = String(w).split('::');
     const name = parts[0];
@@ -2506,6 +2507,7 @@ function __applyRawWorkers(rawWorkers) {
     if(parts[4] !== undefined && parts[4] !== '') { const v = Number(parts[4]); if(!isNaN(v) && v >= 0) workerDailyTargets[name] = v; }
     roleMap[name] = (parts[5] || 'engineer');
     if(parts[6] !== undefined && parts[6] !== '') hireDateMap[name] = parts[6];
+    if(parts[7] === '1') mentoringMap[name] = true;
   });
 }
 
@@ -9459,6 +9461,17 @@ async function renderMyDash() {
       </div>
 
       <!-- 2. 이번 주 목표 달성률 (수리 등록 기준, 주차별) -->
+      ${mentoringMap[currentUser] ? `
+      <div style="${cardBaseClickable}" onclick="gotoTab('history')" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
+        <div style="${iconStyle}">🎓</div>
+        <div style="${labelStyle}">이번 주 실적 <span style="font-size:9px;color:#7c3aed;font-weight:700;">(교육 중 · 목표 면제)</span></div>
+        <div style="display:flex;align-items:baseline;gap:6px;">
+          <span style="font-size:32px;font-weight:700;letter-spacing:-1px;color:#7c3aed;line-height:1.1;">${weekDone}</span>
+          <span style="font-size:16px;color:var(--text2);font-weight:500;">건</span>
+        </div>
+        <div style="${subStyle}">신입 교육 기간이라 목표가 면제돼요. 처리한 건은 그대로 집계됩니다 👍</div>
+      </div>
+      ` : `
       <div style="${cardBaseClickable}" onclick="gotoTab('history')" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
         <div style="${iconStyle}">🎯</div>
         <div style="${labelStyle}">이번 주 목표 달성률 <span style="font-size:9px;color:var(--text3);font-weight:500;">(일 ${dailyTarget}건)</span></div>
@@ -9471,7 +9484,7 @@ async function renderMyDash() {
         </div>
         <div style="${subStyle}">${weekTargetFull ? `이번 주 ${weekDone}건 / 목표 ${weekTargetFull}건 · 오늘까지 페이스 ${pacePct}%` : '목표 미설정'}</div>
       </div>
-
+      `}
       <!-- 3. 검수대기 건 (에이징 끝났는데 아직 안 누른 건) -->
       <div style="${cardBaseClickable}${myAgingPendingInspect.length>0?'border:2px solid #f59e0b;':''}" onclick="gotoTab('aging')" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
         <div style="${iconStyle}">⏰</div>
@@ -10813,8 +10826,10 @@ async function renderReport() {
     const en = findEntryBySerial(hs.serial);
     contribByWorker[wn].rev += Number(en?.total || hs.fee || 0);
   });
-  // 현재 단계(입사 주차/일 목표) 산정 기준일 = 리포트 월 중순
-  const refDate = new Date(y, m-1, 15);
+  // 현재 단계 산정 기준일: 현재 달이면 오늘, 과거 달이면 그 달 말일
+  const __today = new Date();
+  const isCurMonth = (__today.getFullYear() === y && (__today.getMonth()+1) === m);
+  const refDate = isCurMonth ? __today : new Date(y, m, 0);
 
   // 표시 대상 = 수리 엔지니어 전원 ∪ 출고 기여자 (0건 엔지니어도 노출)
   const allNames = new Set(workers.filter(isRepairEngineer));
@@ -10854,7 +10869,9 @@ async function renderReport() {
     const tierB = tierBadge(tierMap[r.name] || '');
     // 현재 단계 표시
     let stage;
-    if(r.manual != null && r.manual > 0) {
+    if(mentoringMap[r.name]) {
+      stage = `<span style="font-weight:700;color:#7c3aed;">🎓 교육 중</span> <span style="font-size:10px;color:var(--text3);">목표 면제 · 실적만 집계</span>`;
+    } else if(r.manual != null && r.manual > 0) {
       stage = `<span style="font-weight:600;">일 ${r.manual}건</span> <span style="font-size:10px;color:var(--text3);">개별 지정</span>`;
     } else if(r.tw != null) {
       const onboard = r.tw <= 4; // 입사 1개월 이내 = 온보딩
@@ -11308,11 +11325,14 @@ function serializeWorkers() {
     const dt = workerDailyTargets[w];
     const r = roleMap[w] || 'engineer'; // Phase2: 역할
     const hire = hireDateMap[w] || '';   // 입사일
+    const mentoring = mentoringMap[w] ? '1' : ''; // 교육 중
     // 0건도 명시적 저장 (undefined만 자동)
     const hasDt = (dt !== undefined && dt !== null);
     const hasRole = (r && r !== 'engineer'); // engineer는 기본값이라 생략
     const hasHire = !!hire;
     const dtStr = hasDt ? String(dt) : '';
+    // ⭐ 교육중이 있으면 8필드 전부 명시
+    if(mentoring) return `${w}::${t}::${p}::${s}::${dtStr}::${r}::${hire}::${mentoring}`;
     // ⭐ 입사일이 있으면 7필드 전부 명시 (뒤 필드가 있으면 앞 필드도 채워야 파싱 정합)
     if(hasHire) return `${w}::${t}::${p}::${s}::${dtStr}::${r}::${hire}`;
     if(!t && !p && s === 'active' && !hasDt && !hasRole) return w;
@@ -11348,6 +11368,7 @@ function removeWorker(name) {
       delete statusMap[name];
       delete workerDailyTargets[name];
       delete hireDateMap[name];
+      delete mentoringMap[name];
       try {
         await gasCall({action:'saveWorkers', workers: serializeWorkers()});
         renderWorkerSel(); renderWorkers(); notify(`${name} 삭제됨 (수리 기록은 보존)`);
@@ -11434,6 +11455,7 @@ function renderWorkers() {
         ${tierBadge(tier)}
         ${partBadge(part)}
         <span style="font-size:12px;color:var(--text2);">오늘 ${ct}건 / 전체 ${ca}건</span>
+        ${mentoringMap[w] ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#ede9fe;color:#7c3aed;">🎓 교육 중</span>' : ''}
         ${tenureLabel}
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -11452,6 +11474,7 @@ function renderWorkers() {
           <option value="both" ${roleMap[w]==='both'?'selected':''}>🔧+🔍 겸직</option>
         </select>
         <input type="date" value="${hireVal}" onchange="saveWorkerHireDate('${w}',this.value)" title="입사일 (주차별 KPI 목표 산정)" style="height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);" />
+        <button onclick="saveMentoring('${w}',${mentoringMap[w]?'false':'true'})" title="교육 중 (켜면 KPI 목표 면제 · 실적은 그대로 집계)" style="height:30px;padding:0 10px;font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;border:1px solid ${mentoringMap[w]?'#7c3aed':'var(--border2)'};background:${mentoringMap[w]?'#ede9fe':'transparent'};color:${mentoringMap[w]?'#7c3aed':'var(--text2)'};">🎓 교육${mentoringMap[w]?' 중':''}</button>
 <input type="number" min="0" step="1" placeholder="자동" value="${dtVal!==undefined&&dtVal!==null?dtVal:''}" onchange="saveWorkerDailyTarget('${w}',this.value)" title="일일 목표 직접 지정 (비우면 입사일 기준 자동)" style="width:64px;height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);text-align:right;" />
         <span style="font-size:11px;color:var(--text3);">건/일</span>
         <button class="btn btn-sm btn-danger" onclick="removeWorker('${w}')">삭제</button>` 
@@ -11612,6 +11635,25 @@ async function saveWorkerHireDate(name, value) {
   } catch {
     if(old) hireDateMap[name] = old; else delete hireDateMap[name];
     notify('입사일 저장 실패.','error');
+    renderWorkers();
+  }
+}
+
+async function saveMentoring(name, on) {
+  if(!canManageWorker(name)) {
+    notify('해당 엔지니어를 관리할 권한이 없습니다.', 'error');
+    renderWorkers();
+    return;
+  }
+  const old = !!mentoringMap[name];
+  if(on) mentoringMap[name] = true; else delete mentoringMap[name];
+  try {
+    await gasCall({action:'saveWorkers', workers: serializeWorkers()});
+    renderWorkers();
+    notify(on ? `${name} 교육 중 ON (목표 면제, 실적은 집계)` : `${name} 교육 중 해제`);
+  } catch {
+    if(old) mentoringMap[name] = true; else delete mentoringMap[name];
+    notify('교육 중 저장 실패.','error');
     renderWorkers();
   }
 }
