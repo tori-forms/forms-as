@@ -10514,7 +10514,7 @@ async function renderHistory() {
         <div style="background:var(--surface2);border-radius:6px;height:8px;overflow:hidden;margin-bottom:16px;">
           <div style="height:100%;border-radius:6px;background:${progColor};width:${pct}%;transition:width .5s;"></div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;">
+        <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;">
           <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
             <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">${isSameMonth ? '월 목표' : '기간 목표'}</div>
             <div style="font-size:17px;font-weight:700;">${fmt(monthKPISum)}<span style="font-size:11px;color:var(--text2);">대</span></div>
@@ -10526,11 +10526,6 @@ async function renderHistory() {
           <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
             <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">남은 건수</div>
             <div style="font-size:17px;font-weight:700;color:${remain>0?'var(--red)':'var(--green)'};">${remain>0?fmt(remain)+'대':'✓ 달성!'}</div>
-          </div>
-          <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
-            <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">1인 하루 목표</div>
-            <div style="font-size:17px;font-weight:700;">${daily}<span style="font-size:11px;color:var(--text2);">건</span></div>
-            <div style="font-size:10px;color:var(--text3);margin-top:3px;">평일 ${totalWorkdays}일 · ${ac}명 <span style="color:var(--text3);opacity:.7;" title="T2/T3만 카운트 (T4·T1·무직급·QC 제외)">ℹ️</span></div>
           </div>
           <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
             <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:5px;">출고 건수</div>
