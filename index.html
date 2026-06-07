@@ -10831,7 +10831,7 @@ async function renderReport() {
   const monthlyTargetFor = (name) => {
     const md = workerDailyTargets[name];
     if(md !== undefined && md !== null && md > 0) return md * monthWd;
-    if(!isKpiTarget(name)) return 0;
+    if(!isRepairEngineer(name)) return 0; // QC 전담·T4·관리자 등 수리 안 하면 목표 없음
     return Math.round(rsegs.reduce((s, seg) => s + (tenureDailyTarget(name, seg.mid) || KPI_STD_DAILY) * seg.wd, 0));
   };
 
