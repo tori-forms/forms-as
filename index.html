@@ -10813,27 +10813,8 @@ async function renderReport() {
     const en = findEntryBySerial(hs.serial);
     contribByWorker[wn].rev += Number(en?.total || hs.fee || 0);
   });
-  // 월 평일 + 주 구간(입사 주차별 목표 산정용)
-  const monthWd = await getWorkdays(y, m);
-  const rMonthFirst = new Date(y, m-1, 1), rMonthLast = new Date(y, m, 0);
-  const rsegs = [];
-  let rcur = new Date(rMonthFirst);
-  while(rcur.getDay() !== 1) rcur.setDate(rcur.getDate()-1);
-  while(rcur.getTime() <= rMonthLast.getTime()) {
-    const we = new Date(rcur); we.setDate(we.getDate()+6);
-    const sS = new Date(Math.max(rcur.getTime(), rMonthFirst.getTime()));
-    const sE = new Date(Math.min(we.getTime(), rMonthLast.getTime()));
-    rsegs.push({ start:sS, end:sE, mid:new Date((sS.getTime()+sE.getTime())/2) });
-    rcur.setDate(rcur.getDate()+7);
-  }
-  for(const s of rsegs) s.wd = await countWorkdays(s.start, s.end);
-  // 엔지니어 월 목표 = 개별목표×평일 / 입사 주차별 합 / 대상 아니면 0
-  const monthlyTargetFor = (name) => {
-    const md = workerDailyTargets[name];
-    if(md !== undefined && md !== null && md > 0) return md * monthWd;
-    if(!isRepairEngineer(name)) return 0; // QC 전담·T4·관리자 등 수리 안 하면 목표 없음
-    return Math.round(rsegs.reduce((s, seg) => s + (tenureDailyTarget(name, seg.mid) || KPI_STD_DAILY) * seg.wd, 0));
-  };
+  // 현재 단계(입사 주차/일 목표) 산정 기준일 = 리포트 월 중순
+  const refDate = new Date(y, m-1, 15);
 
   // 표시 대상 = 수리 엔지니어 전원 ∪ 출고 기여자 (0건 엔지니어도 노출)
   const allNames = new Set(workers.filter(isRepairEngineer));
@@ -10841,8 +10822,10 @@ async function renderReport() {
   const rows = [...allNames].map(name => {
     const cnt = contribByWorker[name]?.cnt || 0;
     const rev = contribByWorker[name]?.rev || 0;
-    const target = monthlyTargetFor(name);
-    return { name, cnt, rev, target, share: totalDone ? (cnt/totalDone*100) : 0, achieve: target ? Math.round(cnt/target*100) : null };
+    const tw = tenureWeek(name, refDate);            // 입사 주차 (없으면 null)
+    const daily = tenureDailyTarget(name, refDate);  // 그 시점 일 목표 (없으면 null)
+    const manual = workerDailyTargets[name];
+    return { name, cnt, rev, tw, daily, manual, share: totalDone ? (cnt/totalDone*100) : 0 };
   }).sort((a, b) => b.cnt - a.cnt);
   const maxShare = rows.length ? Math.max(...rows.map(r => r.share)) : 0;
   const medals = ['🥇', '🥈', '🥉'];
@@ -10853,16 +10836,15 @@ async function renderReport() {
       <thead><tr>
         <th style="width:44px;text-align:center">순위</th>
         <th>엔지니어</th>
-        <th style="text-align:right">월 목표</th>
+        <th>현재 단계 <span style="font-size:10px;color:var(--text3);font-weight:400;">(입사 주차·일 목표)</span></th>
         <th style="text-align:right">출고(실적)</th>
-        <th style="text-align:right">달성률</th>
         <th style="min-width:150px;">기여도</th>
         <th style="text-align:right">공임비 합계</th>
       </tr></thead>
       <tbody>`;
 
   if(!rows.length) {
-    h += `<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--text3);">표시할 엔지니어가 없습니다.</td></tr>`;
+    h += `<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--text3);">표시할 엔지니어가 없습니다.</td></tr>`;
   }
   rows.forEach((r, i) => {
     const rank = i + 1;
@@ -10870,13 +10852,21 @@ async function renderReport() {
     const barW = maxShare ? Math.max(2, Math.round(r.share / maxShare * 100)) : 0;
     const barColor = (r.cnt > 0 && rank === 1) ? 'var(--accent)' : 'var(--text2)';
     const tierB = tierBadge(tierMap[r.name] || '');
-    const acColor = r.achieve == null ? 'var(--text3)' : (r.achieve >= 100 ? 'var(--green)' : r.achieve >= 70 ? 'var(--amber)' : 'var(--red)');
+    // 현재 단계 표시
+    let stage;
+    if(r.manual != null && r.manual > 0) {
+      stage = `<span style="font-weight:600;">일 ${r.manual}건</span> <span style="font-size:10px;color:var(--text3);">개별 지정</span>`;
+    } else if(r.tw != null) {
+      const onboard = r.tw <= 4; // 입사 1개월 이내 = 온보딩
+      stage = `<span style="font-weight:600;">입사 ${r.tw}주차 · 일 ${r.daily}건</span>${onboard ? ' <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#fef3c7;color:#d97706;">🌱 온보딩</span>' : (r.daily>=KPI_STD_DAILY ? ' <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#dcfce7;color:#16a34a;">정착</span>' : '')}`;
+    } else {
+      stage = `<span style="font-weight:600;">일 ${KPI_STD_DAILY}건</span> <span style="font-size:10px;color:var(--text3);">정착 기준 · 입사일 미설정</span>`;
+    }
     h += `<tr${(r.cnt>0&&rank===1)?' style="background:var(--accent-bg,rgba(45,212,191,.06));"':''}>
       <td style="text-align:center;">${rankCell}</td>
       <td style="font-weight:600;">${r.name} ${tierB}</td>
-      <td style="text-align:right;color:var(--text2);">${r.target ? r.target+'건' : '<span style="color:var(--text3);">-</span>'}</td>
+      <td style="font-size:12px;color:var(--text2);">${stage}</td>
       <td style="text-align:right;font-weight:700;font-size:15px;">${r.cnt}<span style="font-size:11px;color:var(--text2);font-weight:500;">건</span></td>
-      <td style="text-align:right;font-weight:700;color:${acColor};">${r.achieve == null ? '-' : r.achieve+'%'}</td>
       <td>
         <div style="display:flex;align-items:center;gap:8px;">
           <div style="flex:1;background:var(--surface2);border-radius:4px;height:8px;overflow:hidden;min-width:70px;">
@@ -10890,21 +10880,38 @@ async function renderReport() {
   });
 
   const footRev = rows.reduce((s, r) => s + r.rev, 0);
-  const footTarget = rows.reduce((s, r) => s + r.target, 0);
   h += `</tbody>
     <tfoot><tr>
       <td></td>
       <td style="font-weight:700;padding:10px 12px;">합계 (${rows.length}명)</td>
-      <td style="text-align:right;font-weight:700;color:var(--text2);">${footTarget?footTarget+'건':'-'}</td>
-      <td style="text-align:right;font-weight:700;">${totalDone}건</td>
       <td></td>
+      <td style="text-align:right;font-weight:700;">${totalDone}건</td>
       <td style="text-align:right;font-weight:700;color:var(--accent);padding-right:52px;">100%</td>
       <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);">${fmt(footRev)}원</td>
     </tr></tfoot>
-  </table></div>
-  <div style="padding:10px 18px;font-size:11px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">
-    💡 <strong>월 목표</strong> = 그 엔지니어가 이 달에 쳐야 할 양 (입사 주차별 목표 합산 · 개별 목표 설정 시 우선). <strong>기여도</strong> = 출고 완료 건수 ÷ 전체 출고. 검수 통과해 출고로 넘어간 건만 집계됩니다.
-  </div></div>`;
+  </table></div>`;
+
+  // ⭐ 신입 주차별 목표 스케줄 안내 (대표님 이해용)
+  const schedCells = KPI_RAMP_SCHEDULE.map((v, idx) => {
+    const wkNo = idx + 1;
+    const settled = v >= KPI_STD_DAILY;
+    return `<div style="flex:1;min-width:46px;text-align:center;padding:8px 4px;border-radius:6px;background:${settled?'#dcfce7':'#fff7ed'};">
+      <div style="font-size:10px;color:var(--text3);">${wkNo}주</div>
+      <div style="font-size:15px;font-weight:700;color:${settled?'#16a34a':'#d97706'};">${v}</div>
+    </div>`;
+  }).join('');
+  h += `<div class="card" style="padding:0;margin-top:14px;">
+    <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">📈 신입 적응 목표 스케줄 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 입사 후 주차별 1일 목표</span></div>
+    <div style="padding:14px 18px;">
+      <div style="display:flex;gap:5px;flex-wrap:wrap;">${schedCells}</div>
+      <div style="margin-top:12px;font-size:12px;color:var(--text2);line-height:1.7;">
+        💡 신입은 입사일 기준으로 위 스케줄에 따라 1일 목표가 단계적으로 올라갑니다.
+        <strong>1개월차 6건 → 6주차 10건 → 8주차(약 2개월) 12건 안착</strong>, 이후 정착 목표 <strong>${KPI_STD_DAILY}건</strong> 유지.
+        <br>→ 수습 3개월 평가 전 약 한 달간 12건을 꾸준히 수행하는 구조입니다.
+        <br>🌱 <strong>온보딩</strong>(입사 1개월 이내) 엔지니어는 적응 단계라 출고 건수가 적은 것이 정상입니다.
+      </div>
+    </div>
+  </div>`;
 
   el.innerHTML = h;
 }
