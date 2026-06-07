@@ -1095,9 +1095,9 @@ window.addEventListener('DOMContentLoaded', function(){
   <button class="nav-btn" id="nav-mydash" onclick="switchTab('mydash',this)" style="display:none;">✨ 내 대시보드</button>
   <button class="nav-btn active" onclick="switchTab('input',this)">🔧 수리 등록</button>
   <button class="nav-btn" onclick="switchTab('exchange',this)">💸 교품 처리</button>
-  <button class="nav-btn" onclick="switchTab('summary',this)">📊 일일 현황</button>
-  <button class="nav-btn" id="nav-aging" onclick="switchTab('aging',this)">🕐 에이징</button>
   <button class="nav-btn" id="nav-inspect" onclick="switchTab('inspect',this)">🧪 검수대기</button>
+  <button class="nav-btn" id="nav-aging" onclick="switchTab('aging',this)">🕐 에이징</button>
+  <button class="nav-btn" onclick="switchTab('summary',this)">📊 일일 현황</button>
   <button class="nav-btn" onclick="switchTab('history',this)">📋 전체 기록</button>
   <button class="nav-btn" onclick="switchTab('search',this)">🔍 시리얼 조회</button>
   <button class="nav-btn" onclick="switchTab('docs',this)">📚 교육 자료</button>
@@ -10880,7 +10880,7 @@ async function renderHistory() {
         return`<tr>
         <td style="color:var(--text3);width:36px;">${i+1}</td>
         <td>${(() => { const __m = normalizeModel(e.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
-        <td class="mono">${e.serial}</td>
+        <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${e.serial}</span></td>
         <td>${e.worker}</td>
         <td>${workTags(e.works)}</td>
         <td>${e.note?`<span class="note-badge" title="${e.note}">${e.note}</span>`:'<span style="color:var(--text3);font-size:11px;">-</span>'}</td>
@@ -10927,7 +10927,7 @@ function doSearch() {
       return `<div class="search-result-item" style="border-left:3px solid #f59e0b;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
           <div>
-            <div class="search-serial">${x.serial}</div>
+            <div class="search-serial"><span class="serial-copy" onclick="copySerial('${escapeJs(x.serial)}')" title="클릭하면 복사">${x.serial}</span></div>
             <div style="font-size:11px;color:var(--text3);margin-top:2px;font-family:'JetBrains Mono',monospace;">${fmtDT(x.date)}</div>
           </div>
           <div style="text-align:right;">
