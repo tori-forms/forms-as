@@ -3749,7 +3749,7 @@ async function issueQuote(dateKey) {
     for(let i=modelRows.length;i<10;i++) itm.push(_docxRow([{t:''},{t:''},{t:''},{t:''},{t:''}]));
     body += _docxTable(itm, G5);
     // ── 합계 표 (8열)
-    const G8 = [900,1300,1300,2000,800,1500,800,1000];
+    const G8 = [700,1300,1000,1800,650,1500,750,1900];
     const tot = [_docxRow([
       {t:'수량',b:true,a:'center',shd:'EEEEEE'},{t:String(gQty),a:'right'},
       {t:'공급가액',b:true,a:'center',shd:'EEEEEE'},{t:fmt(gSupply),a:'right'},
