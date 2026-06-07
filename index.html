@@ -3647,122 +3647,127 @@ function numToKorean(num) {
   return res;
 }
 
-function _printDoc(title, bodyHtml) {
-  const w = window.open('', '_blank', 'width=900,height=1100');
-  if(!w) { notify('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.', 'error'); return; }
-  w.document.write(`<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><title>${title}</title>
-    <style>
-      *{box-sizing:border-box;margin:0;padding:0;}
-      body{font-family:'Malgun Gothic','맑은 고딕',sans-serif;color:#000;padding:24px;background:#fff;}
-      table{border-collapse:collapse;width:100%;}
-      .q-title{text-align:center;font-size:26px;font-weight:700;letter-spacing:12px;margin-bottom:14px;}
-      .hdr td{border:1px solid #000;padding:5px 8px;font-size:12px;vertical-align:middle;}
-      .hdr .lbl{background:#f0f0f0;font-weight:700;text-align:center;white-space:nowrap;}
-      .logo{font-size:30px;font-weight:800;letter-spacing:-1px;text-align:center;color:#111;}
-      .amt-bar{border:1px solid #000;border-top:none;padding:7px 10px;font-size:14px;font-weight:700;display:flex;justify-content:space-between;align-items:center;}
-      .items td,.items th{border:1px solid #000;padding:6px 8px;font-size:12px;}
-      .items th{background:#f0f0f0;font-weight:700;text-align:center;}
-      .items .r{text-align:right;}
-      .items .c{text-align:center;}
-      .tot td{border:1px solid #000;padding:7px 8px;font-size:12px;font-weight:700;background:#fafafa;}
-      .note{font-size:12px;line-height:1.9;padding:6px 2px;}
-      @media print{ body{padding:0;} .no-print{display:none;} }
-      .no-print{margin-bottom:16px;text-align:center;}
-      .no-print button{padding:8px 20px;font-size:14px;font-weight:700;cursor:pointer;border:1px solid #333;border-radius:6px;background:#7c3aed;color:#fff;}
-    </style></head><body>
-    <div class="no-print"><button onclick="window.print()">🖨️ 인쇄 / PDF 저장</button></div>
-    ${bodyHtml}
-    </body></html>`);
-  w.document.close();
+function _downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 function issueQuote(dateKey) {
   const items = getShipItemsByDate(dateKey);
   if(!items.length) { notify('해당 날짜의 출고 건이 없습니다.', 'error'); return; }
-  // 기종별 묶음
   const byModel = {};
   items.forEach(it => {
     if(!byModel[it.model]) byModel[it.model] = { cnt:0, total:0 };
     byModel[it.model].cnt++;
     byModel[it.model].total += it.total;
   });
-  const serialYmd = String(dateKey).replace(/-/g,'/'); // 출고일 → 일련번호
-  let grandSupply = 0, grandVat = 0, grandQty = 0, grandTotal = 0;
-  const rows = Object.entries(byModel).map(([model, v]) => {
+  const serialYmd = String(dateKey).replace(/-/g,'/');
+  let gSupply = 0, gVat = 0, gQty = 0, gTotal = 0;
+  const itemRows = Object.entries(byModel).map(([model, v]) => {
     const supply = Math.round(v.total / 1.1);
     const vat = v.total - supply;
-    grandSupply += supply; grandVat += vat; grandQty += v.cnt; grandTotal += v.total;
+    gSupply += supply; gVat += vat; gQty += v.cnt; gTotal += v.total;
     const mq = MODEL_QUOTE[model] || { code:'', name: model+'태블릿' };
     return `<tr>
-      <td class="c">${mq.code||''}</td>
-      <td>${mq.name}</td>
-      <td class="c">${v.cnt}</td>
-      <td class="r">${fmt(supply)}</td>
-      <td class="r">${fmt(vat)}</td>
-    </tr>`;
+      <td class=c>${mq.code||''}</td><td>${mq.name}</td>
+      <td class=c>${v.cnt}</td><td class=r>${fmt(supply)}</td><td class=r>${fmt(vat)}</td></tr>`;
   }).join('');
+  // 품목표 빈 줄 채우기(양식감)
+  let blanks = '';
+  for(let i=Object.keys(byModel).length; i<12; i++) blanks += '<tr><td class=c>&nbsp;</td><td></td><td></td><td></td><td></td></tr>';
   const I = VOLTALES_INFO;
-  const body = `
-    <div class="q-title">견 적 서</div>
-    <table class="hdr"><tr>
-      <td style="width:50%;padding:0;border:none;"><table style="width:100%;border-collapse:collapse;">
-        <tr><td class="lbl" style="width:90px;">일련번호</td><td>${serialYmd} -1</td></tr>
-        <tr><td class="lbl">수 신</td><td>${I.receiver}</td></tr>
-        <tr><td class="lbl">참 조</td><td>&nbsp;</td></tr>
-        <tr><td class="lbl">TEL/FAX</td><td>&nbsp;</td></tr>
-        <tr><td class="lbl">결제조건</td><td>&nbsp;</td></tr>
-        <tr><td class="lbl">유효기간</td><td>&nbsp;</td></tr>
-      </table></td>
-      <td style="width:50%;padding:0;border:none;vertical-align:top;"><table style="width:100%;border-collapse:collapse;">
-        <tr><td colspan="2" class="logo" style="height:54px;">+ VOLTALES</td></tr>
-        <tr><td class="lbl" style="width:90px;">사업자등록번호</td><td>${I.bizNo}</td></tr>
-        <tr><td class="lbl">회사명/대표</td><td>${I.company}</td></tr>
-        <tr><td class="lbl">주 소</td><td>${I.addr}</td></tr>
-        <tr><td class="lbl">업태/종목</td><td>${I.bizType}</td></tr>
-        <tr><td class="lbl">담당자</td><td>${I.manager}</td></tr>
-        <tr><td class="lbl">TEL/FAX</td><td>${I.tel}</td></tr>
-      </table></td>
-    </tr></table>
-    <div class="amt-bar"><span>금 액 : ${numToKorean(grandTotal)}원 정</span><span>(￦ ${fmt(grandTotal)}원) / VAT포함</span></div>
-    <div class="note">1. 귀사의 일익 번창하심을 기원합니다.<br>2. 하기와 같이 견적드리오니 검토하기 바랍니다.</div>
-    <table class="items">
-      <thead><tr><th style="width:80px;">품목코드</th><th>품목명(규격)</th><th style="width:70px;">수량<br>(단위포함)</th><th style="width:120px;">공급가액</th><th style="width:110px;">부가세</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <table class="tot" style="margin-top:-1px;"><tr>
-      <td class="c" style="width:80px;">수량</td><td class="r" style="width:90px;">${grandQty}</td>
-      <td class="c" style="width:80px;">공급가액</td><td class="r">${fmt(grandSupply)}</td>
-      <td class="c" style="width:60px;">VAT</td><td class="r" style="width:110px;">${fmt(grandVat)}</td>
-      <td class="c" style="width:60px;">합계</td><td class="r" style="width:120px;">${fmt(grandTotal)}</td>
-    </tr></table>`;
-  _printDoc('볼타레스 견적서 ' + dateKey, body);
+
+  const docHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
+<style>
+  @page{size:A4;margin:1.6cm;}
+  body{font-family:'Malgun Gothic','맑은 고딕',sans-serif;color:#000;font-size:10.5pt;}
+  table{border-collapse:collapse;width:100%;}
+  td,th{border:1px solid #000;padding:4px 7px;vertical-align:middle;mso-line-height-rule:exactly;}
+  .title{text-align:center;font-size:22pt;font-weight:bold;letter-spacing:10px;border:none;padding:0 0 10px 0;}
+  .lbl{background:#eee;font-weight:bold;text-align:center;white-space:nowrap;}
+  .logo{font-size:24pt;font-weight:bold;text-align:center;border:none;}
+  .nb{border:none;}
+  .c{text-align:center;} .r{text-align:right;}
+  .amt{font-weight:bold;font-size:12pt;}
+  .hd{background:#eee;font-weight:bold;text-align:center;}
+</style></head><body>
+<table class=nb><tr><td class="title nb" colspan=2>견 적 서</td></tr></table>
+<table>
+  <tr>
+    <td class=lbl style="width:14%">일련번호</td><td style="width:36%">${serialYmd} -1</td>
+    <td class="logo" colspan=2 rowspan=1>+ VOLTALES</td>
+  </tr>
+  <tr>
+    <td class=lbl>수 신</td><td>${I.receiver}</td>
+    <td class=lbl style="width:16%">사업자등록번호</td><td style="width:34%">${I.bizNo}</td>
+  </tr>
+  <tr><td class=lbl>참 조</td><td>&nbsp;</td><td class=lbl>회사명/대표</td><td>${I.company}</td></tr>
+  <tr><td class=lbl>TEL/FAX</td><td>&nbsp;</td><td class=lbl>주 소</td><td>${I.addr}</td></tr>
+  <tr><td class=lbl>결제조건</td><td>&nbsp;</td><td class=lbl>업태/종목</td><td>${I.bizType}</td></tr>
+  <tr><td class=lbl>유효기간</td><td>&nbsp;</td><td class=lbl>담당자</td><td>${I.manager}</td></tr>
+  <tr>
+    <td colspan=2 style="font-size:9.5pt;line-height:1.7;">1. 귀사의 일익 번창하심을 기원합니다.<br>2. 하기와 같이 견적드리오니 검토하기 바랍니다.</td>
+    <td class=lbl>TEL/FAX</td><td>${I.tel}</td>
+  </tr>
+  <tr><td colspan=4 class=amt>금 액 : ${numToKorean(gTotal)}원 정 &nbsp;&nbsp;&nbsp;(￦ ${fmt(gTotal)}원) / VAT포함</td></tr>
+</table>
+<br>
+<table>
+  <thead><tr><th class=hd style="width:16%">품목코드</th><th class=hd>품목명(규격)</th><th class=hd style="width:14%">수량(단위포함)</th><th class=hd style="width:20%">공급가액</th><th class=hd style="width:18%">부가세</th></tr></thead>
+  <tbody>${itemRows}${blanks}</tbody>
+</table>
+<table style="margin-top:-1px;">
+  <tr>
+    <td class=lbl style="width:10%">수량</td><td class=r style="width:14%">${gQty}</td>
+    <td class=lbl style="width:12%">공급가액</td><td class=r style="width:22%">${fmt(gSupply)}</td>
+    <td class=lbl style="width:8%">VAT</td><td class=r style="width:16%">${fmt(gVat)}</td>
+    <td class=lbl style="width:8%">합계</td><td class=r>${fmt(gTotal)}</td>
+  </tr>
+</table>
+</body></html>`;
+
+  const blob = new Blob(['\ufeff' + docHtml], { type: 'application/msword' });
+  _downloadBlob(blob, `볼타레스_견적서_${dateKey}.doc`);
+  notify(`견적서 발행: ${dateKey} (${gQty}건 · ${fmt(gTotal)}원)`);
 }
 
 function issueShipList(dateKey) {
   const items = getShipItemsByDate(dateKey);
   if(!items.length) { notify('해당 날짜의 출고 건이 없습니다.', 'error'); return; }
   let total = 0;
-  const rows = items.map((it, i) => {
+  const aoa = [['No', '시리얼번호', '기종', '수리항목', '수리비용(VAT포함)']];
+  items.forEach((it, i) => {
     total += it.total;
-    return `<tr>
-      <td class="c">${i+1}</td>
-      <td style="font-family:monospace;">${escapeHtml(it.serial)}</td>
-      <td class="c">${escapeHtml(it.model)}</td>
-      <td>${it.works.join(' / ')}</td>
-      <td class="r">₩${fmt(it.total)}</td>
-    </tr>`;
-  }).join('');
-  const body = `
-    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:12px;">
-      <div style="font-size:22px;font-weight:800;">출고 리스트</div>
-      <div style="font-size:13px;color:#444;">출고일 ${dateKey} · 총 ${items.length}건</div>
-    </div>
-    <table class="items">
-      <thead><tr><th style="width:44px;">No</th><th>시리얼번호</th><th style="width:110px;">기종</th><th>수리항목</th><th style="width:120px;">수리비용</th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot><tr class="tot"><td colspan="4" class="r">합계 (VAT포함)</td><td class="r">₩${fmt(total)}</td></tr></tfoot>
-    </table>`;
-  _printDoc('출고 리스트 ' + dateKey, body);
+    aoa.push([i+1, it.serial, it.model, it.works.join(' / '), it.total]);
+  });
+  aoa.push(['', '', '', '합계', total]);
+
+  if(typeof XLSX !== 'undefined') {
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{wch:5},{wch:20},{wch:12},{wch:30},{wch:16}];
+    // 수리비용 열 숫자 포맷(#,##0)
+    for(let r=1; r<aoa.length; r++){
+      const cell = ws[XLSX.utils.encode_cell({r, c:4})];
+      if(cell && typeof cell.v === 'number'){ cell.t='n'; cell.z='#,##0'; }
+    }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '출고리스트');
+    XLSX.writeFile(wb, `출고리스트_${dateKey}.xlsx`);
+  } else {
+    // XLSX 미로드 → CSV 폴백
+    const csv = aoa.map(row => row.map(c => {
+      const s = String(c);
+      return (s.includes(',')||s.includes('"')) ? `"${s.replace(/"/g,'""')}"` : s;
+    }).join(',')).join('\r\n');
+    const blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8;'});
+    _downloadBlob(blob, `출고리스트_${dateKey}.csv`);
+  }
+  notify(`출고 리스트 발행: ${dateKey} (${items.length}건)`);
 }
 
 
