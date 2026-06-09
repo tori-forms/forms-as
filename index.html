@@ -10052,6 +10052,14 @@ function delEntry(id) {
       renderAll();
       notify('삭제되었습니다.');
 
+      // ⭐ 부품 재고 원복 (사용량은 entries 역산이라 자동 반영)
+      const pc = entryPartsCount(e);
+      if(pc > 0 && stock.length && confirm(`이 수리에 사용한 부품 ${pc}개를 재고로 복구할까요?\n\n[확인] 재고 다시 채움 (입고 기록 남김)\n[취소] 복구 안 함`)) {
+        const restored = await restoreStockForEntry(e);
+        try { renderStock(); } catch(e){}
+        notify(`부품 ${restored}개 재고 복구 완료.`);
+      }
+
       // 백그라운드 검증
       setTimeout(async () => {
         try { await syncData(true, true); } catch(e) { console.warn(e); }
@@ -10068,6 +10076,15 @@ function delEntryH(id) {
       renderHistory(); renderToday();
       renderAll(); // ⭐ v2.7: 삭제 후 전체 갱신
       notify('삭제되었습니다.');
+
+      // ⭐ 부품 재고 원복
+      const pc = entryPartsCount(e);
+      if(pc > 0 && stock.length && confirm(`이 수리에 사용한 부품 ${pc}개를 재고로 복구할까요?\n\n[확인] 재고 다시 채움 (입고 기록 남김)\n[취소] 복구 안 함`)) {
+        const restored = await restoreStockForEntry(e);
+        try { renderStock(); } catch(e){}
+        notify(`부품 ${restored}개 재고 복구 완료.`);
+      }
+
       // ⭐ v2.15: 삭제 후 즉시 서버 동기화
       setTimeout(() => syncData(true), 100);
     } catch { notify('삭제 실패. 다시 시도해주세요.','error'); }
@@ -12700,6 +12717,51 @@ async function deductStock(works, partsData, model) {
       await gasCall({action:'addStockLog', ...log});
     } catch {}
   }
+}
+
+// ⭐ 수리 삭제 시 부품 재고 원복 — 그 수리에 쓴 부품을 재고에 다시 더하고 '복구' 입고 기록
+async function restoreStockForEntry(e) {
+  if(!e || !stock.length) return 0;
+  const toRestore = {};
+  const partsData = (e.parts && typeof e.parts === 'object') ? e.parts : {};
+  if(Object.keys(partsData).length > 0) {
+    Object.entries(partsData).forEach(([name, qty]) => { if(qty > 0) toRestore[name] = (toRestore[name]||0) + Number(qty); });
+  } else {
+    (e.works||[]).forEach(k => {
+      (WORKS[k]?.parts||[]).forEach(p => {
+        if(p.modelOnly && p.modelOnly !== (e.model||'')) return;
+        toRestore[p.name] = (toRestore[p.name]||0) + p.qty;
+      });
+    });
+  }
+  let restored = 0;
+  for(const [partName, qty] of Object.entries(toRestore)) {
+    if(qty <= 0) continue;
+    const idx = stock.findIndex(p => p.name.trim().toLowerCase() === partName.trim().toLowerCase());
+    if(idx < 0) continue;
+    stock[idx].qty += qty;
+    restored += qty;
+    const logId = 'l'+Date.now()+(Math.random()*1000|0);
+    const log = {logId, partId:stock[idx].id, partName:stock[idx].name, type:'in', qty, note:'수리 삭제 복구', date:new Date().toISOString(), worker:currentUser||''};
+    stockLog.push(log);
+    try {
+      await saveStockToServer();
+      await gasCall({action:'addStockLog', ...log});
+    } catch {}
+  }
+  return restored;
+}
+
+// 그 수리에 사용된 부품 개수 합 (복구 확인 메시지용)
+function entryPartsCount(e) {
+  if(!e) return 0;
+  const pd = (e.parts && typeof e.parts === 'object') ? e.parts : {};
+  if(Object.keys(pd).length > 0) return Object.values(pd).reduce((s,q)=>s+(Number(q)||0),0);
+  let c = 0;
+  (e.works||[]).forEach(k => (WORKS[k]?.parts||[]).forEach(p => {
+    if(p.modelOnly && p.modelOnly !== (e.model||'')) return; c += p.qty;
+  }));
+  return c;
 }
 
 /* ===== 교육 자료 ===== */
