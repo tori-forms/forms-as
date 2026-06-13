@@ -2917,6 +2917,34 @@ function openModal(title, msg, cb, okText='확인', okClass='btn-primary') {
 function closeModal(){ document.getElementById('modal').classList.remove('open'); }
 document.getElementById('modal-ok').onclick = ()=>{ closeModal(); if(mcb) mcb(); };
 
+// 앱 디자인 입력 모달 (prompt 대체). cb(value) 호출, 취소 시 cb 미호출
+function openPromptModal(title, msg, placeholder, cb, okText='확인') {
+  const old = document.getElementById('prompt-modal'); if(old) old.remove();
+  const html = `
+  <div id="prompt-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:var(--surface,#fff);color:var(--text,#000);max-width:440px;width:100%;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
+      <div style="padding:16px 20px 4px;font-size:16px;font-weight:700;">${escapeHtml(title)}</div>
+      <div style="padding:0 20px 14px;font-size:13px;color:var(--text2);line-height:1.6;white-space:pre-line;">${escapeHtml(msg)}</div>
+      <div style="padding:0 20px 16px;">
+        <input id="prompt-modal-input" type="text" placeholder="${escapeHtml(placeholder||'')}" style="width:100%;height:40px;padding:0 12px;border:1px solid var(--border2,#d1d5db);border-radius:8px;font-size:14px;background:var(--surface,#fff);color:var(--text,#000);" />
+      </div>
+      <div style="padding:12px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--surface2,#f3f4f6);">
+        <button id="prompt-modal-cancel" style="padding:0 18px;height:38px;border:1px solid var(--border2,#d1d5db);background:var(--surface,#fff);color:var(--text,#000);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
+        <button id="prompt-modal-ok" class="btn btn-primary" style="padding:0 18px;height:38px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">${escapeHtml(okText)}</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  const wrap = document.getElementById('prompt-modal');
+  const input = document.getElementById('prompt-modal-input');
+  const done = (val) => { wrap.remove(); if(val !== null && cb) cb(val); };
+  document.getElementById('prompt-modal-ok').onclick = () => done(input.value);
+  document.getElementById('prompt-modal-cancel').onclick = () => done(null);
+  wrap.addEventListener('click', e => { if(e.target === wrap) done(null); });
+  input.addEventListener('keydown', e => { if(e.key==='Enter') done(input.value); if(e.key==='Escape') done(null); });
+  setTimeout(()=>input.focus(), 50);
+}
+
 // 기종 자동 감지
 
 
@@ -4552,10 +4580,24 @@ function renderQualityDashboard() {
       }).length
     : 0;
 
-  if(totalRegistered === 0) {
+  // ⭐ 그 기간에 '검수한' 기록 (검수일 inspectedAt 기준) — 등록일과 무관하게 항상 집계
+  const periodInspections = (inspections || []).filter(i => {
+    const t = new Date(i.inspectedAt || 0).getTime();
+    return t >= start && t < end;
+  });
+  const periodPassSet = new Set(periodInspections.filter(i => i.result === 'pass').map(i => normalizeSerial(i.serial)));
+  const periodFailSet = new Set(periodInspections.filter(i => i.result === 'fail').map(i => normalizeSerial(i.serial)));
+  const inspectedInPeriod = periodInspections.filter(i => i.result === 'pass' || i.result === 'fail').length; // 검수 처리 건(판정 횟수)
+  const passInPeriod = periodInspections.filter(i => i.result === 'pass').length;
+  const failInPeriod = periodInspections.filter(i => i.result === 'fail').length;
+  const periodFailRate = inspectedInPeriod > 0 ? (failInPeriod / inspectedInPeriod * 100) : 0;
+  // 현재 검수대기 큐 (실시간 — '검수 요청되어 대기 중'인 수량)
+  const waitingNow = entries.filter(e => String(e.status||'') === 'aging_pass').length;
+
+  if(totalRegistered === 0 && periodInspections.length === 0) {
     el.innerHTML = `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
       <div style="font-size:48px;margin-bottom:12px;">📊</div>
-      <div style="font-size:15px;">${label}에 검수 운영된 수리건이 없습니다.</div>
+      <div style="font-size:15px;">${label}에 등록·검수 기록이 없습니다.</div>
       ${preInspectionCount > 0 ? `<div style="font-size:12px;margin-top:6px;color:var(--text2,#999);">(검수 도입 이전 ${preInspectionCount}건은 통계에서 제외됨)</div>` : ''}
       <div style="font-size:12px;margin-top:6px;color:var(--text2,#999);">다른 기간을 선택해주세요.</div>
     </div>`;
@@ -4614,26 +4656,45 @@ function renderQualityDashboard() {
     </div>`;
   }
 
-  let html = infoBanner + `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;">
+  let html = infoBanner + `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:0 2px 8px;">🔍 검수 활동 <span style="font-weight:400;color:var(--text3);">· ${label} · 검수한 날짜 기준</span></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px;">
+    <div class="card" style="padding:16px 18px;border-left:4px solid #8b5cf6;">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">검수 처리</div>
+      <div style="font-size:28px;font-weight:700;color:#8b5cf6;">${fmt(inspectedInPeriod)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">이 기간 검수한 건수</div>
+    </div>
+    <div class="card" style="padding:16px 18px;border-left:4px solid #10b981;">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">✅ 합격</div>
+      <div style="font-size:28px;font-weight:700;color:#10b981;">${fmt(passInPeriod)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">검수완료 처리</div>
+    </div>
+    <div class="card" style="padding:16px 18px;border-left:4px solid #ef4444;">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">❌ 불량 검출</div>
+      <div style="font-size:28px;font-weight:700;color:#ef4444;">${fmt(failInPeriod)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">불량 검출률 ${periodFailRate.toFixed(1)}%</div>
+    </div>
+    <div class="card" style="padding:16px 18px;border-left:4px solid #f59e0b;">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">🕐 현재 검수대기</div>
+      <div style="font-size:28px;font-weight:700;color:#f59e0b;">${fmt(waitingNow)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">지금 검수 기다리는 수량 (실시간)</div>
+    </div>
+  </div>
+  <div style="font-size:12px;font-weight:600;color:var(--text2);margin:0 2px 8px;">📊 등록 물량 품질 <span style="font-weight:400;color:var(--text3);">· ${label} · 등록한 날짜 기준</span></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;">
     <div class="card" style="padding:16px 18px;border-left:4px solid #3b82f6;">
       <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">총 등록 수리건</div>
       <div style="font-size:28px;font-weight:700;color:#3b82f6;">${fmt(totalRegistered)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">${label} 기준</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">${label} 등록 기준</div>
     </div>
     <div class="card" style="padding:16px 18px;border-left:4px solid #ef4444;">
       <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">불량 발생 건</div>
       <div style="font-size:28px;font-weight:700;color:#ef4444;">${fmt(totalDefects)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">수리건당 1회 카운트</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">이 기간 등록건 중 불량</div>
     </div>
     <div class="card" style="padding:16px 18px;border-left:4px solid ${defectRate >= 10 ? '#ef4444' : defectRate >= 5 ? '#f59e0b' : '#10b981'};">
-      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">전체 불량률</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">등록 물량 불량률</div>
       <div style="font-size:28px;font-weight:700;color:${defectRate >= 10 ? '#ef4444' : defectRate >= 5 ? '#f59e0b' : '#10b981'};">${defectRate.toFixed(1)}<span style="font-size:14px;font-weight:500;margin-left:2px;">%</span></div>
       <div style="font-size:10px;color:var(--text3);margin-top:4px;">불량 / 등록</div>
-    </div>
-    <div class="card" style="padding:16px 18px;border-left:4px solid #8b5cf6;">
-      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">검수 진행</div>
-      <div style="font-size:24px;font-weight:700;color:#8b5cf6;line-height:1.2;">${fmt(inspectedCount)}<span style="font-size:16px;color:var(--text2);font-weight:500;margin:0 4px;">/</span><span style="color:var(--text2);">${fmt(lotSize)}</span><span style="font-size:13px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">검수대기 도달 ${fmt(lotSize)}건 중 ${inspectProgress}% 검수${aqlMin>0?` · AQL II 최소 ${aqlMin}개 권장`:''}</div>
     </div>
   </div>`;
 
@@ -5726,13 +5787,21 @@ async function sendBackToAging(entryId) {
     notify('본인이 등록한 건이거나 QC 권한이 있어야 되돌릴 수 있습니다.', 'error');
     return;
   }
-  const reason = prompt(`${e.serial} 을(를) 에이징으로 되돌립니다.\n(에이징 시간은 그대로 유지됩니다)\n\n사유를 입력하세요 (선택):`, '');
-  if(reason === null) return; // 취소
+  openPromptModal(
+    '에이징으로 되돌리기',
+    `${e.serial} 을(를) 에이징으로 되돌립니다.\n(에이징 시간은 그대로 유지됩니다)\n\n사유를 입력하세요 (선택):`,
+    '예: 강화유리 재부착 필요',
+    (reason) => { _doSendBackToAging(entryId, reason || ''); },
+    '되돌리기'
+  );
+}
+
+async function _doSendBackToAging(entryId, reason) {
+  const e = entries.find(x => String(x.id) === String(entryId));
+  if(!e) return;
   try {
     notifyPersist('처리 중...');
-    // ⭐ 상태만 aging으로 (agingStart=K열은 그대로 → 시간 유지, 재시작 X)
     await gasCall({action:'updateRepairStatus', id: entryId, newStatus: STATUS_AGING});
-    // 사유가 있으면 노트에 기록
     let newNote = e.note || '';
     if(reason.trim()) {
       const tag = `[검수→에이징] ${reason.trim()} (${(currentUser||'')})`;
@@ -5742,7 +5811,6 @@ async function sendBackToAging(entryId) {
     const idx = entries.findIndex(x => String(x.id) === String(entryId));
     if(idx >= 0) {
       entries[idx].status = STATUS_AGING;
-      // agingStart는 건드리지 않음 (시간 유지)
       if(reason.trim()) entries[idx].note = newNote;
     }
     notify('에이징으로 되돌렸습니다. (시간 유지)');
