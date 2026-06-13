@@ -4591,8 +4591,13 @@ function renderQualityDashboard() {
     if(periodSerials.has(sn)) inspectedSerials.add(sn);
   });
   const inspectedCount = inspectedSerials.size;
-  const aqlRecommended = aqlSampleSize(totalRegistered);
-  const aqlProgress = aqlRecommended > 0 ? Math.min(100, (inspectedCount / aqlRecommended * 100)) : 0;
+
+  // ⭐ 검수 대상(로트) = 그 기간 등록건 중 검수 단계까지 도달한 것
+  //   (에이징 통과/검수완료/불량/출고 = 검수대기에 들어왔거나 검수된 것)
+  const INSPECT_REACHED = new Set(['aging_pass','inspected','defect','shipped']);
+  const lotSize = periodEntries.filter(e => INSPECT_REACHED.has(String(e.status||''))).length;
+  const inspectProgress = lotSize > 0 ? Math.min(100, Math.round(inspectedCount / lotSize * 100)) : 0;
+  const aqlMin = aqlSampleSize(lotSize); // AQL 레벨2 권장 최소 표본 (보조 안내용)
 
   const totalDefects = defectSerials.size;
   const defectRate = totalRegistered > 0 ? (totalDefects / totalRegistered * 100) : 0;
@@ -4609,50 +4614,7 @@ function renderQualityDashboard() {
     </div>`;
   }
 
-  let html = infoBanner + (() => {
-    // ⭐ 본인 검수 실적 (검수일 inspectedAt + 검수자 본인 기준)
-    const myName = currentUser;
-    const myInsp = (inspections || []).filter(i => {
-      const t = new Date(i.inspectedAt || 0).getTime();
-      if(t < start || t >= end) return false;
-      return String(i.inspector || '').split('::')[0] === myName;
-    });
-    const myPass = myInsp.filter(i => i.result === 'pass').length;
-    const myFail = myInsp.filter(i => i.result === 'fail').length;
-    const myRework = myInsp.filter(i => i.result === 'rework_done').length;
-    const myJudged = myPass + myFail;                 // 검수 판정(합격+불량)
-    const myFailRate = myJudged > 0 ? (myFail / myJudged * 100) : 0;
-    return `
-    <div class="card" style="padding:0;margin-bottom:16px;overflow:hidden;border-left:4px solid var(--accent);">
-      <div style="padding:11px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);background:var(--surface2);">
-        🔍 내 검수 실적 <span style="font-size:11px;color:var(--text3);font-weight:500;">· ${escapeHtml(myName||'')} · ${label} · 검수일 기준</span>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--border);">
-        <div style="background:var(--surface);padding:14px 16px;">
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">검수 처리</div>
-          <div style="font-size:26px;font-weight:700;">${myJudged}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
-        </div>
-        <div style="background:var(--surface);padding:14px 16px;">
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">✅ 합격</div>
-          <div style="font-size:26px;font-weight:700;color:#10b981;">${myPass}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
-        </div>
-        <div style="background:var(--surface);padding:14px 16px;">
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">❌ 불량 검출</div>
-          <div style="font-size:26px;font-weight:700;color:#ef4444;">${myFail}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
-        </div>
-        <div style="background:var(--surface);padding:14px 16px;">
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">불량 검출률</div>
-          <div style="font-size:26px;font-weight:700;color:${myFailRate>=10?'#ef4444':myFailRate>=5?'#f59e0b':'#10b981'};">${myFailRate.toFixed(1)}<span style="font-size:13px;font-weight:500;">%</span></div>
-        </div>
-        ${myRework>0?`<div style="background:var(--surface);padding:14px 16px;">
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">🔄 재작업 확인</div>
-          <div style="font-size:26px;font-weight:700;color:#8b5cf6;">${myRework}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
-        </div>`:''}
-      </div>
-      ${myJudged===0?`<div style="padding:10px 16px;font-size:12px;color:var(--text3);border-top:1px solid var(--border);">${label}에 ${escapeHtml(myName||'')}님이 검수한 기록이 없습니다.</div>`:''}
-    </div>
-    <div style="font-size:12px;font-weight:600;color:var(--text2);margin:0 2px 8px;">📊 팀 품질 현황 <span style="font-weight:400;color:var(--text3);">· 등록일 기준 · 전체</span></div>`;
-  })() + `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;">
+  let html = infoBanner + `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;">
     <div class="card" style="padding:16px 18px;border-left:4px solid #3b82f6;">
       <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">총 등록 수리건</div>
       <div style="font-size:28px;font-weight:700;color:#3b82f6;">${fmt(totalRegistered)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
@@ -4669,9 +4631,9 @@ function renderQualityDashboard() {
       <div style="font-size:10px;color:var(--text3);margin-top:4px;">불량 / 등록</div>
     </div>
     <div class="card" style="padding:16px 18px;border-left:4px solid #8b5cf6;">
-      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">검수 진행 (AQL II)</div>
-      <div style="font-size:24px;font-weight:700;color:#8b5cf6;line-height:1.2;">${fmt(inspectedCount)}<span style="font-size:16px;color:var(--text2);font-weight:500;margin:0 4px;">/</span><span style="color:${aqlProgress>=100?'#10b981':'#6b7280'};">${fmt(aqlRecommended)}</span><span style="font-size:13px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">실제 검수 / 권장 표본 ${aqlProgress >= 100 ? '✅ 달성' : `(${aqlProgress.toFixed(0)}%)`}</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">검수 진행</div>
+      <div style="font-size:24px;font-weight:700;color:#8b5cf6;line-height:1.2;">${fmt(inspectedCount)}<span style="font-size:16px;color:var(--text2);font-weight:500;margin:0 4px;">/</span><span style="color:var(--text2);">${fmt(lotSize)}</span><span style="font-size:13px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">검수대기 도달 ${fmt(lotSize)}건 중 ${inspectProgress}% 검수${aqlMin>0?` · AQL II 최소 ${aqlMin}개 권장`:''}</div>
     </div>
   </div>`;
 
@@ -5111,8 +5073,10 @@ function renderInspectWaitList() {
           ${canInsp ? `
             <button class="btn btn-primary" onclick="openInspectModal('${e.id}', 'pass')" style="height:30px;padding:0 12px;font-size:12px;background:#10b981;">✅ 검수완료</button>
             <button class="btn btn-secondary" onclick="openInspectModal('${e.id}', 'fail')" style="height:30px;padding:0 12px;font-size:12px;color:#dc2626;border-color:#dc2626;margin-left:4px;">❌ 불량</button>
-            <button class="btn btn-secondary" onclick="sendBackToAging('${e.id}')" style="height:30px;padding:0 10px;font-size:12px;color:#b45309;border-color:#f59e0b;margin-left:4px;" title="다시 확인/재작업이 필요할 때 에이징으로 되돌립니다">🕐 에이징 되돌리기</button>
-          ` : `<span style="color:var(--muted);font-size:12px;">권한 없음</span>`}
+            <button class="btn btn-secondary" onclick="sendBackToAging('${e.id}')" style="height:30px;padding:0 10px;font-size:12px;color:#b45309;border-color:#f59e0b;margin-left:4px;" title="다시 확인/재작업이 필요할 때 에이징으로 되돌립니다 (시간 유지)">🕐 에이징 되돌리기</button>
+          ` : (String(e.worker||'').split('::')[0] === currentUser ? `
+            <button class="btn btn-secondary" onclick="sendBackToAging('${e.id}')" style="height:30px;padding:0 10px;font-size:12px;color:#b45309;border-color:#f59e0b;" title="재수리·재확인이 필요하면 에이징으로 되돌립니다 (시간 유지)">🕐 에이징 되돌리기</button>
+          ` : `<span style="color:var(--muted);font-size:12px;">권한 없음</span>`)}
         </td>
       </tr>`;
     });
@@ -5755,26 +5719,33 @@ async function submitRework(entryId) {
 async function sendBackToAging(entryId) {
   const e = entries.find(x => String(x.id) === String(entryId));
   if(!e) return;
-  if(!canInspect(currentUser)) { notify('QC 권한이 없습니다.', 'error'); return; }
-  const reason = prompt(`${e.serial} 을(를) 에이징으로 되돌립니다.\n사유를 입력하세요 (선택, 엔지니어에게 메모로 전달):`, '');
+  // 권한: QC(검수권한) 또는 본인이 작업한 건이면 가능
+  const owner = String(e.worker||'').split('::')[0];
+  const isOwner = owner === currentUser;
+  if(!canInspect(currentUser) && !isOwner) {
+    notify('본인이 등록한 건이거나 QC 권한이 있어야 되돌릴 수 있습니다.', 'error');
+    return;
+  }
+  const reason = prompt(`${e.serial} 을(를) 에이징으로 되돌립니다.\n(에이징 시간은 그대로 유지됩니다)\n\n사유를 입력하세요 (선택):`, '');
   if(reason === null) return; // 취소
   try {
     notifyPersist('처리 중...');
-    await gasCall({action:'restartAging', id: entryId});
+    // ⭐ 상태만 aging으로 (agingStart=K열은 그대로 → 시간 유지, 재시작 X)
+    await gasCall({action:'updateRepairStatus', id: entryId, newStatus: STATUS_AGING});
     // 사유가 있으면 노트에 기록
     let newNote = e.note || '';
     if(reason.trim()) {
-      const tag = `[에이징 되돌림] ${reason.trim()} (${(currentUser||'')})`;
+      const tag = `[검수→에이징] ${reason.trim()} (${(currentUser||'')})`;
       newNote = newNote ? `${newNote}\n${tag}` : tag;
       await gasCall({action:'edit', id: entryId, works:(e.works||[]).join(','), total:e.total, note:newNote, parts: Object.entries(e.parts||{}).map(([k,v])=>`${encodeURIComponent(k)}=${v}`).join('|')});
     }
     const idx = entries.findIndex(x => String(x.id) === String(entryId));
     if(idx >= 0) {
       entries[idx].status = STATUS_AGING;
-      entries[idx].agingStart = new Date().toISOString();
+      // agingStart는 건드리지 않음 (시간 유지)
       if(reason.trim()) entries[idx].note = newNote;
     }
-    notify('에이징으로 되돌렸습니다. (24시간 재시작)');
+    notify('에이징으로 되돌렸습니다. (시간 유지)');
     renderInspect(); renderAging();
     setTimeout(() => syncData(true), 200);
   } catch(err) {
