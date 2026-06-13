@@ -2661,6 +2661,30 @@ async function syncData(silent=false, force=false) {
     // ⭐ v2.33: 변경 보호 적용 - 최근 변경한 항목은 서버 데이터로 덮어쓰지 않음
     const rawInspections = data.inspections || [];
     inspections = applyPendingChanges(rawInspections, 'inspections', 'qualityId');
+
+    // ⭐ 불량 처리 알림: 내 수리건이 새로 불량 판정되면 토스트로 알림
+    try {
+      if(currentUser) {
+        const fails = inspections.filter(i => i.result === 'fail');
+        if(!window._seenFailQ) {
+          // 첫 동기화 — 기존 불량은 '이미 본 것'으로만 등록 (알림 X)
+          window._seenFailQ = new Set(fails.map(i => i.qualityId));
+        } else {
+          const myNew = fails.filter(i =>
+            !window._seenFailQ.has(i.qualityId) &&
+            String(i.registrant || '').split('::')[0] === currentUser
+          );
+          fails.forEach(i => window._seenFailQ.add(i.qualityId));
+          if(myNew.length === 1) {
+            const i = myNew[0];
+            notify(`⚠️ 불량 처리됨: ${i.serial} — 재작업이 필요합니다 (검수: ${String(i.inspector||'').split('::')[0]||'QC'})`, 'error');
+          } else if(myNew.length > 1) {
+            notify(`⚠️ 내 수리 ${myNew.length}건이 불량 처리됐습니다. 검수대기 탭에서 확인하세요.`, 'error');
+          }
+        }
+      }
+    } catch(e) { console.warn('[불량알림]', e); }
+
     if(data.agingDurationMs) agingDurationMs = Number(data.agingDurationMs);
     if(data.serverTime) {
       const serverMs = new Date(data.serverTime).getTime();
@@ -4656,12 +4680,16 @@ function renderQualityDashboard() {
     </div>`;
   }
 
-  let html = infoBanner + `<div style="font-size:12px;font-weight:600;color:var(--text2);margin:0 2px 8px;">🔍 검수 활동 <span style="font-weight:400;color:var(--text3);">· ${label} · 검수한 날짜 기준</span></div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px;">
+  let html = infoBanner + `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:18px;">
+    <div class="card" style="padding:16px 18px;border-left:4px solid #3b82f6;">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">총 등록 수리건</div>
+      <div style="font-size:28px;font-weight:700;color:#3b82f6;">${fmt(totalRegistered)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">${label} 등록 기준</div>
+    </div>
     <div class="card" style="padding:16px 18px;border-left:4px solid #8b5cf6;">
       <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">검수 처리</div>
       <div style="font-size:28px;font-weight:700;color:#8b5cf6;">${fmt(inspectedInPeriod)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">이 기간 검수한 건수</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">${label} 검수한 건수</div>
     </div>
     <div class="card" style="padding:16px 18px;border-left:4px solid #10b981;">
       <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">✅ 합격</div>
@@ -4670,31 +4698,8 @@ function renderQualityDashboard() {
     </div>
     <div class="card" style="padding:16px 18px;border-left:4px solid #ef4444;">
       <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">❌ 불량 검출</div>
-      <div style="font-size:28px;font-weight:700;color:#ef4444;">${fmt(failInPeriod)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">불량 검출률 ${periodFailRate.toFixed(1)}%</div>
-    </div>
-    <div class="card" style="padding:16px 18px;border-left:4px solid #f59e0b;">
-      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">🕐 현재 검수대기</div>
-      <div style="font-size:28px;font-weight:700;color:#f59e0b;">${fmt(waitingNow)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">지금 검수 기다리는 수량 (실시간)</div>
-    </div>
-  </div>
-  <div style="font-size:12px;font-weight:600;color:var(--text2);margin:0 2px 8px;">📊 등록 물량 품질 <span style="font-weight:400;color:var(--text3);">· ${label} · 등록한 날짜 기준</span></div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;">
-    <div class="card" style="padding:16px 18px;border-left:4px solid #3b82f6;">
-      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">총 등록 수리건</div>
-      <div style="font-size:28px;font-weight:700;color:#3b82f6;">${fmt(totalRegistered)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">${label} 등록 기준</div>
-    </div>
-    <div class="card" style="padding:16px 18px;border-left:4px solid #ef4444;">
-      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">불량 발생 건</div>
-      <div style="font-size:28px;font-weight:700;color:#ef4444;">${fmt(totalDefects)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">이 기간 등록건 중 불량</div>
-    </div>
-    <div class="card" style="padding:16px 18px;border-left:4px solid ${defectRate >= 10 ? '#ef4444' : defectRate >= 5 ? '#f59e0b' : '#10b981'};">
-      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">등록 물량 불량률</div>
-      <div style="font-size:28px;font-weight:700;color:${defectRate >= 10 ? '#ef4444' : defectRate >= 5 ? '#f59e0b' : '#10b981'};">${defectRate.toFixed(1)}<span style="font-size:14px;font-weight:500;margin-left:2px;">%</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">불량 / 등록</div>
+      <div style="font-size:28px;font-weight:700;color:#ef4444;">${fmt(failInPeriod)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span> <span style="font-size:16px;font-weight:700;color:${periodFailRate>=10?'#ef4444':periodFailRate>=5?'#f59e0b':'#10b981'};margin-left:4px;">${periodFailRate.toFixed(1)}%</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">불량 검출 / 검수 처리</div>
     </div>
   </div>`;
 
