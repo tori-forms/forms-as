@@ -3877,6 +3877,15 @@ function getDefectEntries() {
 // 펼친 엔지니어 추적 (탭 떠나도 유지)
 window._agingExpandedWorkers = window._agingExpandedWorkers || new Set();
 
+// ⭐ 재수리 여부 판단: 불량 이력 또는 부품 추가 흔적
+function reworkFlags(e) {
+  const note = String(e.note||'');
+  const hadPartAdd = note.includes('[부품추가]');
+  const sn = (typeof normalizeSerial==='function') ? normalizeSerial(e.serial) : String(e.serial||'');
+  const hadDefect = (inspections||[]).some(i => i.result === 'fail' && ((typeof normalizeSerial==='function'?normalizeSerial(i.serial):String(i.serial||'')) === sn));
+  return { hadPartAdd, hadDefect, isRework: hadPartAdd || hadDefect };
+}
+
 function renderAging() {
   const el = document.getElementById('aging-list');
   if(!el) return;
@@ -3891,9 +3900,12 @@ function renderAging() {
     return;
   }
 
+  // 재수리만 보기 필터 (통계는 전체 기준 유지, 표시만 필터)
+  const displayList = window._agingReworkOnly ? list.filter(e => reworkFlags(e).isRework) : list;
+
   // 엔지니어별 그룹화
   const groups = {};
-  list.forEach(e => {
+  displayList.forEach(e => {
     const w = String(e.worker||'미정').split('::')[0];
     if(!groups[w]) groups[w] = [];
     groups[w].push(e);
@@ -3919,9 +3931,10 @@ function renderAging() {
   const totalCount = list.length;
   const passedCount = list.filter(e => calcAging(e.agingStart).isPassed).length;
   const inProgressCount = totalCount - passedCount;
+  const reworkCount = list.filter(e => reworkFlags(e).isRework).length;
 
   let html = `
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
     <div class="card" style="padding:14px 16px;border-left:4px solid #f59e0b;">
       <div style="font-size:11px;color:var(--text2,#666);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">전체 에이징</div>
       <div style="font-size:24px;font-weight:700;margin-top:4px;">${totalCount}<span style="font-size:13px;color:var(--text2,#666);font-weight:400;">건</span></div>
@@ -3934,10 +3947,18 @@ function renderAging() {
       <div style="font-size:11px;color:var(--text2,#666);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">✅ 에이징 완료</div>
       <div style="font-size:24px;font-weight:700;margin-top:4px;color:#10b981;">${passedCount}<span style="font-size:13px;color:var(--text2,#666);font-weight:400;">건</span></div>
     </div>
+    <div class="card" style="padding:14px 16px;border-left:4px solid #b45309;${reworkCount>0?'background:rgba(245,158,11,.06);':''}">
+      <div style="font-size:11px;color:var(--text2,#666);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">🔧 재수리 진행</div>
+      <div style="font-size:24px;font-weight:700;margin-top:4px;color:#b45309;">${reworkCount}<span style="font-size:13px;color:var(--text2,#666);font-weight:400;">건</span></div>
+    </div>
   </div>
-  <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+  <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
     <button class="btn btn-secondary" onclick="agingExpandAll()" style="height:32px;padding:0 12px;font-size:12px;">▼ 전체 펼치기</button>
     <button class="btn btn-secondary" onclick="agingCollapseAll()" style="height:32px;padding:0 12px;font-size:12px;">▶ 전체 접기</button>
+    <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;margin-left:4px;">
+      <input type="checkbox" id="aging-rework-only" onchange="window._agingReworkOnly=this.checked;renderAging();" ${window._agingReworkOnly?'checked':''} style="accent-color:#b45309;cursor:pointer;">
+      <span>🔧 재수리만 보기</span>
+    </label>
   </div>`;
 
   // 엔지니어별 카드
@@ -3997,7 +4018,7 @@ function renderAging() {
 
       html += `<tr data-aging-row data-entry-id="${e.id}" data-aging-worker="${escapeHtml(worker)}">
         <td style="text-align:center;">${passed ? `<input type="checkbox" class="aging-chk" data-chk-worker="${escapeHtml(worker)}" data-chk-id="${e.id}">` : ''}</td>
-        <td style="font-weight:600;"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${escapeHtml(e.serial)}</span></td>
+        <td style="font-weight:600;"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${escapeHtml(e.serial)}</span>${(() => { const rf = reworkFlags(e); if(!rf.isRework) return ''; const t = rf.hadDefect ? '🔄 불량재작업' : '🔧 재수리'; return ` <span style="display:inline-block;background:#fef3c7;color:#b45309;font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;margin-left:4px;" title="${rf.hadDefect?'불량 판정 이력 있음':''}${rf.hadPartAdd?' 부품 추가됨':''}">${t}</span>`; })()}</td>
         <td>${escapeHtml(e.model||'')}</td>
         <td style="font-size:12px;color:var(--text2);">${escapeHtml(works)}</td>
         <td style="font-size:12px;">${startFmt}</td>
@@ -4168,25 +4189,31 @@ function openAddPartsModal(entryId) {
           <span style="color:var(--text2,#666);">에이징 남은 시간: <strong style="font-family:monospace;color:#f59e0b;">${remainStr}</strong></span>
         </div>
 
-        <div style="margin-bottom:14px;">
+        <div style="margin-bottom:12px;">
           <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">추가할 부품</label>
-          <select id="add-part-name" onchange="document.getElementById('add-part-custom-wrap').style.display=(this.value==='__custom__'?'block':'none');" style="width:100%;height:38px;padding:0 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--surface,#fff);color:var(--text,#000);">
-            ${partsOptions}
-            <option value="__custom__">+ 직접 입력 (목록에 없는 부품)</option>
-          </select>
+          <div style="display:flex;gap:6px;align-items:flex-start;">
+            <select id="add-part-name" onchange="document.getElementById('add-part-custom-wrap').style.display=(this.value==='__custom__'?'block':'none');" style="flex:1;height:38px;padding:0 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--surface,#fff);color:var(--text,#000);">
+              ${partsOptions}
+              <option value="__custom__">+ 직접 입력 (목록에 없는 부품)</option>
+            </select>
+            <input type="number" id="add-part-qty" value="1" min="1" max="50" style="width:70px;height:38px;padding:0 8px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--surface,#fff);color:var(--text,#000);text-align:center;" title="수량">
+            <button onclick="addPartToBasket()" style="height:38px;padding:0 14px;border:none;background:var(--accent,#10b981);color:#fff;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">담기</button>
+          </div>
           <div id="add-part-custom-wrap" style="display:none;margin-top:8px;">
             <input type="text" id="add-part-custom" placeholder="부품명 직접 입력 (예: 카메라 모듈, 스피커)" style="width:100%;height:38px;padding:0 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--surface,#fff);color:var(--text,#000);">
             <div style="font-size:11px;color:var(--text3);margin-top:4px;">※ 재고 시트에 같은 이름의 부품이 있으면 차감되고, 없으면 사용 기록만 남습니다.</div>
           </div>
         </div>
 
+        <!-- 담긴 부품 목록 -->
         <div style="margin-bottom:14px;">
-          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">수량</label>
-          <input type="number" id="add-part-qty" value="1" min="1" max="20" style="width:100%;height:38px;padding:0 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--surface,#fff);color:var(--text,#000);">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">추가할 목록 <span id="basket-count" style="color:var(--text3);font-weight:500;"></span></label>
+          <div id="add-parts-basket" style="border:1px dashed var(--border2,#d1d5db);border-radius:8px;padding:8px;min-height:44px;font-size:13px;"></div>
         </div>
 
         <div style="margin-bottom:14px;padding:12px;background:#dbeafe;border-radius:8px;font-size:12px;color:#1e3a8a;line-height:1.6;">
           <strong>ℹ️ 안내</strong><br>
+          • 여러 부품을 <strong>담기</strong>로 추가한 뒤 한 번에 등록할 수 있어요.<br>
           • 부품 추가 시 <strong>에이징 시간은 유지</strong>됩니다 (재시작 X).<br>
           • 재고에서 자동 차감되며, 사용 이력이 기록됩니다.
         </div>
@@ -4198,46 +4225,99 @@ function openAddPartsModal(entryId) {
       </div>
       <div style="padding:14px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--surface2,#1c1c1f);">
         <button onclick="closeAddPartsModal()" style="padding:0 18px;height:38px;border:1px solid var(--border2,#d1d5db);background:var(--surface,#fff);color:var(--text,#000);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
-        <button onclick="submitAddParts('${entryId}')" style="padding:0 18px;height:38px;border:none;background:#3b82f6;color:#fff;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">부품 추가</button>
+        <button id="add-parts-submit" onclick="submitAddParts('${entryId}')" style="padding:0 18px;height:38px;border:none;background:#3b82f6;color:#fff;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">부품 추가</button>
       </div>
     </div>
   </div>`;
 
   document.body.insertAdjacentHTML('beforeend', modalHtml);
+  window._addPartsBasket = [];
+  renderPartsBasket();
+}
+
+// 담긴 부품 목록 렌더
+function renderPartsBasket() {
+  const el = document.getElementById('add-parts-basket');
+  if(!el) return;
+  const basket = window._addPartsBasket || [];
+  const cnt = document.getElementById('basket-count');
+  const submitBtn = document.getElementById('add-parts-submit');
+  if(cnt) cnt.textContent = basket.length ? `(${basket.length}종 · 총 ${basket.reduce((s,b)=>s+b.qty,0)}개)` : '';
+  if(submitBtn) submitBtn.textContent = basket.length ? `부품 추가 (${basket.length}종)` : '부품 추가';
+  if(!basket.length) {
+    el.innerHTML = `<div style="color:var(--text3);font-size:12px;text-align:center;padding:8px;">위에서 부품을 골라 <b>담기</b>를 누르세요. 여러 개 담을 수 있어요.</div>`;
+    return;
+  }
+  el.innerHTML = basket.map((b,i) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;background:var(--surface2,#1c1c1f);margin-bottom:4px;">
+      <span><b>${escapeHtml(b.name)}</b> <span style="color:var(--text2);">× ${b.qty}</span></span>
+      <button onclick="removeFromBasket(${i})" style="background:none;border:none;color:#ef4444;font-size:16px;cursor:pointer;line-height:1;" title="제거">×</button>
+    </div>`).join('');
+}
+
+function addPartToBasket() {
+  const sel = document.getElementById('add-part-name');
+  let name = sel?.value;
+  if(name === '__custom__') {
+    name = (document.getElementById('add-part-custom')?.value || '').trim();
+    if(!name) { notify('직접 입력할 부품명을 적어주세요.', 'error'); return; }
+  }
+  if(!name) { notify('부품을 선택하세요.', 'error'); return; }
+  const qty = Number(document.getElementById('add-part-qty')?.value) || 1;
+  if(qty <= 0) { notify('수량을 확인하세요.', 'error'); return; }
+  window._addPartsBasket = window._addPartsBasket || [];
+  // 같은 부품이면 수량 합산
+  const exist = window._addPartsBasket.find(b => b.name === name);
+  if(exist) exist.qty += qty; else window._addPartsBasket.push({ name, qty });
+  // 입력 초기화
+  document.getElementById('add-part-qty').value = 1;
+  const cw = document.getElementById('add-part-custom'); if(cw) cw.value = '';
+  const cwWrap = document.getElementById('add-part-custom-wrap'); if(cwWrap) cwWrap.style.display = 'none';
+  if(sel) sel.selectedIndex = 0;
+  renderPartsBasket();
+}
+
+function removeFromBasket(idx) {
+  if(!window._addPartsBasket) return;
+  window._addPartsBasket.splice(idx, 1);
+  renderPartsBasket();
 }
 
 function closeAddPartsModal() {
   const m = document.getElementById('add-parts-modal');
   if(m) m.remove();
+  window._addPartsBasket = [];
 }
 
 async function submitAddParts(entryId) {
-  let partName = document.getElementById('add-part-name')?.value;
-  if(partName === '__custom__') {
-    partName = (document.getElementById('add-part-custom')?.value || '').trim();
-    if(!partName) { notify('직접 입력할 부품명을 적어주세요.', 'error'); return; }
+  // 담기 안 누르고 선택만 한 경우, 현재 선택값을 basket에 자동 포함
+  let basket = (window._addPartsBasket || []).slice();
+  if(basket.length === 0) {
+    const sel = document.getElementById('add-part-name');
+    let nm = sel?.value;
+    if(nm === '__custom__') nm = (document.getElementById('add-part-custom')?.value || '').trim();
+    const q = Number(document.getElementById('add-part-qty')?.value) || 1;
+    if(nm) basket = [{ name: nm, qty: q }];
   }
-  const qty = Number(document.getElementById('add-part-qty')?.value) || 1;
-  const note = (document.getElementById('add-part-note')?.value || '').trim();
-  if(!partName) { notify('부품을 선택하세요.', 'error'); return; }
+  if(basket.length === 0) { notify('추가할 부품을 담아주세요.', 'error'); return; }
 
+  const note = (document.getElementById('add-part-note')?.value || '').trim();
   const e = entries.find(x => String(x.id) === String(entryId));
   if(!e) return;
 
-  // parts 업데이트
+  // parts 업데이트 (여러 부품 합산)
   const newParts = {...(e.parts||{})};
-  newParts[partName] = (Number(newParts[partName])||0) + qty;
+  basket.forEach(b => { newParts[b.name] = (Number(newParts[b.name])||0) + b.qty; });
 
-  // 기존 노트에 메모 추가
+  // ⭐ 노트에 항상 [부품추가] 마커 기록 (재수리 가시성용) — 메모 없어도 남김
+  const partsSummary = basket.map(b => `${b.name}×${b.qty}`).join(', ');
+  const tag = `[부품추가] ${partsSummary}${note ? ' — ' + note : ''}`;
   let newNote = e.note || '';
-  if(note) {
-    newNote = newNote ? `${newNote}\n[부품추가] ${note}` : `[부품추가] ${note}`;
-  }
+  newNote = newNote ? `${newNote}\n${tag}` : tag;
 
   try {
     notifyPersist('처리 중...');
 
-    // 부품 정보 edit
     const partsStr = Object.entries(newParts)
       .map(([k,v]) => `${encodeURIComponent(k)}=${v}`)
       .join('|');
@@ -4250,22 +4330,24 @@ async function submitAddParts(entryId) {
       parts: partsStr
     });
 
-    // 재고 차감 로그
-    await gasCall({
-      action:'addStockLog',
-      logId: 'L' + Date.now() + Math.random().toString(36).slice(2,6),
-      partId: '', partName: partName,
-      type: 'out', qty: qty,
-      note: `에이징 중 부품 추가 (${e.serial})${note?' - '+note:''}`,
-      date: new Date().toISOString(),
-      worker: currentUser || ''
-    });
+    // 부품마다 재고 차감 로그
+    for(const b of basket) {
+      await gasCall({
+        action:'addStockLog',
+        logId: 'L' + Date.now() + Math.random().toString(36).slice(2,6),
+        partId: '', partName: b.name,
+        type: 'out', qty: b.qty,
+        note: `에이징 중 부품 추가 (${e.serial})${note?' - '+note:''}`,
+        date: new Date().toISOString(),
+        worker: currentUser || ''
+      });
+      // 로컬 재고도 차감
+      const sidx = stock.findIndex(p => p.name.trim().toLowerCase() === b.name.trim().toLowerCase());
+      if(sidx >= 0) stock[sidx].qty = Math.max(0, stock[sidx].qty - b.qty);
+    }
 
-    // 로컬 갱신 (에이징 시간 유지)
-    // ⭐ v2.45: await 후 entries idx 재탐색
     const curIdx = entries.findIndex(x => String(x.id) === String(entryId));
     if(curIdx === -1) {
-      console.warn('[부품 추가] entries에서 못 찾음 — 옛 객체로 push');
       entries.push({...e, parts: newParts, note: newNote});
     } else {
       entries[curIdx].parts = newParts;
@@ -4273,22 +4355,17 @@ async function submitAddParts(entryId) {
       // status, agingStart는 그대로 (재시작 X)
     }
 
-    // 변경 보호 등록
     markPendingChange('entries', entryId, {
       type: 'update',
       data: { parts: newParts, note: newNote }
     }, 5000);
 
     closeAddPartsModal();
-    notify('부품 추가 완료. 에이징 시간은 유지됩니다.');
+    notify(`부품 ${basket.length}종 추가 완료. 에이징 시간은 유지됩니다.`);
     renderAging();
 
-    // 백그라운드 검증
     setTimeout(async () => {
-      try {
-        await syncData(true, true);
-        renderAging();
-      } catch(e) { console.warn(e); }
+      try { await syncData(true, true); renderAging(); } catch(e) { console.warn(e); }
     }, 2000);
   } catch(err) {
     notify('실패: ' + (err.message||err), 'error');
