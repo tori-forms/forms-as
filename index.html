@@ -1310,10 +1310,17 @@ window.addEventListener('DOMContentLoaded', function(){
       <!-- 기간 필터 -->
       <div class="card" style="padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <span style="font-size:13px;font-weight:600;color:var(--text);margin-right:8px;">📅 기간:</span>
-        <button class="btn btn-sm qd-period-btn" data-period="all" onclick="setQualityPeriod('all')" style="height:30px;padding:0 12px;font-size:12px;background:var(--accent);color:#fff;border-color:var(--accent);">전체</button>
+        <button class="btn btn-sm qd-period-btn" data-period="today" onclick="setQualityPeriod('today')" style="height:30px;padding:0 12px;font-size:12px;">오늘</button>
+        <button class="btn btn-sm qd-period-btn" data-period="thisWeek" onclick="setQualityPeriod('thisWeek')" style="height:30px;padding:0 12px;font-size:12px;">이번 주</button>
         <button class="btn btn-sm qd-period-btn" data-period="thisMonth" onclick="setQualityPeriod('thisMonth')" style="height:30px;padding:0 12px;font-size:12px;">이번 달</button>
         <button class="btn btn-sm qd-period-btn" data-period="lastMonth" onclick="setQualityPeriod('lastMonth')" style="height:30px;padding:0 12px;font-size:12px;">지난 달</button>
         <button class="btn btn-sm qd-period-btn" data-period="last3Months" onclick="setQualityPeriod('last3Months')" style="height:30px;padding:0 12px;font-size:12px;">최근 3개월</button>
+        <button class="btn btn-sm qd-period-btn" data-period="all" onclick="setQualityPeriod('all')" style="height:30px;padding:0 12px;font-size:12px;background:var(--accent);color:#fff;border-color:var(--accent);">전체</button>
+        <span style="width:1px;height:22px;background:var(--border);margin:0 2px;"></span>
+        <input type="date" id="qd-custom-start" style="height:30px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:6px;background:var(--surface);color:var(--text);">
+        <span style="font-size:12px;color:var(--text2);">~</span>
+        <input type="date" id="qd-custom-end" style="height:30px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:6px;background:var(--surface);color:var(--text);">
+        <button class="btn btn-sm qd-period-btn" data-period="custom" onclick="setQualityPeriod('custom')" style="height:30px;padding:0 12px;font-size:12px;">조회</button>
         <span style="margin-left:auto;font-size:11px;color:var(--text2);" id="qd-period-label">전체 기간</span>
       </div>
       <div id="quality-dashboard-content"></div>
@@ -4149,13 +4156,13 @@ function openAddPartsModal(entryId) {
 
   const modalHtml = `
   <div id="add-parts-modal" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;">
-    <div style="background:var(--bg,#fff);color:var(--text,#000);max-width:520px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;max-height:90vh;display:flex;flex-direction:column;">
-      <div style="padding:16px 20px;border-bottom:1px solid var(--border,#e5e7eb);display:flex;justify-content:space-between;align-items:center;background:var(--bg2,#f9fafb);">
+    <div style="background:var(--surface,#fff);color:var(--text,#000);max-width:520px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;max-height:90vh;display:flex;flex-direction:column;">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border,#e5e7eb);display:flex;justify-content:space-between;align-items:center;background:var(--surface2,#1c1c1f);">
         <span style="font-size:16px;font-weight:700;">🔧 부품 추가</span>
         <button onclick="closeAddPartsModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text2,#666);width:32px;height:32px;border-radius:6px;">×</button>
       </div>
       <div style="padding:20px;overflow-y:auto;">
-        <div style="margin-bottom:14px;padding:12px;background:var(--bg2,#f9fafb);border-radius:8px;font-size:13px;line-height:1.6;">
+        <div style="margin-bottom:14px;padding:12px;background:var(--surface2,#1c1c1f);border-radius:8px;font-size:13px;line-height:1.6;">
           <strong>${escapeHtml(e.serial)}</strong> (${escapeHtml(e.model||'')})<br>
           <span style="color:var(--text2,#666);">담당: ${escapeHtml(String(e.worker||'').split('::')[0])}</span><br>
           <span style="color:var(--text2,#666);">에이징 남은 시간: <strong style="font-family:monospace;color:#f59e0b;">${remainStr}</strong></span>
@@ -4163,14 +4170,19 @@ function openAddPartsModal(entryId) {
 
         <div style="margin-bottom:14px;">
           <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">추가할 부품</label>
-          <select id="add-part-name" style="width:100%;height:38px;padding:0 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--bg,#fff);color:var(--text,#000);">
+          <select id="add-part-name" onchange="document.getElementById('add-part-custom-wrap').style.display=(this.value==='__custom__'?'block':'none');" style="width:100%;height:38px;padding:0 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--surface,#fff);color:var(--text,#000);">
             ${partsOptions}
+            <option value="__custom__">+ 직접 입력 (목록에 없는 부품)</option>
           </select>
+          <div id="add-part-custom-wrap" style="display:none;margin-top:8px;">
+            <input type="text" id="add-part-custom" placeholder="부품명 직접 입력 (예: 카메라 모듈, 스피커)" style="width:100%;height:38px;padding:0 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--surface,#fff);color:var(--text,#000);">
+            <div style="font-size:11px;color:var(--text3);margin-top:4px;">※ 재고 시트에 같은 이름의 부품이 있으면 차감되고, 없으면 사용 기록만 남습니다.</div>
+          </div>
         </div>
 
         <div style="margin-bottom:14px;">
           <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">수량</label>
-          <input type="number" id="add-part-qty" value="1" min="1" max="20" style="width:100%;height:38px;padding:0 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--bg,#fff);color:var(--text,#000);">
+          <input type="number" id="add-part-qty" value="1" min="1" max="20" style="width:100%;height:38px;padding:0 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--surface,#fff);color:var(--text,#000);">
         </div>
 
         <div style="margin-bottom:14px;padding:12px;background:#dbeafe;border-radius:8px;font-size:12px;color:#1e3a8a;line-height:1.6;">
@@ -4181,11 +4193,11 @@ function openAddPartsModal(entryId) {
 
         <div style="margin-bottom:8px;">
           <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">메모 (선택)</label>
-          <textarea id="add-part-note" rows="2" placeholder="예: 서브보드 1차 교체, 디스플레이 케이블 추가..." style="width:100%;padding:8px 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg,#fff);color:var(--text,#000);resize:vertical;"></textarea>
+          <textarea id="add-part-note" rows="2" placeholder="예: 서브보드 1차 교체, 디스플레이 케이블 추가..." style="width:100%;padding:8px 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;font-family:inherit;background:var(--surface,#fff);color:var(--text,#000);resize:vertical;"></textarea>
         </div>
       </div>
-      <div style="padding:14px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--bg2,#f9fafb);">
-        <button onclick="closeAddPartsModal()" style="padding:0 18px;height:38px;border:1px solid var(--border2,#d1d5db);background:var(--bg,#fff);color:var(--text,#000);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
+      <div style="padding:14px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--surface2,#1c1c1f);">
+        <button onclick="closeAddPartsModal()" style="padding:0 18px;height:38px;border:1px solid var(--border2,#d1d5db);background:var(--surface,#fff);color:var(--text,#000);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
         <button onclick="submitAddParts('${entryId}')" style="padding:0 18px;height:38px;border:none;background:#3b82f6;color:#fff;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">부품 추가</button>
       </div>
     </div>
@@ -4200,7 +4212,11 @@ function closeAddPartsModal() {
 }
 
 async function submitAddParts(entryId) {
-  const partName = document.getElementById('add-part-name')?.value;
+  let partName = document.getElementById('add-part-name')?.value;
+  if(partName === '__custom__') {
+    partName = (document.getElementById('add-part-custom')?.value || '').trim();
+    if(!partName) { notify('직접 입력할 부품명을 적어주세요.', 'error'); return; }
+  }
   const qty = Number(document.getElementById('add-part-qty')?.value) || 1;
   const note = (document.getElementById('add-part-note')?.value || '').trim();
   if(!partName) { notify('부품을 선택하세요.', 'error'); return; }
@@ -4354,6 +4370,29 @@ function getQualityPeriodRange() {
   const now = new Date();
   const period = window._qualityPeriod || 'all';
   if(period === 'all') return { start: 0, end: Infinity, label: '전체 기간' };
+  if(period === 'today') {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const end = start + 24*60*60*1000;
+    return { start, end, label: `오늘 (${now.getMonth()+1}.${now.getDate()})` };
+  }
+  if(period === 'thisWeek') {
+    // 이번 주 월요일 0시 ~ 다음 주 월요일 0시
+    const day = now.getDay(); // 0=일
+    const mondayOffset = (day === 0 ? -6 : 1 - day);
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset).getTime();
+    const end = start + 7*24*60*60*1000;
+    return { start, end, label: '이번 주' };
+  }
+  if(period === 'custom') {
+    const sv = document.getElementById('qd-custom-start')?.value;
+    const ev = document.getElementById('qd-custom-end')?.value;
+    if(sv && ev) {
+      const start = new Date(sv + 'T00:00:00').getTime();
+      const end = new Date(ev + 'T00:00:00').getTime() + 24*60*60*1000; // 종료일 포함
+      return { start, end, label: `${sv} ~ ${ev}` };
+    }
+    return { start: 0, end: Infinity, label: '날짜 미지정 → 전체' };
+  }
   if(period === 'thisMonth') {
     const start = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     const end = new Date(now.getFullYear(), now.getMonth()+1, 1).getTime();
@@ -9734,7 +9773,7 @@ async function renderMyDash() {
       </div>
 
       <!-- 4. 불량 재작업 대기 -->
-      <div style="${cardBaseClickable}${myDefectPending.length>0?'border:2px solid #ef4444;':''}" onclick="gotoTab('inspect')" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
+      <div style="${cardBaseClickable}${myDefectPending.length>0?'border:2px solid #ef4444;':''}" onclick="gotoTab('inspect');setTimeout(()=>{try{switchInspectSubtab('defect')}catch(e){}},60);" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='var(--shadow-lg,0 8px 24px rgba(0,0,0,.08))';" onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow)';">
         <div style="${iconStyle}">🚨</div>
         <div style="${labelStyle}">불량 재작업 대기</div>
         <div style="${valStyle}${myDefectPending.length>0?'color:#ef4444;':''}">${myDefectPending.length}<span style="font-size:16px;color:var(--text2);font-weight:500;"> 건</span></div>
