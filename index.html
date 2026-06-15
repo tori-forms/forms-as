@@ -1312,6 +1312,7 @@ window.addEventListener('DOMContentLoaded', function(){
         <span style="font-size:13px;font-weight:600;color:var(--text);margin-right:8px;">📅 기간:</span>
         <button class="btn btn-sm qd-period-btn" data-period="today" onclick="setQualityPeriod('today')" style="height:30px;padding:0 12px;font-size:12px;">오늘</button>
         <button class="btn btn-sm qd-period-btn" data-period="thisWeek" onclick="setQualityPeriod('thisWeek')" style="height:30px;padding:0 12px;font-size:12px;">이번 주</button>
+        <button class="btn btn-sm qd-period-btn" data-period="lastWeek" onclick="setQualityPeriod('lastWeek')" style="height:30px;padding:0 12px;font-size:12px;">지난 주</button>
         <button class="btn btn-sm qd-period-btn" data-period="thisMonth" onclick="setQualityPeriod('thisMonth')" style="height:30px;padding:0 12px;font-size:12px;">이번 달</button>
         <button class="btn btn-sm qd-period-btn" data-period="lastMonth" onclick="setQualityPeriod('lastMonth')" style="height:30px;padding:0 12px;font-size:12px;">지난 달</button>
         <button class="btn btn-sm qd-period-btn" data-period="last3Months" onclick="setQualityPeriod('last3Months')" style="height:30px;padding:0 12px;font-size:12px;">최근 3개월</button>
@@ -4512,6 +4513,14 @@ function getQualityPeriodRange() {
     const end = start + 7*24*60*60*1000;
     return { start, end, label: '이번 주' };
   }
+  if(period === 'lastWeek') {
+    // 지난 주 월요일 0시 ~ 이번 주 월요일 0시
+    const day = now.getDay();
+    const mondayOffset = (day === 0 ? -6 : 1 - day);
+    const thisMon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset).getTime();
+    const start = thisMon - 7*24*60*60*1000;
+    return { start, end: thisMon, label: '지난 주' };
+  }
   if(period === 'custom') {
     const sv = document.getElementById('qd-custom-start')?.value;
     const ev = document.getElementById('qd-custom-end')?.value;
@@ -4797,9 +4806,9 @@ function renderQualityDashboard() {
   }
   html += `</div>`;
 
-  // (B) 불량 유형 분포 (가로 막대)
+  // (B) 불량 유형 분포 (가로 막대 히스토그램 — 빈도순, 최다 강조)
   html += `<div class="card" style="padding:16px 18px;">
-    <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text);">🏷️ 불량 유형 분포</div>`;
+    <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text);">🏷️ 불량 유형 분포 <span style="font-size:11px;font-weight:400;color:var(--text3);">· 어떤 불량이 많은지</span></div>`;
   if(typeTotal === 0) {
     html += `<div style="text-align:center;color:var(--text3);padding:20px;font-size:12px;">불량 데이터 없음</div>`;
   } else {
@@ -4808,23 +4817,28 @@ function renderQualityDashboard() {
       '보호필름': '#3b82f6', '부품누락': '#ec4899', '디스플레이': '#10b981',
       '미분류': '#6b7280'
     };
-    const sortedTypes = Object.entries(typeCount)
-      .filter(([_, c]) => c > 0)
+    // ⭐ 6개 유형 항상 표시 (+ 미분류 있을 때) — 빈도순 정렬
+    const FIXED_T = ['외관', '기능', '강화유리', '보호필름', '부품누락', '디스플레이'];
+    const allT = [...FIXED_T];
+    if((typeCount['미분류']||0) > 0) allT.push('미분류');
+    const sortedTypes = allT
+      .map(t => [t, typeCount[t] || 0])
       .sort((a,b) => b[1] - a[1]);
     const maxTypeCount = Math.max(...sortedTypes.map(([_, c]) => c), 1);
-    sortedTypes.forEach(([type, count]) => {
-      const widthPct = (count / maxTypeCount) * 100;
-      const ratio = (count / typeTotal * 100).toFixed(1);
+    sortedTypes.forEach(([type, count], idx) => {
+      const widthPct = count > 0 ? Math.max(3, (count / maxTypeCount) * 100) : 0;
+      const ratio = typeTotal > 0 ? (count / typeTotal * 100).toFixed(1) : '0.0';
+      const isTop = idx === 0 && count > 0;
       html += `<div style="margin-bottom:10px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:12px;">
-          <span style="font-weight:600;color:var(--text);">${escapeHtml(type)}</span>
+          <span style="font-weight:600;color:var(--text);">${isTop?'<span style="color:#ef4444;">🔺 </span>':''}${escapeHtml(type)}${isTop?' <span style="font-size:10px;background:#ef4444;color:#fff;padding:1px 6px;border-radius:99px;margin-left:2px;">최다</span>':''}</span>
           <span style="color:var(--text2);">
             <span style="color:${typeColors[type]||'#6b7280'};font-weight:700;">${count}건</span>
             <span style="margin-left:6px;color:var(--text3);">(${ratio}%)</span>
           </span>
         </div>
-        <div style="background:var(--surface2);height:8px;border-radius:99px;overflow:hidden;">
-          <div style="background:${typeColors[type]||'#6b7280'};height:100%;width:${widthPct}%;border-radius:99px;transition:width .3s;"></div>
+        <div style="background:var(--surface2);height:${isTop?'12px':'8px'};border-radius:99px;overflow:hidden;">
+          <div style="background:${typeColors[type]||'#6b7280'};height:100%;width:${widthPct}%;border-radius:99px;transition:width .3s;${isTop?'box-shadow:0 0 8px '+(typeColors[type]||'#ef4444')+';':''}"></div>
         </div>
       </div>`;
     });
@@ -4878,7 +4892,7 @@ function renderQualityDashboard() {
           </div>
         </div>
         <div style="font-size:11px;color:var(--text2);">${dispMonth}</div>
-        <div style="font-size:10px;color:var(--text3);">${s.registered}건</div>
+        <div style="font-size:10px;color:var(--text3);text-align:center;line-height:1.4;">등록 ${s.registered} · <span style="color:#ef4444;">불량 ${s.defects}</span></div>
       </div>`;
     });
     html += `</div>
@@ -5706,7 +5720,7 @@ function renderDefectList() {
         defectInfo = `<span style="color:#dc2626;font-size:12px;">${escapeHtml(types)}</span>${reason}`;
       }
 
-      const elapsedLabel = bizDays > 0 ? `${bizDays}영업일` : '오늘';
+      const elapsedLabel = bizDays > 0 ? `${bizDays}일` : '오늘';
 
       html += `<tr style="${isOld?'box-shadow:inset 3px 0 0 #ef4444;':''}">
         <td style="font-weight:600;">${isOld?'<span style="color:#ef4444;margin-right:3px;">🚨</span>':''}<span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${escapeHtml(e.serial)}</span></td>
