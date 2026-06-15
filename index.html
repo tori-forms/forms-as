@@ -4781,28 +4781,27 @@ function renderQualityDashboard() {
   // === HTML 조립 — 그리드 2×2 + 히트맵 ===
   html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">`;
 
-  // (A) 엔지니어별 불량률
+  // (A) 엔지니어별 불량률 (신호등 칩 — 막대 대신 색으로 위험도 표시)
   html += `<div class="card" style="padding:16px 18px;">
-    <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text);">👤 엔지니어별 불량률</div>`;
+    <div style="font-size:14px;font-weight:700;margin-bottom:4px;color:var(--text);">👤 엔지니어별 불량률</div>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:14px;">🔴 10%↑ 위험 · 🟡 5~10% 주의 · 🟢 5%↓ 양호</div>`;
   if(engineerStats.length === 0) {
     html += `<div style="text-align:center;color:var(--text3);padding:20px;font-size:12px;">데이터 없음</div>`;
   } else {
+    html += `<div style="display:flex;flex-direction:column;gap:8px;">`;
     engineerStats.forEach(s => {
       const color = s.rate >= 10 ? '#ef4444' : s.rate >= 5 ? '#f59e0b' : '#10b981';
-      const widthPct = maxEngRate > 0 ? (s.rate / maxEngRate * 100) : 0;
-      html += `<div style="margin-bottom:10px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:12px;">
-          <span style="font-weight:600;color:var(--text);">${escapeHtml(s.name)}</span>
-          <span style="color:var(--text2);">
-            <span style="color:${color};font-weight:700;">${s.rate.toFixed(1)}%</span>
-            <span style="margin-left:6px;color:var(--text3);">(${s.defects}/${s.registered})</span>
-          </span>
-        </div>
-        <div style="background:var(--surface2);height:8px;border-radius:99px;overflow:hidden;">
-          <div style="background:${color};height:100%;width:${widthPct}%;border-radius:99px;transition:width .3s;"></div>
-        </div>
+      const dot = s.rate >= 10 ? '🔴' : s.rate >= 5 ? '🟡' : '🟢';
+      const bg = s.rate >= 10 ? 'rgba(239,68,68,.08)' : s.rate >= 5 ? 'rgba(245,158,11,.08)' : 'rgba(16,185,129,.06)';
+      html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-radius:8px;background:${bg};border-left:3px solid ${color};">
+        <span style="font-weight:600;color:var(--text);font-size:13px;">${dot} ${escapeHtml(s.name)}</span>
+        <span style="display:flex;align-items:baseline;gap:8px;">
+          <span style="color:${color};font-weight:700;font-size:17px;">${s.rate.toFixed(1)}%</span>
+          <span style="color:var(--text3);font-size:11px;">불량 ${s.defects} / ${s.registered}건</span>
+        </span>
       </div>`;
     });
+    html += `</div>`;
   }
   html += `</div>`;
 
@@ -4872,7 +4871,8 @@ function renderQualityDashboard() {
 
   // (D) 월별 추이 (막대 차트)
   html += `<div class="card" style="padding:16px 18px;">
-    <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text);">📅 월별 추이</div>`;
+    <div style="font-size:14px;font-weight:700;margin-bottom:4px;color:var(--text);">📅 월별 추이</div>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:14px;">막대 위 %는 그 달의 불량률 (불량 ÷ 등록)</div>`;
   const monthEntries = Object.entries(monthlyStats).sort((a,b) => a[0].localeCompare(b[0]));
   if(monthEntries.length === 0) {
     html += `<div style="text-align:center;color:var(--text3);padding:20px;font-size:12px;">데이터 없음</div>`;
