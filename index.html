@@ -5727,8 +5727,8 @@ function renderDefectList() {
         <td>${escapeHtml(e.model||'')}</td>
         <td style="font-size:12px;color:var(--text2);">${escapeHtml(works)}</td>
         <td style="font-size:12px;">${defectFmt}</td>
-        <td style="font-size:12px;">
-          <span style="display:inline-block;padding:2px 8px;border-radius:99px;font-weight:700;font-size:11px;${isOld?'background:rgba(239,68,68,.15);color:#ef4444;':'background:var(--surface2);color:var(--text2);'}">${elapsedLabel}</span>
+        <td style="font-size:12px;white-space:nowrap;">
+          <span style="display:inline-block;white-space:nowrap;padding:2px 8px;border-radius:99px;font-weight:700;font-size:11px;${isOld?'background:rgba(239,68,68,.15);color:#ef4444;':'background:var(--surface2);color:var(--text2);'}">${elapsedLabel}</span>
         </td>
         <td>${defectInfo}</td>
         <td style="text-align:center;white-space:nowrap;">
