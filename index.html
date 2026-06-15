@@ -4893,18 +4893,17 @@ function renderQualityDashboard() {
 
   // === 6. 엔지니어 × 불량 유형 히트맵 ===
   if(engineerStats.length > 0 && typeTotal > 0) {
-    // 엔지니어별 × 유형별 카운트
+    // 엔지니어별 × 유형별 카운트 (⭐ 발생 기준: 한 수리의 여러 유형 모두 / 여러 번 불량도 모두 카운트)
     const heatmap = {};
     engineerStats.forEach(s => { heatmap[s.name] = {}; });
 
-    Object.values(firstFailBySerial).forEach(insp => {
+    failInspections.forEach(insp => {
       const serial = normalizeSerial(insp.serial);
+      if(!periodSerials.has(serial)) return; // 이 기간 등록 건만
       const entry = entries.find(e => normalizeSerial(e.serial) === serial);
       if(!entry) return;
       const eng = String(entry.worker || '').split('::')[0] || '미정';
-      // ⭐ v2.26: 활동중 작업자만 (engineerStats에 이미 있는 사람만)
       if(!heatmap[eng]) return; // 퇴사자/미정 제외
-      // ⭐ v2.28: defectTypes 안전 파싱
       const types = parseDefectTypes(insp.defectTypes);
       if(types.length === 0) {
         heatmap[eng]['미분류'] = (heatmap[eng]['미분류'] || 0) + 1;
@@ -4915,7 +4914,10 @@ function renderQualityDashboard() {
       }
     });
 
-    const heatmapTypes = Object.keys(typeCount).filter(t => typeCount[t] > 0);
+    // ⭐ 불량 유형 6개 항상 고정 표시 (외관/기능/강화유리/보호필름/부품누락/디스플레이) + 미분류는 있을 때만
+    const FIXED_DEFECT_TYPES = ['외관', '기능', '강화유리', '보호필름', '부품누락', '디스플레이'];
+    const hasMisc = Object.values(heatmap).some(r => (r['미분류']||0) > 0);
+    const heatmapTypes = hasMisc ? [...FIXED_DEFECT_TYPES, '미분류'] : FIXED_DEFECT_TYPES.slice();
     let maxHeatVal = 0;
     Object.values(heatmap).forEach(row => {
       Object.values(row).forEach(v => { if(v > maxHeatVal) maxHeatVal = v; });
@@ -5204,19 +5206,81 @@ function switchDefectView(mode) {
   renderDefectList();
 }
 
+// ⭐ 전체 품질 이력 기간 필터
+function getQualityHistoryRange() {
+  const now = new Date();
+  const p = window._qhPeriod || 'all';
+  if(p === 'all') return { start: 0, end: Infinity, label: '전체 기간' };
+  if(p === 'today') {
+    const s = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    return { start: s, end: s + 86400000, label: `오늘 (${now.getMonth()+1}.${now.getDate()})` };
+  }
+  if(p === 'thisWeek') {
+    const day = now.getDay();
+    const mondayOffset = (day === 0 ? -6 : 1 - day);
+    const s = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset).getTime();
+    return { start: s, end: s + 7*86400000, label: '이번 주' };
+  }
+  if(p === 'thisMonth') {
+    const s = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const e = new Date(now.getFullYear(), now.getMonth()+1, 1).getTime();
+    return { start: s, end: e, label: `이번 달 (${now.getMonth()+1}월)` };
+  }
+  if(p === 'custom') {
+    const sv = window._qhCustomStart, ev = window._qhCustomEnd;
+    if(sv && ev) {
+      const s = new Date(sv + 'T00:00:00').getTime();
+      const e = new Date(ev + 'T00:00:00').getTime() + 86400000;
+      return { start: s, end: e, label: `${sv} ~ ${ev}` };
+    }
+    return { start: 0, end: Infinity, label: '날짜 미지정 → 전체' };
+  }
+  return { start: 0, end: Infinity, label: '전체 기간' };
+}
+
+function setQualityHistoryPeriod(p) {
+  if(p === 'custom') {
+    window._qhCustomStart = document.getElementById('qh-start')?.value || '';
+    window._qhCustomEnd = document.getElementById('qh-end')?.value || '';
+    if(!window._qhCustomStart || !window._qhCustomEnd) { notify('시작일과 종료일을 모두 선택하세요.', 'error'); return; }
+  }
+  window._qhPeriod = p;
+  renderQualityHistory();
+}
+
 // ⭐ v2.23: 전체 품질 이력 렌더 (불량 발생 수리건만, 수리건당 1건, 첫 불량 메모만)
 function renderQualityHistory() {
   const el = document.getElementById('defect-list');
   if(!el) return;
 
   // 불량(fail) 이력만 추출 (재작업 이력은 표시 안 함)
-  const failList = (inspections||[]).filter(insp => insp.result === 'fail');
+  const failListAll = (inspections||[]).filter(insp => insp.result === 'fail');
+
+  // ⭐ 기간 필터 (검수일 inspectedAt 기준)
+  const qhRange = getQualityHistoryRange();
+  const failList = failListAll.filter(insp => {
+    const t = new Date(insp.inspectedAt || 0).getTime();
+    return t >= qhRange.start && t < qhRange.end;
+  });
+
+  const filterBar = `
+    <div class="card" style="padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+      <span style="font-size:12px;font-weight:600;color:var(--text);margin-right:4px;">📅 기간:</span>
+      ${[['all','전체'],['today','오늘'],['thisWeek','이번 주'],['thisMonth','이번 달']].map(([p,lb])=>`
+        <button class="btn btn-sm" onclick="setQualityHistoryPeriod('${p}')" style="height:28px;padding:0 10px;font-size:12px;${(window._qhPeriod||'all')===p?'background:var(--accent);color:#fff;border-color:var(--accent);':''}">${lb}</button>`).join('')}
+      <span style="width:1px;height:20px;background:var(--border);margin:0 2px;"></span>
+      <input type="date" id="qh-start" value="${window._qhCustomStart||''}" style="height:28px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:6px;background:var(--surface);color:var(--text);">
+      <span style="font-size:12px;color:var(--text2);">~</span>
+      <input type="date" id="qh-end" value="${window._qhCustomEnd||''}" style="height:28px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:6px;background:var(--surface);color:var(--text);">
+      <button class="btn btn-sm" onclick="setQualityHistoryPeriod('custom')" style="height:28px;padding:0 10px;font-size:12px;${(window._qhPeriod||'')==='custom'?'background:var(--accent);color:#fff;border-color:var(--accent);':''}">조회</button>
+      <span style="margin-left:auto;font-size:11px;color:var(--text2);">${qhRange.label}</span>
+    </div>`;
 
   if(failList.length === 0) {
-    el.innerHTML = `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
+    el.innerHTML = filterBar + `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
       <div style="font-size:48px;margin-bottom:12px;">📋</div>
-      <div style="font-size:15px;">불량 이력이 없습니다.</div>
-      <div style="font-size:12px;margin-top:6px;color:var(--text2,#999);">불량으로 판정된 건이 여기에 표시됩니다.</div>
+      <div style="font-size:15px;">${qhRange.label}에 불량 이력이 없습니다.</div>
+      <div style="font-size:12px;margin-top:6px;color:var(--text2,#999);">다른 기간을 선택해보세요.</div>
     </div>`;
     return;
   }
@@ -5259,7 +5323,7 @@ function renderQualityHistory() {
   });
 
   // 상단 통계
-  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">
+  let html = filterBar + `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">
     <div class="card" style="padding:12px 14px;border-left:3px solid #ef4444;">
       <div style="font-size:11px;color:var(--text2);">총 불량 수리건</div>
       <div style="font-size:22px;font-weight:700;color:#ef4444;">${totalDefectSerials}<span style="font-size:13px;color:var(--text2);font-weight:500;">건</span></div>
@@ -5561,6 +5625,12 @@ function renderDefectList() {
 
   const list = getDefectEntries();
 
+  // 공휴일 사전 로드 (영업일 경과 계산 정확도) — 로드되면 한 번 더 렌더
+  if(list.length) {
+    const oldest = Math.min(...list.map(e => new Date(e.agingStart||Date.now()).getTime()));
+    ensureHolidaysLoaded(oldest, nowMs(), () => { if(window._defectViewMode!=='history') renderDefectList(); });
+  }
+
   if(list.length === 0) {
     el.innerHTML = `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
       <div style="font-size:48px;margin-bottom:12px;">✨</div>
@@ -5621,10 +5691,8 @@ function renderDefectList() {
     items.forEach(e => {
       const works = (e.works||[]).map(w => WORKS[w]?.label || w).join(', ');
       const defectMs = e.agingStart ? new Date(e.agingStart).getTime() : 0;
-      const elapsedMs = Math.max(0, nowMs() - defectMs);
-      const elapsedDays = Math.floor(elapsedMs / 86400000);
-      const elapsedHours = Math.floor((elapsedMs % 86400000) / 3600000);
-      const isOld = elapsedDays >= 3;
+      const bizDays = bizDaysElapsed(defectMs, nowMs());  // ⭐ 영업일 경과 (주말·공휴일 제외)
+      const isOld = bizDays >= 3;                          // 영업일 3일 이상 = 오래된 건
       const defectFmt = defectMs ? new Date(defectMs).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
 
       // 가장 최근 검수 이력 찾기
@@ -5633,18 +5701,20 @@ function renderDefectList() {
         .sort((a,b) => new Date(b.inspectedAt) - new Date(a.inspectedAt))[0];
       let defectInfo = '-';
       if(lastInspection) {
-        const types = (lastInspection.defectTypes||[]).map(k => DEFECT_TYPES[k] || k).join(', ');
+        const types = parseDefectTypes(lastInspection.defectTypes).join(', ');
         const reason = lastInspection.defectReason ? `<br><span style="color:var(--text2,#666);font-size:11px;">${escapeHtml(lastInspection.defectReason)}</span>` : '';
         defectInfo = `<span style="color:#dc2626;font-size:12px;">${escapeHtml(types)}</span>${reason}`;
       }
 
-      html += `<tr style="${isOld?'background:#fef2f2;':''}">
-        <td style="font-weight:600;"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${escapeHtml(e.serial)}</span>${isOld?' 🚨':''}</td>
+      const elapsedLabel = bizDays > 0 ? `${bizDays}영업일` : '오늘';
+
+      html += `<tr style="${isOld?'box-shadow:inset 3px 0 0 #ef4444;':''}">
+        <td style="font-weight:600;">${isOld?'<span style="color:#ef4444;margin-right:3px;">🚨</span>':''}<span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${escapeHtml(e.serial)}</span></td>
         <td>${escapeHtml(e.model||'')}</td>
         <td style="font-size:12px;color:var(--text2);">${escapeHtml(works)}</td>
         <td style="font-size:12px;">${defectFmt}</td>
-        <td style="font-size:12px;color:${isOld?'#dc2626':'var(--text2)'};font-weight:${isOld?'700':'400'};">
-          ${elapsedDays > 0 ? `${elapsedDays}일 ${elapsedHours}시간` : `${elapsedHours}시간`}
+        <td style="font-size:12px;">
+          <span style="display:inline-block;padding:2px 8px;border-radius:99px;font-weight:700;font-size:11px;${isOld?'background:rgba(239,68,68,.15);color:#ef4444;':'background:var(--surface2);color:var(--text2);'}">${elapsedLabel}</span>
         </td>
         <td>${defectInfo}</td>
         <td style="text-align:center;white-space:nowrap;">
@@ -10376,6 +10446,60 @@ async function getWorkdays(year, month) {
 
 // ⭐ 날짜 범위(start~end 포함)의 평일 수 — 월~금, 공휴일 제외. 월 경계 넘어가도 처리.
 async function countWorkdays(start, end) {
+  let count = 0;
+  const holCache = {};
+  const d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  while(d.getTime() <= last.getTime()) {
+    const dow = d.getDay();
+    if(dow !== 0 && dow !== 6) {
+      const y = d.getFullYear(), m = d.getMonth()+1, key = y+'-'+m;
+      if(!holCache[key]) holCache[key] = await fetchHolidays(y, m);
+      const ds = `${y}-${String(m).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      if(!holCache[key].includes(ds)) count++;
+    }
+    d.setDate(d.getDate()+1);
+  }
+  return count;
+}
+
+// ⭐ 동기 영업일 경과 계산 (주말·공휴일 제외) — holidayCache 읽기 전용
+//   불량 발견일(startMs)부터 오늘(endMs)까지 '지난 영업일 수'
+function bizDaysElapsed(startMs, endMs) {
+  if(!startMs) return 0;
+  const d = new Date(new Date(startMs).getFullYear(), new Date(startMs).getMonth(), new Date(startMs).getDate());
+  const last = new Date(new Date(endMs).getFullYear(), new Date(endMs).getMonth(), new Date(endMs).getDate());
+  let count = 0;
+  while(d.getTime() < last.getTime()) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay();
+    if(dow === 0 || dow === 6) continue; // 주말 제외
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const ds = `${key}-${String(d.getDate()).padStart(2,'0')}`;
+    const hol = holidayCache[key];
+    if(hol && hol.includes(ds)) continue; // 공휴일 제외
+    count++;
+  }
+  return count;
+}
+
+// 범위에 필요한 달의 공휴일을 미리 로드 (없으면 fetch 후 rerender 콜백)
+async function ensureHolidaysLoaded(startMs, endMs, rerender) {
+  if(!startMs) return;
+  const need = [];
+  const d = new Date(new Date(startMs).getFullYear(), new Date(startMs).getMonth(), 1);
+  const last = new Date(new Date(endMs).getFullYear(), new Date(endMs).getMonth(), 1);
+  while(d.getTime() <= last.getTime()) {
+    const y = d.getFullYear(), m = d.getMonth()+1, key = `${y}-${String(m).padStart(2,'0')}`;
+    if(holidayCache[key] === undefined) need.push([y, m]);
+    d.setMonth(d.getMonth() + 1);
+  }
+  if(!need.length) return;
+  for(const [y, m] of need) { try { await fetchHolidays(y, m); } catch(e){} }
+  if(typeof rerender === 'function') rerender();
+}
+
+async function _countWorkdaysLegacy(start, end) {
   let count = 0;
   const holCache = {};
   const d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
