@@ -4770,16 +4770,14 @@ function renderQualityDashboard() {
     if(insp.result === 'fail') modelStats[m].defects++;
   });
 
-  // === 5. 월별 추이 ===
-  const monthlyStats = {}; // {YYYY-MM: {registered, defects}}
-  periodEntries.forEach(e => {
-    const d = new Date(e.date || 0);
+  // === 5. 월별 추이 (검수일 기준: 그 달 검수 처리 / 불량) ===
+  const monthlyStats = {}; // {YYYY-MM: {registered(=검수처리), defects}}
+  periodInsps.forEach(insp => {
+    const d = new Date(insp.inspectedAt || 0);
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     if(!monthlyStats[key]) monthlyStats[key] = { registered: 0, defects: 0 };
-    monthlyStats[key].registered++;
-    if(defectSerials.has(normalizeSerial(e.serial))) {
-      monthlyStats[key].defects++;
-    }
+    monthlyStats[key].registered++; // 그 달 검수 처리 건수
+    if(insp.result === 'fail') monthlyStats[key].defects++;
   });
 
   // === HTML 조립 — 그리드 2×2 + 히트맵 ===
@@ -4876,7 +4874,7 @@ function renderQualityDashboard() {
   // (D) 월별 추이 (막대 차트)
   html += `<div class="card" style="padding:16px 18px;">
     <div style="font-size:14px;font-weight:700;margin-bottom:4px;color:var(--text);">📅 월별 추이</div>
-    <div style="font-size:10px;color:var(--text3);margin-bottom:14px;">막대 위 %는 그 달의 불량률 (불량 ÷ 등록)</div>`;
+    <div style="font-size:10px;color:var(--text3);margin-bottom:14px;">막대 위 %는 그 달의 불량률 (불량 ÷ 검수)</div>`;
   const monthEntries = Object.entries(monthlyStats).sort((a,b) => a[0].localeCompare(b[0]));
   if(monthEntries.length === 0) {
     html += `<div style="text-align:center;color:var(--text3);padding:20px;font-size:12px;">데이터 없음</div>`;
@@ -4896,7 +4894,7 @@ function renderQualityDashboard() {
           </div>
         </div>
         <div style="font-size:11px;color:var(--text2);">${dispMonth}</div>
-        <div style="font-size:10px;color:var(--text3);text-align:center;line-height:1.4;">등록 ${s.registered} · <span style="color:#ef4444;">불량 ${s.defects}</span></div>
+        <div style="font-size:10px;color:var(--text3);text-align:center;line-height:1.4;">검수 ${s.registered} · <span style="color:#ef4444;">불량 ${s.defects}</span></div>
       </div>`;
     });
     html += `</div>
