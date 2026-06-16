@@ -4571,6 +4571,26 @@ function aqlSampleSize(lotSize) {
   return 1250;
 }
 
+// 모델별 불량 항목 클릭 → 해당 수리건 시리얼 목록 펼침
+function toggleModelDetail(model, cardEl) {
+  const box = cardEl.querySelector('.model-detail');
+  if(!box) return;
+  if(box.style.display !== 'none') { box.style.display = 'none'; return; }
+  const items = (window._qdModelItems && window._qdModelItems[model]) || [];
+  if(!items.length) { box.innerHTML = '<div style="font-size:11px;color:var(--text3);">목록 없음</div>'; box.style.display='block'; return; }
+  // 불량 먼저, 그 다음 합격
+  const sorted = items.slice().sort((a,b) => (a.result==='fail'?0:1) - (b.result==='fail'?0:1));
+  box.innerHTML = sorted.map(it => {
+    const isFail = it.result === 'fail';
+    const when = it.inspectedAt ? new Date(it.inspectedAt).toLocaleDateString('ko-KR',{month:'2-digit',day:'2-digit'}) : '';
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:3px 0;font-size:11px;" onclick="event.stopPropagation()">
+      <span><span style="font-weight:600;${isFail?'color:#ef4444;':'color:var(--text2);'}">${isFail?'❌':'✅'}</span> <span class="serial-copy" onclick="copySerial('${escapeJs(it.serial)}')" title="클릭 복사" style="font-weight:600;color:var(--text);">${escapeHtml(it.serial)}</span></span>
+      <span style="color:var(--text3);">${escapeHtml(it.worker)} · ${when}</span>
+    </div>`;
+  }).join('');
+  box.style.display = 'block';
+}
+
 function renderQualityDashboard() {
   const el = document.getElementById('quality-dashboard-content');
   if(!el) return;
@@ -4786,14 +4806,24 @@ function renderQualityDashboard() {
   });
 
   // === 4. 모델별 불량 (검수일 기준: 이 기간 검수된 건 중 불량) ===
-  const modelStats = {}; // {model: {registered, defects}}
+  const modelStats = {}; // {model: {registered, defects, items:[]}}
   periodInsps.forEach(insp => {
     const e = entryBySerial[normalizeSerial(insp.serial)];
     const m = normalizeModel(e ? (e.model || '-') : '-');
-    if(!modelStats[m]) modelStats[m] = { registered: 0, defects: 0 };
+    if(!modelStats[m]) modelStats[m] = { registered: 0, defects: 0, items: [] };
     modelStats[m].registered++;
     if(insp.result === 'fail') modelStats[m].defects++;
+    modelStats[m].items.push({
+      serial: insp.serial,
+      worker: e ? (String(e.worker||'').split('::')[0]) : '미상',
+      result: insp.result,
+      inspectedAt: insp.inspectedAt,
+      id: e ? e.id : ''
+    });
   });
+  // 클릭 조회용 전역 저장
+  window._qdModelItems = {};
+  Object.entries(modelStats).forEach(([m, s]) => { window._qdModelItems[m] = s.items; });
 
   // === 5. 월별 추이 (검수일 기준: 그 달 검수 처리 / 불량) ===
   const monthlyStats = {}; // {YYYY-MM: {registered(=검수처리), defects}}
@@ -4898,15 +4928,17 @@ function renderQualityDashboard() {
       const modelLabel = isUnknown ? '기종 미입력' : model;
       const color = model === 'S2PRO_N' ? '#6d28d9' : isUnknown ? '#94a3b8' : '#1d4ed8';
       const bg = model === 'S2PRO_N' ? '#ede9fe' : isUnknown ? 'var(--surface2)' : '#dbeafe';
-      html += `<div style="margin-bottom:12px;padding:10px 12px;background:${bg};border-radius:8px;">
+      const mkey = escapeJs(model);
+      html += `<div style="margin-bottom:12px;padding:10px 12px;background:${bg};border-radius:8px;cursor:pointer;" onclick="toggleModelDetail('${mkey}', this)" title="클릭하면 해당 수리건 목록 보기">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-          <span style="font-weight:700;color:${color};font-size:13px;">${escapeHtml(modelLabel)}</span>
+          <span style="font-weight:700;color:${color};font-size:13px;">${escapeHtml(modelLabel)} <span style="font-size:10px;color:var(--text3);">▼</span></span>
           <span style="font-size:11px;color:var(--text2);">${s.registered}건 검수</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">
           <span style="color:var(--text2);">불량 ${s.defects}건</span>
           <span style="font-weight:700;color:${rate >= 10 ? '#ef4444' : rate >= 5 ? '#f59e0b' : '#10b981'};">${rate.toFixed(1)}%</span>
         </div>
+        <div class="model-detail" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed var(--border2);"></div>
       </div>`;
     });
   }
