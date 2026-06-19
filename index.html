@@ -6269,7 +6269,7 @@ function renderShipping() {
     <div class="stat-card" style="border-left:4px solid var(--green);">
       <div class="stat-label">출고 가능</div>
       <div class="stat-val" style="color:var(--green);">${ok.length}<span style="font-size:14px;color:var(--text2);font-weight:400;">건</span></div>
-      <div class="stat-sub">🔍 검수완료 상태 ${hold.length > 0 ? `<span style="color:var(--amber);">· 보류 ${hold.length}건</span>` : ''}</div>
+      <div class="stat-sub">🔍 검수완료 상태 ${(window._shipHoldExcluded||[]).length > 0 ? `<span style="color:#ef4444;font-weight:700;">· 🚩 제외 ${(window._shipHoldExcluded||[]).length}건</span>` : ''} ${hold.length > 0 ? `<span style="color:var(--amber);">· 보류 ${hold.length}건</span>` : ''}</div>
     </div>
     <div class="stat-card" style="border-left:4px solid #6366f1;">
       <div class="stat-label">출고 가능 공임비</div>
@@ -6315,17 +6315,17 @@ function renderShipping() {
     </table></div>
   </div>`;
 
-  // ⭐ 출고 보류 테이블 (사용자가 제외 — 서버 저장됨, 멀쩡하지만 이번 출고분 아님)
+  // ⭐ 출고 제외 테이블 (사용자가 출고에서 뺀 미처리건 — 강조)
   const holdExcluded = window._shipHoldExcluded || [];
   if(holdExcluded.length) {
-    h += `<div class="card" style="padding:0;margin-bottom:12px;border:1px solid #f59e0b;">
-      <div style="padding:12px 18px;border-bottom:1px solid var(--border);background:rgba(245,158,11,.08);">
-        <span style="font-size:13px;font-weight:700;color:#d97706;">⏸️ 출고 보류 (${holdExcluded.length}건)</span>
-        <span style="font-size:11px;color:var(--text2);margin-left:6px;">출고에서 제외한 건 · 새로고침해도 유지됨</span>
+    h += `<div class="card" style="padding:0;margin-bottom:12px;border:2px solid #ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.08);">
+      <div style="padding:12px 18px;border-bottom:1px solid var(--border);background:rgba(239,68,68,.1);">
+        <span style="font-size:14px;font-weight:800;color:#ef4444;">🚩 출고 제외 — 미처리 (${holdExcluded.length}건)</span>
+        <span style="font-size:11px;color:var(--text2);margin-left:6px;">출고에서 뺀 건 · 처리 필요 · 새로고침해도 유지</span>
       </div>
       <div class="table-wrap"><table>
         <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>특이사항</th><th></th></tr></thead>
-        <tbody>${holdExcluded.map((x,i) => `<tr>
+        <tbody>${holdExcluded.map((x,i) => `<tr style="box-shadow:inset 3px 0 0 #ef4444;">
           <td>${(() => { const __m = normalizeModel(x.entry.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
           <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${x.entry.serial}</span></td>
           <td>${x.entry.worker}</td>
@@ -6338,11 +6338,11 @@ function renderShipping() {
     </div>`;
   }
 
-  // 보류 테이블 (검수 진행 중)
+  // 보류 테이블 (에이징 및 검수 진행 중)
   if(hold.length) {
     h += `<div class="card" style="padding:0;margin-bottom:12px;">
       <div style="padding:12px 18px;border-bottom:1px solid var(--border);">
-        <span style="font-size:13px;font-weight:700;color:var(--amber);">⚠️ 보류 - 검수 진행 중 (${hold.length}건)</span>
+        <span style="font-size:13px;font-weight:700;color:var(--amber);">⚠️ 보류 (에이징 및 검수 진행 중 건) · ${hold.length}건</span>
       </div>
       <div class="table-wrap"><table>
         <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>현재 상태</th><th>특이사항</th><th></th></tr></thead>
