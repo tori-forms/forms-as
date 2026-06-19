@@ -9984,7 +9984,8 @@ function pickDailyCheer() {
 function buildAdminControlBoard() {
   const all = entries || [];
   // 1) 에이징 완료됐는데 검수대기로 안 넘긴 것 (status=aging인데 24h 경과)
-  const agingStuck = all.filter(e => String(e.status||'') === STATUS_AGING && calcAging(e.agingStart).isPassed);
+  // 1) 에이징 완료됐는데 검수대기로 안 넘긴 것 — 2영업일 이상 방치만 (1영업일까진 정상, 주말·공휴일 제외)
+  const agingStuck = all.filter(e => String(e.status||'') === STATUS_AGING && bizDaysElapsed(new Date(e.agingStart).getTime(), nowMs()) >= 2);
   // 2) 출고 제외(미처리)
   const excluded = all.filter(e => String(e.status||'') === STATUS_HOLD);
   // 3) 재작업 대기(불량)
@@ -10019,7 +10020,7 @@ function buildAdminControlBoard() {
   let html = `
     <div style="margin-bottom:8px;font-size:13px;color:var(--text2);">전체 미처리 <b style="color:${totalPending>0?'#ef4444':'#10b981'};font-size:16px;">${totalPending}건</b> · 처리하면 자동으로 사라집니다</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px;">
-      ${card('에이징 완료·미이관', agingStuck.length, '#f59e0b', '🕐', '24h 지났는데 검수대기로 안 넘김')}
+      ${card('에이징 완료·미이관', agingStuck.length, '#f59e0b', '🕐', '2영업일 이상 검수대기로 안 넘김')}
       ${card('출고 제외', excluded.length, '#ef4444', '🚩', '출고에서 뺀 미처리건')}
       ${card('재작업 대기 (불량)', defects.length, '#dc2626', '🔄', '검수 불량 → 엔지니어 재작업 필요')}
     </div>`;
