@@ -6218,6 +6218,9 @@ function renderShipping() {
   // 교품 처리된 시리얼 (출고 목록에서 제외)
   const exchangedSerials = new Set((exchangeList||[]).map(x => String(x.serial)));
 
+  // ⭐ 출고 제외(보류) 시리얼 — 세션 동안 유지 (자동 동기화로 되돌아오지 않게)
+  if(!window._shipExcluded) window._shipExcluded = new Set();
+
   // ⭐ v2.3: 에이징 24h 필터 제거. 검수완료 상태만 단일 기준으로 분류.
   if(!window._shipOk) {
     const ok = [], hold = [];
@@ -6228,11 +6231,14 @@ function renderShipping() {
     }).forEach(e => {
       const repairDT = new Date(e.date);
       const s = String(e.status || '');
-      // 검수완료 또는 (마이그레이션 이전 빈 상태) → 출고 가능
-      // 에이징 중 / 검수대기 / 불량 → 보류
-      if(s === STATUS_INSPECTED || s === '') {
+      // 사용자가 출고 제외한 건 → 보류
+      if(window._shipExcluded.has(String(e.serial))) {
+        hold.push({ entry: e, repairDT, status: s, excluded: true });
+      } else if(s === STATUS_INSPECTED || s === '') {
+        // 검수완료 또는 (마이그레이션 이전 빈 상태) → 출고 가능
         ok.push({ entry: e, repairDT });
       } else {
+        // 에이징 중 / 검수대기 / 불량 → 보류
         hold.push({ entry: e, repairDT, status: s });
       }
     });
@@ -6339,27 +6345,7 @@ function renderShipping() {
     </div>`;
   }
 
-  // 출고 완료 목록 (오늘 날짜)
-  if(todayShipped.length) {
-    h += `<div class="card" style="padding:0;">
-      <div style="padding:12px 18px;border-bottom:1px solid var(--border);">
-        <span style="font-size:13px;font-weight:700;color:#16a34a;">✅ 출고 완료 (${todayShipped.length}건)</span>
-      </div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>출고 시간</th></tr></thead>
-        <tbody>${todayShipped.map(x => {
-          const e = findEntryBySerial(x.serial);
-          return `<tr>
-            <td>${(() => { const __m = normalizeModel(x.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
-            <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.serial)}')" title="클릭하면 복사">${x.serial}</span></td>
-            <td>${x.worker||'-'}</td>
-            <td>${workTags(e?e.works:'[]')}</td>
-            <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(new Date(x.shipDate))}</td>
-          </tr>`;
-        }).join('')}</tbody>
-      </table></div>
-    </div>`;
-  }
+  // (출고 완료 목록은 '출고 현황' 탭에 별도로 있으므로 출고 관리 화면에선 표시하지 않음)
 
   if(resultEl) resultEl.innerHTML = h;
 }
@@ -6504,25 +6490,29 @@ function onShipCheckChange() {
 }
 
 function excludeSelected() {
-  // 체크된 항목을 출고 가능 → 보류로 이동
-  const checkedIdxs = [...document.querySelectorAll('.ship-row-check:checked')]
-    .map(cb => parseInt(cb.dataset.idx))
-    .sort((a,b) => b - a); // 뒤에서부터 제거
-
-  checkedIdxs.forEach(i => {
-    const item = window._shipOk.splice(i, 1)[0];
-    if(item) {
-      window._shipHold.unshift(item);
-    }
-  });
+  // 체크된 항목을 출고 제외(보류)로 — 시리얼 기준 + Set에 등록(동기화로 안 되돌아오게)
+  const serials = [...document.querySelectorAll('.ship-row-check:checked')]
+    .map(cb => cb.dataset.serial)
+    .filter(Boolean);
+  if(!serials.length) { notify('제외할 항목을 선택하세요.', 'error'); return; }
+  if(!window._shipExcluded) window._shipExcluded = new Set();
+  serials.forEach(s => window._shipExcluded.add(String(s)));
+  window._shipOk = null; // 재구성 → 제외 Set 반영
   renderShipping();
-  notify(`${checkedIdxs.length}건을 보류로 이동했습니다.`);
+  notify(`${serials.length}건을 출고 제외(보류)했습니다.`);
 }
 
 function moveToOk(i) {
   const item = window._shipHold.splice(i, 1)[0];
-  item.excluded = false;
-  window._shipOk.unshift(item);
+  if(item) {
+    item.excluded = false;
+    if(window._shipExcluded && item.entry) window._shipExcluded.delete(String(item.entry.serial));
+    // 검수완료 상태일 때만 출고 가능으로 (보류 사유가 상태면 그대로 둠)
+    const s = item.entry ? String(item.entry.status||'') : '';
+    if(s === STATUS_INSPECTED || s === '') {
+      window._shipOk.unshift(item);
+    }
+  }
   renderShipping();
   notify('출고 목록에 추가되었습니다.');
 }
