@@ -2247,6 +2247,7 @@ const STATUS_AGING_PASS = 'aging_pass';
 const STATUS_INSPECTED = 'inspected';
 const STATUS_DEFECT = 'defect';  // ⭐ 불량 발견 - 재작업 대기
 const STATUS_SHIPPED = 'shipped';
+const STATUS_HOLD = 'hold';  // ⭐ 출고 보류 (멀쩡하지만 이번 출고분 아님 — 사용자가 출고에서 제외)
 
 // === 검수 시스템: 불량 유형 ===
 const DEFECT_TYPES = {
@@ -6223,7 +6224,7 @@ function renderShipping() {
 
   // ⭐ v2.3: 에이징 24h 필터 제거. 검수완료 상태만 단일 기준으로 분류.
   if(!window._shipOk) {
-    const ok = [], hold = [];
+    const ok = [], hold = [], holdExcluded = [];
     entries.filter(e => {
       if(shippedSerials.has(String(e.serial))) return false;
       if(exchangedSerials.has(String(e.serial))) return false;
@@ -6231,21 +6232,23 @@ function renderShipping() {
     }).forEach(e => {
       const repairDT = new Date(e.date);
       const s = String(e.status || '');
-      // 사용자가 출고 제외한 건 → 보류
-      if(window._shipExcluded.has(String(e.serial))) {
-        hold.push({ entry: e, repairDT, status: s, excluded: true });
+      if(s === STATUS_HOLD) {
+        // 출고 보류 (사용자가 출고에서 제외 — 서버에 저장됨)
+        holdExcluded.push({ entry: e, repairDT, status: s, excluded: true });
       } else if(s === STATUS_INSPECTED || s === '') {
         // 검수완료 또는 (마이그레이션 이전 빈 상태) → 출고 가능
         ok.push({ entry: e, repairDT });
       } else {
-        // 에이징 중 / 검수대기 / 불량 → 보류
+        // 에이징 중 / 검수대기 / 불량 → 검수 진행 중 보류
         hold.push({ entry: e, repairDT, status: s });
       }
     });
     ok.sort((a,b) => b.repairDT - a.repairDT);
     hold.sort((a,b) => b.repairDT - a.repairDT);
+    holdExcluded.sort((a,b) => b.repairDT - a.repairDT);
     window._shipOk = ok;
     window._shipHold = hold;
+    window._shipHoldExcluded = holdExcluded;
   }
 
   const ok = window._shipOk;
@@ -6312,7 +6315,30 @@ function renderShipping() {
     </table></div>
   </div>`;
 
-  // 보류 테이블
+  // ⭐ 출고 보류 테이블 (사용자가 제외 — 서버 저장됨, 멀쩡하지만 이번 출고분 아님)
+  const holdExcluded = window._shipHoldExcluded || [];
+  if(holdExcluded.length) {
+    h += `<div class="card" style="padding:0;margin-bottom:12px;border:1px solid #f59e0b;">
+      <div style="padding:12px 18px;border-bottom:1px solid var(--border);background:rgba(245,158,11,.08);">
+        <span style="font-size:13px;font-weight:700;color:#d97706;">⏸️ 출고 보류 (${holdExcluded.length}건)</span>
+        <span style="font-size:11px;color:var(--text2);margin-left:6px;">출고에서 제외한 건 · 새로고침해도 유지됨</span>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>특이사항</th><th></th></tr></thead>
+        <tbody>${holdExcluded.map((x,i) => `<tr>
+          <td>${(() => { const __m = normalizeModel(x.entry.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
+          <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${x.entry.serial}</span></td>
+          <td>${x.entry.worker}</td>
+          <td>${workTags(x.entry.works)}</td>
+          <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
+          <td style="font-size:12px;color:${x.entry.note?'var(--amber-text)':'var(--text3)'};">${x.entry.note||'-'}</td>
+          <td><button class="btn btn-sm btn-primary" onclick="moveExcludedToOk(${i})" style="background:#10b981;">↩️ 출고 가능으로</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+  }
+
+  // 보류 테이블 (검수 진행 중)
   if(hold.length) {
     h += `<div class="card" style="padding:0;margin-bottom:12px;">
       <div style="padding:12px 18px;border-bottom:1px solid var(--border);">
@@ -6489,25 +6515,38 @@ function onShipCheckChange() {
   }
 }
 
-function excludeSelected() {
-  // 체크된 항목을 출고 제외(보류)로 — 시리얼 기준 + Set에 등록(동기화로 안 되돌아오게)
+async function excludeSelected() {
+  // 체크된 항목을 출고 보류로 — 서버에 status=hold 저장 (새로고침/재로그인해도 유지)
   const serials = [...document.querySelectorAll('.ship-row-check:checked')]
     .map(cb => cb.dataset.serial)
     .filter(Boolean);
   if(!serials.length) { notify('제외할 항목을 선택하세요.', 'error'); return; }
-  if(!window._shipExcluded) window._shipExcluded = new Set();
-  serials.forEach(s => window._shipExcluded.add(String(s)));
-  window._shipOk = null; // 재구성 → 제외 Set 반영
-  renderShipping();
-  notify(`${serials.length}건을 출고 제외(보류)했습니다.`);
+
+  openModal('출고 보류 처리', `선택한 ${serials.length}건을 출고 보류로 옮길까요?\n(출고 가능 목록에서 빠지고, 보류함에 보관됩니다)`, async () => {
+    try {
+      notifyPersist('보류 처리 중...');
+      for(const serial of serials) {
+        const e = entries.find(x => String(x.serial) === String(serial));
+        if(!e) continue;
+        await gasCall({ action: 'updateRepairStatus', id: e.id, newStatus: STATUS_HOLD });
+        const idx = entries.findIndex(x => String(x.id) === String(e.id));
+        if(idx >= 0) entries[idx].status = STATUS_HOLD;
+      }
+      window._shipOk = null; // 재구성
+      renderShipping();
+      notify(`${serials.length}건을 출고 보류로 옮겼습니다.`);
+      setTimeout(() => syncData(true), 300);
+    } catch(err) {
+      notify('실패: ' + (err.message||err), 'error');
+    }
+  });
 }
 
+// 검수 진행 중 보류 → (상태는 그대로 두고 화면에서만 출고 가능으로) — 기존 동작
 function moveToOk(i) {
   const item = window._shipHold.splice(i, 1)[0];
   if(item) {
     item.excluded = false;
-    if(window._shipExcluded && item.entry) window._shipExcluded.delete(String(item.entry.serial));
-    // 검수완료 상태일 때만 출고 가능으로 (보류 사유가 상태면 그대로 둠)
     const s = item.entry ? String(item.entry.status||'') : '';
     if(s === STATUS_INSPECTED || s === '') {
       window._shipOk.unshift(item);
@@ -6515,6 +6554,25 @@ function moveToOk(i) {
   }
   renderShipping();
   notify('출고 목록에 추가되었습니다.');
+}
+
+// ⭐ 출고 보류 → 출고 가능으로 (서버에 status=inspected 저장)
+async function moveExcludedToOk(i) {
+  const item = (window._shipHoldExcluded || [])[i];
+  if(!item || !item.entry) return;
+  const e = item.entry;
+  try {
+    notifyPersist('처리 중...');
+    await gasCall({ action: 'updateRepairStatus', id: e.id, newStatus: STATUS_INSPECTED });
+    const idx = entries.findIndex(x => String(x.id) === String(e.id));
+    if(idx >= 0) entries[idx].status = STATUS_INSPECTED;
+    window._shipOk = null;
+    renderShipping();
+    notify('출고 가능으로 되돌렸습니다.');
+    setTimeout(() => syncData(true), 300);
+  } catch(err) {
+    notify('실패: ' + (err.message||err), 'error');
+  }
 }
 
 function completeShipping() {
@@ -8947,6 +9005,7 @@ function getEntryStatusInfo(e) {
   if(s === STATUS_AGING_PASS)  return { label:'검수대기',     color:'#2563eb', bg:'#dbeafe', icon:'🧪', sub: hasFail ? '🔄 재작업 복귀건' : '신규' };
   if(s === STATUS_INSPECTED || s === '') return { label:'출고대기', color:'#7c3aed', bg:'#ede9fe', icon:'🚚', sub:'검수완료 — 출고 가능' };
   if(s === STATUS_SHIPPED)     return { label:'출고완료',     color:'#16a34a', bg:'#dcfce7', icon:'📦', sub:'' };
+  if(s === STATUS_HOLD)        return { label:'출고보류',     color:'#d97706', bg:'#fef3c7', icon:'⏸️', sub:'출고에서 제외됨' };
   return { label: s || '-', color:'var(--text2)', bg:'var(--surface)', icon:'', sub:'' };
 }
 function statusBadgeHtml(e) {
