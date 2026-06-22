@@ -12378,6 +12378,23 @@ function renderWorkers() {
       </div>
     </div>`;
   }).join('');
+
+  // ⭐ 주차별 목표 단계 안내표 (입사 후 1주차 → 정착) — 참고용
+  const rampCells = KPI_RAMP_SCHEDULE.map((v, i) => {
+    const settled = v >= KPI_STD_DAILY;
+    return `<div style="flex:1;min-width:42px;text-align:center;padding:8px 3px;border-radius:7px;background:${settled?'#dcfce7':'#fff7ed'};">
+      <div style="font-size:10px;color:var(--text3);">${i+1}주</div>
+      <div style="font-size:16px;font-weight:700;color:${settled?'#16a34a':'#d97706'};">${v}</div>
+    </div>`;
+  }).join('');
+  el.innerHTML += `
+    <div class="card" style="padding:0;margin-top:16px;">
+      <div style="padding:13px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">📈 주차별 목표 단계 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 입사 후 주차별 1일 목표 (신규 엔지니어 램프업 기준)</span></div>
+      <div style="padding:14px 18px;">
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">${rampCells}</div>
+        <div style="margin-top:10px;font-size:12px;color:var(--text2);line-height:1.6;">입사 후 단계적으로 늘어나 <b>8주차(약 2개월)에 ${KPI_STD_DAILY}건</b>으로 안착해요. 각 엔지니어의 입사일을 설정하면 이 기준으로 일일 목표가 자동 계산됩니다.</div>
+      </div>
+    </div>`;
 }
 
 async function saveTier(name, tier) {
