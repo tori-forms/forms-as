@@ -1916,6 +1916,19 @@ window.addEventListener('DOMContentLoaded', function(){
       <button class="login-back-btn" onclick="showLoginStep1()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>뒤로</button>
     </div>
 
+    <!-- Step 2D: 엔지니어/QC 비밀번호 입력·설정 -->
+    <div id="login-step-pw" style="display:none;">
+      <div class="login-title" id="pw-login-title">🔧 비밀번호 입력</div>
+      <div class="login-sub" id="pw-login-sub">비밀번호를 입력해주세요</div>
+      <div style="font-size:13px;color:var(--text2);margin:14px 0 10px;font-weight:600;" id="pw-login-name">—</div>
+      <div class="login-master-row" style="flex-direction:column;gap:8px;">
+        <input type="password" id="pw-login-input1" placeholder="비밀번호" style="width:100%;" autocomplete="off" onkeydown="if(event.key==='Enter') pwLoginSubmit()">
+        <input type="password" id="pw-login-input2" placeholder="비밀번호 확인 (다시 입력)" style="width:100%;display:none;" autocomplete="off" onkeydown="if(event.key==='Enter') pwLoginSubmit()">
+        <button class="btn btn-primary" style="width:100%;" onclick="pwLoginSubmit()" id="pw-login-btn">확인</button>
+      </div>
+      <button class="login-back-btn" onclick="pwLoginBack()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>뒤로</button>
+    </div>
+
     <!-- Step 2B: 관리자 로그인 -->
     <div id="login-step-admin" style="display:none;">
       <div class="login-title">관리자 로그인</div>
@@ -3097,7 +3110,7 @@ function buildLoginGrid() {
     const badge = (r === 'both')
       ? `<span style="display:inline-block;padding:2px 6px;border-radius:6px;background:#10b981;color:#fff;font-size:10px;font-weight:600;margin-left:4px;">🔧+🔍</span>`
       : '';
-    return `<button class="login-btn" onclick="loginAs('${w}')">${w}${tierBadge(tierMap[w]||'')}${badge}</button>`;
+    return `<button class="login-btn" onclick="pwLoginStart('${w}','engineer')">${w}${tierBadge(tierMap[w]||'')}${badge}</button>`;
   }).join('');
 }
 
@@ -3117,7 +3130,7 @@ function buildQCGrid() {
   grid.innerHTML = list.map(w => {
     const r = roleMap[w] || 'engineer';
     const badgeIcon = (r === 'both') ? '🔧+🔍' : '🔍';
-    return `<button class="login-btn" onclick="loginAs('${w}')" style="border-color:#10b981;background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(16,185,129,0.03));">${w}<span style="display:inline-block;padding:2px 6px;border-radius:6px;background:#10b981;color:#fff;font-size:10px;font-weight:600;margin-left:4px;">${badgeIcon}</span>${tierBadge(tierMap[w]||'')}</button>`;
+    return `<button class="login-btn" onclick="pwLoginStart('${w}','qc')" style="border-color:#10b981;background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(16,185,129,0.03));">${w}<span style="display:inline-block;padding:2px 6px;border-radius:6px;background:#10b981;color:#fff;font-size:10px;font-weight:600;margin-left:4px;">${badgeIcon}</span>${tierBadge(tierMap[w]||'')}</button>`;
   }).join('');
 }
 
@@ -3148,6 +3161,14 @@ function buildAdminGrid() {
 
 // 로그인 단계 전환
 let _selectedAdminName = null;
+let _pwLoginName = null;     // 비번 입력 중인 엔지니어/QC 이름
+let _pwLoginRole = null;     // 'engineer' | 'qc'
+let _pwLoginIsSetup = false; // 신규 설정 모드 여부
+
+function _hidePwStep() {
+  const s = document.getElementById('login-step-pw');
+  if(s) s.style.display = 'none';
+}
 
 function showLoginStep1() {
   document.getElementById('login-step-1').style.display = 'block';
@@ -3155,6 +3176,7 @@ function showLoginStep1() {
   document.getElementById('login-step-admin').style.display = 'none';
   const qcStep = document.getElementById('login-step-qc');
   if(qcStep) qcStep.style.display = 'none';
+  _hidePwStep();
   document.getElementById('login-error').textContent = '';
   _selectedAdminName = null;
 }
@@ -3165,6 +3187,7 @@ function showLoginEngineer() {
   document.getElementById('login-step-admin').style.display = 'none';
   const qcStep = document.getElementById('login-step-qc');
   if(qcStep) qcStep.style.display = 'none';
+  _hidePwStep();
   buildLoginGrid();
 }
 
@@ -3175,6 +3198,7 @@ function showLoginQC() {
   document.getElementById('login-step-admin').style.display = 'none';
   const qcStep = document.getElementById('login-step-qc');
   if(qcStep) qcStep.style.display = 'block';
+  _hidePwStep();
   buildQCGrid();
 }
 
@@ -3184,10 +3208,91 @@ function showLoginAdmin() {
   document.getElementById('login-step-admin').style.display = 'block';
   const qcStep = document.getElementById('login-step-qc');
   if(qcStep) qcStep.style.display = 'none';
+  _hidePwStep();
   buildAdminGrid();
   document.getElementById('admin-selected-name').textContent = '선택된 관리자: —';
   document.getElementById('master-pw').value = '';
   _selectedAdminName = null;
+}
+
+// ⭐ 엔지니어/QC 비밀번호 로그인 — 이름 클릭 시 진입
+function pwLoginStart(name, role) {
+  _pwLoginName = name;
+  _pwLoginRole = role || 'engineer';
+  const pwMap = window.PASSWORD_MAP || {};
+  const hasPw = !!pwMap[name];
+  _pwLoginIsSetup = !hasPw;  // 비번 미등록이면 '설정' 모드
+
+  // 단계 전환
+  document.getElementById('login-step-1').style.display = 'none';
+  document.getElementById('login-step-engineer').style.display = 'none';
+  const qcStep = document.getElementById('login-step-qc');
+  if(qcStep) qcStep.style.display = 'none';
+  document.getElementById('login-step-admin').style.display = 'none';
+  document.getElementById('login-step-pw').style.display = 'block';
+  document.getElementById('login-error').textContent = '';
+
+  const isQC = (_pwLoginRole === 'qc');
+  document.getElementById('pw-login-title').textContent = isQC ? '🔍 QC 로그인' : '🔧 엔지니어 로그인';
+  document.getElementById('pw-login-name').textContent = name + ' 님';
+  const i1 = document.getElementById('pw-login-input1');
+  const i2 = document.getElementById('pw-login-input2');
+  i1.value = ''; i2.value = '';
+
+  if(_pwLoginIsSetup) {
+    document.getElementById('pw-login-sub').textContent = '처음 로그인이에요. 새 비밀번호를 설정해주세요 (4자 이상).';
+    i1.placeholder = '새 비밀번호 (4자 이상)';
+    i2.style.display = 'block';
+    document.getElementById('pw-login-btn').textContent = '설정하고 입장';
+  } else {
+    document.getElementById('pw-login-sub').textContent = '비밀번호를 입력해주세요';
+    i1.placeholder = '비밀번호';
+    i2.style.display = 'none';
+    document.getElementById('pw-login-btn').textContent = '확인';
+  }
+  setTimeout(() => i1.focus(), 100);
+}
+
+function pwLoginBack() {
+  // 들어왔던 역할에 맞는 그리드로 복귀
+  if(_pwLoginRole === 'qc') showLoginQC();
+  else showLoginEngineer();
+}
+
+async function pwLoginSubmit() {
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  const name = _pwLoginName;
+  if(!name) { showLoginStep1(); return; }
+  const pw1 = document.getElementById('pw-login-input1').value;
+
+  if(_pwLoginIsSetup) {
+    // 신규 비번 설정
+    const pw2 = document.getElementById('pw-login-input2').value;
+    if(pw1.length < 4) { errEl.textContent = '비밀번호는 4자 이상이어야 합니다.'; return; }
+    if(pw1 !== pw2) { errEl.textContent = '비밀번호 확인이 일치하지 않습니다.'; return; }
+    const newHash = await sha256(pw1);
+    try {
+      await gasCall({ action: 'savePassword', name: name, hash: newHash });
+      if(!window.PASSWORD_MAP) window.PASSWORD_MAP = {};
+      window.PASSWORD_MAP[name] = newHash;
+      setTimeout(() => notify('비밀번호가 설정되었습니다. 다음부터 이 비밀번호로 로그인하세요.'), 600);
+      loginAs(name);
+    } catch(e) {
+      errEl.textContent = '저장 실패. 잠시 후 다시 시도해주세요.';
+      console.error(e);
+    }
+  } else {
+    // 기존 비번 검증
+    const h = await sha256(pw1);
+    const pwMap = window.PASSWORD_MAP || {};
+    if(h === pwMap[name]) {
+      loginAs(name);
+    } else {
+      errEl.textContent = '비밀번호가 틀렸습니다.';
+      document.getElementById('pw-login-input1').value = '';
+    }
+  }
 }
 
 // 관리자 이름 선택
@@ -3210,6 +3315,7 @@ function logout() {
   if(badge) { badge.style.display = 'none'; badge.textContent = ''; }
   const overlay = document.getElementById('login-overlay');
   if(overlay) overlay.style.display = 'flex';
+  if(typeof showLoginStep1 === 'function') showLoginStep1();
   // 관리자/엔지니어 전용 탭 숨김
   const navMy = document.getElementById('nav-mydash');
   if(navMy) navMy.style.display = 'none';
@@ -3225,7 +3331,7 @@ function logout() {
 
 // ─────────── 비밀번호 변경 ───────────
 function openChangePasswordModal() {
-  if(!currentUser || !isAdmin) return;
+  if(!currentUser) return;
   document.getElementById('change-pw-user').textContent = '사용자: ' + currentUser;
   document.getElementById('cpw-current').value = '';
   document.getElementById('cpw-new1').value = '';
@@ -3259,7 +3365,7 @@ async function submitPasswordChange() {
   } else if(currentUser === MASTER_NAME) {
     curOk = (curHash === MASTER_PW_HASH);
   } else {
-    // 비밀번호 미등록 관리자: 빈 비번 허용 (첫 설정)
+    // 비밀번호 미등록 사용자(관리자/엔지니어): 빈 비번 허용 (첫 설정)
     curOk = (cur === '');
   }
   if(!curOk) { errorEl.textContent = '현재 비밀번호가 틀렸습니다.'; return; }
@@ -3302,9 +3408,9 @@ function loginAs(name) {
   else if(role === 'inspector') prefix = '🔍 ';
   else if(role === 'both') prefix = '🔧+🔍 ';
   document.getElementById('current-user-badge').textContent = prefix + name;
-  // 관리자만 🔑 버튼 표시
+  // 🔑 비밀번호 변경 버튼 — 모든 사용자 표시
   const cpwBtn = document.getElementById('change-pw-btn');
-  if(cpwBtn) cpwBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+  if(cpwBtn) cpwBtn.style.display = 'inline-flex';
   renderWorkerSel();
   updateAdminNav();
   // ⭐ v2.3: 메뉴 가시성 처리
