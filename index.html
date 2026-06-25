@@ -2055,6 +2055,13 @@ window.addEventListener('DOMContentLoaded', function(){
     <!-- 스크롤 가능한 본문 -->
     <div style="overflow-y:auto;flex:1;padding:20px 24px;">
       <div class="form-group" style="margin-bottom:14px;">
+        <label class="form-label">시리얼 번호 / 기종 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 잘못 입력했으면 여기서 수정</span></label>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <input type="text" id="edit-serial" placeholder="시리얼 번호" style="flex:2;height:38px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:13px;background:var(--surface);color:var(--text);text-transform:uppercase;" />
+          <input type="text" id="edit-model" placeholder="기종 (예: S2PRO_N)" style="flex:1;height:38px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:13px;background:var(--surface);color:var(--text);" />
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
         <label class="form-label">수리 항목</label>
         <div id="edit-work-checks" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:4px;"></div>
       </div>
@@ -10396,7 +10403,11 @@ function openEditModal(id) {
       });
     }
   }
-  document.getElementById('edit-serial-label').textContent = `시리얼: ${e.serial}  |  엔지니어: ${e.worker}`;
+  document.getElementById('edit-serial-label').textContent = `엔지니어: ${e.worker}`;
+  const serialInput = document.getElementById('edit-serial');
+  const modelInput = document.getElementById('edit-model');
+  if(serialInput) serialInput.value = e.serial || '';
+  if(modelInput) modelInput.value = e.model || '';
   const ws = parseWorks(e.works);
   const orderedEditEntries = WORK_DISPLAY_ORDER
     .filter(k => WORKS[k])
@@ -10579,15 +10590,22 @@ async function saveEdit() {
     // parts를 안전한 형식으로 인코딩 (JSON 특수문자 URL 인코딩 오류 방지)
     // 형식: "부품명=수량|부품명=수량" → GAS에서 동일 형식으로 파싱
     const partsSafe = Object.entries(editPartsResult).map(([k,v])=>encodeURIComponent(k)+'='+v).join('|');
-    await gasCall({action:'edit', id:String(editTargetId), works:JSON.stringify(works), total, note, parts:partsSafe});
+    // ⭐ 시리얼/기종 수정값
+    const newSerial = (document.getElementById('edit-serial')?.value || '').trim().toUpperCase();
+    const newModel = (document.getElementById('edit-model')?.value || '').trim();
+    if(!newSerial){ notify('시리얼 번호를 입력하세요.','error'); btn.disabled=false; btn.textContent='저장'; return; }
+    // 다른 수리건과 시리얼 중복 체크
+    const dup = entries.find(x => String(x.id)!==String(editTargetId) && normalizeSerial(x.serial)===normalizeSerial(newSerial));
+    if(dup){ notify(`이미 등록된 시리얼입니다 (${dup.worker}).`,'error'); btn.disabled=false; btn.textContent='저장'; return; }
+    await gasCall({action:'edit', id:String(editTargetId), works:JSON.stringify(works), total, note, parts:partsSafe, serial:newSerial, model:newModel});
 
     // ⭐ v2.36: 로컬 즉시 갱신
     const idx = entries.findIndex(x=>String(x.id)===String(editTargetId));
-    if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; entries[idx].parts=editPartsResult; }
+    if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; entries[idx].parts=editPartsResult; entries[idx].serial=newSerial; entries[idx].model=newModel; }
     // 변경 보호
     markPendingChange('entries', editTargetId, {
       type: 'update',
-      data: { works, total, note, parts: editPartsResult }
+      data: { works, total, note, parts: editPartsResult, serial: newSerial, model: newModel }
     }, 5000);
 
     closeEditModal();
