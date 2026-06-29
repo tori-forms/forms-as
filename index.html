@@ -2673,8 +2673,13 @@ async function syncData(silent=false, force=false) {
     }
     // 서버에 없으면 localStorage 폴백 (관리자 기기에서 설정된 값)
     if(!window.PARTS_PRICE) loadPriceSettings();
-    // 비밀번호 맵 (이름 → SHA-256 해시)
-    window.PASSWORD_MAP = data.passwordMap || {};
+    // 비밀번호 맵 (이름 → SHA-256 해시) — 키 앞뒤 공백 제거해 정규화
+    const _rawPw = data.passwordMap || {};
+    window.PASSWORD_MAP = {};
+    Object.keys(_rawPw).forEach(k => {
+      const nk = String(k).trim();
+      if(nk) window.PASSWORD_MAP[nk] = _rawPw[k];
+    });
     // 출고 이력도 같이 로드
     if(data.shipLog) {
       shipHistory = data.shipLog;
@@ -3057,6 +3062,19 @@ async function sha256(str) {
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
+// ⭐ 비밀번호 해시 조회 — 이름 앞뒤 공백 무시하고 PASSWORD_MAP에서 찾음
+function getPwHash(name) {
+  const pwMap = window.PASSWORD_MAP || {};
+  if(name == null) return '';
+  const key = String(name).trim();
+  if(pwMap[key]) return pwMap[key];
+  // 혹시 저장된 키 쪽에 공백이 있을 수도 있으니 trim 비교로 한 번 더 탐색
+  for(const k in pwMap) {
+    if(String(k).trim() === key) return pwMap[k];
+  }
+  return '';
+}
+
 const TIER_COLORS = {
   T1: { bg:'#f8f8f8', color:'#888', border:'#ddd', label:'T1' },
   T2: { bg:'#f4ede4', color:'#a0522d', border:'#cd7f32', label:'T2' },
@@ -3233,9 +3251,18 @@ function showLoginAdmin() {
 function pwLoginStart(name, role) {
   _pwLoginName = name;
   _pwLoginRole = role || 'engineer';
-  const pwMap = window.PASSWORD_MAP || {};
-  const hasPw = !!pwMap[name];
+  const hasPw = !!getPwHash(name);
   _pwLoginIsSetup = !hasPw;  // 비번 미등록이면 '설정' 모드
+  // 🐞 디버그: 비번 매칭 진단 (문제 해결 후 제거 가능)
+  try {
+    console.log('[PW-LOGIN]', JSON.stringify({
+      clicked: name,
+      clickedLen: String(name).length,
+      hasPw: hasPw,
+      keys: Object.keys(window.PASSWORD_MAP || {}),
+      directHit: !!(window.PASSWORD_MAP||{})[name]
+    }));
+  } catch(e){}
 
   // 단계 전환
   document.getElementById('login-step-1').style.display = 'none';
@@ -3299,8 +3326,7 @@ async function pwLoginSubmit() {
   } else {
     // 기존 비번 검증
     const h = await sha256(pw1);
-    const pwMap = window.PASSWORD_MAP || {};
-    if(h === pwMap[name]) {
+    if(h === getPwHash(name)) {
       loginAs(name);
     } else {
       errEl.textContent = '비밀번호가 틀렸습니다.';
@@ -3370,8 +3396,7 @@ async function submitPasswordChange() {
   if(new1 !== new2) { errorEl.textContent = '새 비밀번호와 확인이 일치하지 않습니다.'; return; }
 
   // 현재 비밀번호 검증
-  const pwMap = window.PASSWORD_MAP || {};
-  const storedHash = pwMap[currentUser] || '';
+  const storedHash = getPwHash(currentUser);
   const curHash = await sha256(cur);
   let curOk = false;
   if(storedHash) {
@@ -3454,8 +3479,7 @@ async function loginMaster() {
   }
   const pw = document.getElementById('master-pw').value;
   const h = await sha256(pw);
-  const pwMap = window.PASSWORD_MAP || {};
-  const storedHash = pwMap[_selectedAdminName] || '';
+  const storedHash = getPwHash(_selectedAdminName);
 
   let ok = false;
   if(storedHash) {
