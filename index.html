@@ -10239,6 +10239,8 @@ async function appendMissSummary(containerEl) {
   html += `</div>`;
   containerEl.insertAdjacentHTML('beforeend', html);
 }
+
+async function renderMyDash() {
   const el = document.getElementById('mydash-body');
   const titleEl = document.getElementById('mydash-title');
   if(!el || !currentUser) return;
