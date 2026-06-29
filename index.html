@@ -1495,6 +1495,12 @@ window.addEventListener('DOMContentLoaded', function(){
       <button id="stocktab-usage" onclick="switchStockTab('usage')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
         📊 부품 사용량
       </button>
+      <button id="stocktab-order" onclick="switchStockTab('order')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
+        🛒 발주 리스트
+      </button>
+      <button id="stocktab-audit" onclick="switchStockTab('audit')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
+        📋 재고 실사
+      </button>
     </div>
     <div id="stock-inventory-panel">
       <div id="stock-content"></div>
@@ -1504,6 +1510,12 @@ window.addEventListener('DOMContentLoaded', function(){
     </div>
     <div id="stock-usage-panel" style="display:none;">
       <div id="usage-content"></div>
+    </div>
+    <div id="stock-order-panel" style="display:none;">
+      <div id="order-content"></div>
+    </div>
+    <div id="stock-audit-panel" style="display:none;">
+      <div id="audit-content"></div>
     </div>
   </div>
 
@@ -5252,6 +5264,8 @@ function switchInspectSubtab(which) {
     renderDefectList();
   } else if(which === 'dashboard') {
     if(!dashBtn || !dashPanel) return;
+    // ⭐ 품질 대시보드는 QC(inspector/both) + T3/T4만 — 권한 없으면 검수대기로
+    if(!canInspect(currentUser)) { switchInspectSubtab('wait'); return; }
     dashBtn.style.borderBottomColor = '#8b5cf6';
     dashBtn.style.color = '#8b5cf6';
     dashBtn.style.fontWeight = '700';
@@ -13222,15 +13236,17 @@ function switchStockTab(tab) {
   const inventoryPanel = document.getElementById('stock-inventory-panel');
   const ppmPanel = document.getElementById('stock-ppm-panel');
   const usagePanel = document.getElementById('stock-usage-panel');
+  const orderPanel = document.getElementById('stock-order-panel');
+  const auditPanel = document.getElementById('stock-audit-panel');
   const invBtn = document.getElementById('stocktab-inventory');
   const ppmBtn = document.getElementById('stocktab-ppm');
   const usageBtn = document.getElementById('stocktab-usage');
+  const orderBtn = document.getElementById('stocktab-order');
+  const auditBtn = document.getElementById('stocktab-audit');
 
   // 모든 패널 숨기고 모든 버튼 비활성화
-  if(inventoryPanel) inventoryPanel.style.display = 'none';
-  if(ppmPanel) ppmPanel.style.display = 'none';
-  if(usagePanel) usagePanel.style.display = 'none';
-  [invBtn, ppmBtn, usageBtn].forEach(b => {
+  [inventoryPanel, ppmPanel, usagePanel, orderPanel, auditPanel].forEach(p => { if(p) p.style.display = 'none'; });
+  [invBtn, ppmBtn, usageBtn, orderBtn, auditBtn].forEach(b => {
     if(b) { b.style.borderBottomColor = 'transparent'; b.style.color = 'var(--text2)'; }
   });
 
@@ -13245,7 +13261,15 @@ function switchStockTab(tab) {
   } else if(tab === 'usage') {
     usagePanel.style.display = 'block';
     if(usageBtn) { usageBtn.style.borderBottomColor = 'var(--accent)'; usageBtn.style.color = 'var(--accent)'; }
-    renderPartsUsage();
+    renderPartsUsageTrend();
+  } else if(tab === 'order') {
+    orderPanel.style.display = 'block';
+    if(orderBtn) { orderBtn.style.borderBottomColor = 'var(--accent)'; orderBtn.style.color = 'var(--accent)'; }
+    renderOrderList();
+  } else if(tab === 'audit') {
+    auditPanel.style.display = 'block';
+    if(auditBtn) { auditBtn.style.borderBottomColor = 'var(--accent)'; auditBtn.style.color = 'var(--accent)'; }
+    renderStockAudit();
   }
 }
 
@@ -13803,6 +13827,188 @@ function renderStock() {
       </tr>`).join('')}</tbody>
     </table></div></div>`;
   }
+  el.innerHTML = h;
+}
+
+// ⭐ 발주 리스트 — 최소재고 이하(부족/없음) 부품 모아서 발주 목록
+function renderOrderList() {
+  const el = document.getElementById('order-content');
+  if(!el) return;
+  const low = (stock||[]).filter(p => p.qty <= (p.minQty||0)).sort((a,b)=>(a.qty-a.minQty)-(b.qty-b.minQty));
+  if(!low.length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">✅</div>발주가 필요한 부품이 없습니다.<br><span style="font-size:12px;color:var(--text3);">모든 부품이 최소재고 이상입니다.</span></div>`;
+    return;
+  }
+  // 최근 30일 일평균 소모량으로 권장 발주량 추정
+  const now = Date.now();
+  const since = now - 30*86400000;
+  const usedByPart = {};
+  (stockLog||[]).forEach(l => {
+    if(l.type !== 'out') return;
+    const t = new Date(l.date).getTime();
+    if(isNaN(t) || t < since) return;
+    usedByPart[l.partName] = (usedByPart[l.partName]||0) + Number(l.qty||0);
+  });
+
+  let h = `<div style="font-size:13px;color:var(--text2);margin-bottom:14px;">최소재고 이하 부품 <b style="color:var(--red-text);">${low.length}종</b> · 30일 소모량 기준 권장 발주량 제안</div>`;
+  h += `<div class="card" style="padding:0;"><div class="table-wrap"><table>
+    <thead><tr><th>부품명</th><th>카테고리</th><th style="text-align:right">현재고</th><th style="text-align:right">최소</th><th style="text-align:right">30일 소모</th><th style="text-align:right">권장 발주</th></tr></thead>
+    <tbody>`;
+  low.forEach(p => {
+    const used30 = usedByPart[p.name] || 0;
+    // 권장: 최소재고의 2배까지 채우되, 최근 한달 소모량 이상은 확보
+    const target = Math.max((p.minQty||0)*2, used30);
+    const order = Math.max(0, target - p.qty);
+    const isEmpty = p.qty <= 0;
+    h += `<tr>
+      <td style="font-weight:600;">${escapeHtml(p.name)}</td>
+      <td style="font-size:12px;color:var(--text2);">${escapeHtml(p.category||'기타')}</td>
+      <td style="text-align:right;font-weight:700;color:${isEmpty?'var(--red-text)':'var(--amber-text)'};">${p.qty}</td>
+      <td style="text-align:right;color:var(--text3);">${p.minQty||0}</td>
+      <td style="text-align:right;color:var(--text2);">${used30}</td>
+      <td style="text-align:right;font-weight:700;color:var(--accent);">${order>0?'+'+order:'-'}</td>
+    </tr>`;
+  });
+  h += `</tbody></table></div></div>`;
+  // 복사용 텍스트
+  const copyText = low.map(p => {
+    const used30 = usedByPart[p.name]||0;
+    const order = Math.max(0, Math.max((p.minQty||0)*2, used30) - p.qty);
+    return `${p.name} ${order}개`;
+  }).filter(s=>!s.endsWith(' 0개')).join('\n');
+  h += `<div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
+    <button class="btn btn-sm btn-primary" onclick="copyOrderList()">📋 발주 목록 복사</button>
+    <span style="font-size:11px;color:var(--text3);">권장 발주량만 텍스트로 복사돼요</span>
+  </div>
+  <textarea id="order-copy-text" style="position:absolute;left:-9999px;">${escapeHtml(copyText)}</textarea>`;
+  el.innerHTML = h;
+}
+function copyOrderList() {
+  const ta = document.getElementById('order-copy-text');
+  if(!ta) return;
+  navigator.clipboard.writeText(ta.value).then(()=>notify('발주 목록이 복사되었습니다.')).catch(()=>{
+    ta.style.position='static'; ta.select(); document.execCommand('copy'); ta.style.position='absolute';
+    notify('발주 목록이 복사되었습니다.');
+  });
+}
+
+// ⭐ 재고 실사 — 실물 센 수량 입력 → 장부와 차이 표시 → 조정(입출고 기록)
+function renderStockAudit() {
+  const el = document.getElementById('audit-content');
+  if(!el) return;
+  if(!isAdmin) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">🔒</div>재고 실사는 관리자만 가능합니다.</div>`;
+    return;
+  }
+  if(!(stock||[]).length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">📦</div>등록된 부품이 없습니다.</div>`;
+    return;
+  }
+  let h = `<div style="font-size:13px;color:var(--text2);margin-bottom:14px;">실물을 센 수량을 입력하고 <b>실사 반영</b>을 누르면, 장부 수량이 실제 수량으로 조정돼요 (차이는 입출고 이력에 기록).</div>`;
+  h += `<div class="card" style="padding:0;"><div class="table-wrap"><table>
+    <thead><tr><th>부품명</th><th style="text-align:right">장부</th><th style="text-align:center">실물 수량</th><th style="text-align:right">차이</th></tr></thead>
+    <tbody>`;
+  (stock||[]).forEach(p => {
+    h += `<tr>
+      <td style="font-weight:600;">${escapeHtml(p.name)}</td>
+      <td style="text-align:right;color:var(--text2);" id="audit-book-${p.id}">${p.qty}</td>
+      <td style="text-align:center;"><input type="number" id="audit-real-${p.id}" placeholder="${p.qty}" style="width:80px;height:32px;text-align:center;" oninput="updateAuditDiff('${p.id}')"></td>
+      <td style="text-align:right;font-weight:700;" id="audit-diff-${p.id}">-</td>
+    </tr>`;
+  });
+  h += `</tbody></table></div></div>
+    <div style="margin-top:14px;display:flex;gap:8px;">
+      <button class="btn btn-primary" onclick="applyStockAudit()">✅ 실사 반영</button>
+      <span style="font-size:11px;color:var(--text3);align-self:center;">비워둔 항목은 변동 없음으로 처리</span>
+    </div>`;
+  el.innerHTML = h;
+}
+function updateAuditDiff(id) {
+  const p = (stock||[]).find(x=>String(x.id)===String(id));
+  if(!p) return;
+  const inp = document.getElementById('audit-real-'+id);
+  const diffEl = document.getElementById('audit-diff-'+id);
+  if(!inp || !diffEl) return;
+  if(inp.value === '') { diffEl.textContent = '-'; diffEl.style.color='var(--text3)'; return; }
+  const real = Number(inp.value);
+  const diff = real - p.qty;
+  diffEl.textContent = diff>0?`+${diff}`:`${diff}`;
+  diffEl.style.color = diff===0?'var(--text3)':(diff>0?'var(--green)':'var(--red)');
+}
+async function applyStockAudit() {
+  if(!isAdmin) { notify('관리자만 가능합니다.','error'); return; }
+  const changes = [];
+  (stock||[]).forEach(p => {
+    const inp = document.getElementById('audit-real-'+p.id);
+    if(!inp || inp.value === '') return;
+    const real = Number(inp.value);
+    if(isNaN(real) || real < 0) return;
+    if(real !== p.qty) changes.push({ p, real, diff: real - p.qty });
+  });
+  if(!changes.length) { notify('변경된 항목이 없습니다.'); return; }
+  if(!confirm(`${changes.length}개 부품의 재고를 실사 수량으로 조정합니다. 진행할까요?`)) return;
+  for(const c of changes) {
+    c.p.qty = c.real;
+    const logId = 'l'+Date.now()+(Math.random()*1000|0);
+    const log = { logId, partId:c.p.id, partName:c.p.name, type: c.diff>0?'in':'out', qty:Math.abs(c.diff), note:'재고 실사 조정', date:new Date().toISOString(), worker:currentUser||'' };
+    stockLog.push(log);
+    try { await gasCall({action:'addStockLog', ...log}); } catch(e){}
+  }
+  try { await saveStockToServer(); } catch(e){}
+  notify(`실사 반영 완료: ${changes.length}개 부품 조정됨`);
+  renderStockAudit();
+}
+
+// ⭐ 부품별 월별 소모 추세 (최근 6개월, type='out' 합계)
+function renderPartsUsageTrend() {
+  const el = document.getElementById('usage-content');
+  if(!el) return;
+  const pad = n => String(n).padStart(2,'0');
+  const now = new Date();
+  const months = [];
+  for(let i=5;i>=0;i--){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); months.push({key:`${d.getFullYear()}-${pad(d.getMonth()+1)}`, label:`${d.getMonth()+1}월`}); }
+
+  // 부품별 × 월별 소모(out) 합계
+  const byPart = {};
+  (stockLog||[]).forEach(l => {
+    if(l.type!=='out') return;
+    const key = String(l.date).slice(0,7);  // YYYY-MM
+    if(!months.find(m=>m.key===key)) return;
+    if(!byPart[l.partName]) byPart[l.partName] = {};
+    byPart[l.partName][key] = (byPart[l.partName][key]||0) + Number(l.qty||0);
+  });
+
+  const parts = Object.keys(byPart).map(name => {
+    const counts = months.map(m => byPart[name][m.key]||0);
+    return { name, counts, total: counts.reduce((a,b)=>a+b,0) };
+  }).filter(p=>p.total>0).sort((a,b)=>b.total-a.total);
+
+  if(!parts.length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">📊</div>소모 이력이 없습니다.<br><span style="font-size:12px;color:var(--text3);">수리 시 부품이 차감되면 여기에 추세가 쌓여요.</span></div>`;
+    return;
+  }
+
+  // 부품별 막대 추세 (월별)
+  const colors = ['#2563eb','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16'];
+  let h = `<div style="font-size:13px;color:var(--text2);margin-bottom:14px;">최근 6개월 부품별 소모량 · 발주 계획 참고용</div>`;
+  parts.forEach((p,pi) => {
+    const maxV = Math.max(1, ...p.counts);
+    const c = colors[pi % colors.length];
+    const W=520,H=90,padL=20,padR=10,padT=10,padB=20, plotW=W-padL-padR, plotH=H-padT-padB, bw=plotW/months.length;
+    const bars = p.counts.map((v,i)=>{
+      const bh=plotH*(v/maxV), bx=padL+i*bw+bw*0.15, by=padT+plotH-bh;
+      const lbl = v>0?`<text x="${bx+bw*0.35}" y="${by-2}" text-anchor="middle" font-size="9" fill="var(--text2)">${v}</text>`:'';
+      return `<rect x="${bx}" y="${by}" width="${bw*0.7}" height="${bh}" rx="2" fill="${c}"/>${lbl}<text x="${bx+bw*0.35}" y="${H-6}" text-anchor="middle" font-size="8.5" fill="var(--text3)">${months[i].label}</text>`;
+    }).join('');
+    h += `<div style="margin-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
+        <span style="width:10px;height:10px;border-radius:2px;background:${c};display:inline-block;"></span>
+        <span style="font-size:13px;font-weight:700;color:var(--text);">${escapeHtml(p.name)}</span>
+        <span style="font-size:11px;color:var(--text3);">6개월 ${p.total}개 · 월평균 ${(p.total/6).toFixed(1)}개</span>
+      </div>
+      <div style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:340px;height:auto;display:block;">${bars}</svg></div>
+    </div>`;
+  });
   el.innerHTML = h;
 }
 
