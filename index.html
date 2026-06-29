@@ -177,7 +177,7 @@ tr:hover td{background:var(--surface2);}
 .modal-overlay.open{display:flex;}
 .modal{background:var(--surface);border-radius:var(--radius);padding:24px;width:360px;max-width:90vw;box-shadow:var(--shadow-md);}
 .modal-title{font-size:16px;font-weight:700;margin-bottom:8px;}
-.modal-msg{font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6;}
+.modal-msg{font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6;white-space:pre-line;}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end;}
 
 .section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:12px;flex-wrap:wrap;}
@@ -2159,6 +2159,7 @@ window.addEventListener('DOMContentLoaded', function(){
     <div class="modal-msg" id="modal-msg"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">취소</button>
+      <button class="btn" id="modal-alt" style="display:none;"></button>
       <button class="btn btn-primary" id="modal-ok">확인</button>
     </div>
   </div>
@@ -3011,17 +3012,29 @@ function notifyPersist(msg, type='success') {
 
 /* 모달 */
 let mcb;
-function openModal(title, msg, cb, okText='확인', okClass='btn-primary') {
+let macb;  // 보조 버튼 콜백
+function openModal(title, msg, cb, okText='확인', okClass='btn-primary', opts={}) {
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-msg').textContent = msg;
   const okBtn = document.getElementById('modal-ok');
   okBtn.textContent = okText;
   okBtn.className = 'btn ' + okClass;
+  const altBtn = document.getElementById('modal-alt');
+  if(opts && opts.altText) {
+    altBtn.textContent = opts.altText;
+    altBtn.className = 'btn ' + (opts.altClass || '');
+    altBtn.style.display = '';
+    macb = opts.altCb || null;
+  } else {
+    altBtn.style.display = 'none';
+    macb = null;
+  }
   document.getElementById('modal').classList.add('open');
   mcb = cb;
 }
 function closeModal(){ document.getElementById('modal').classList.remove('open'); }
 document.getElementById('modal-ok').onclick = ()=>{ closeModal(); if(mcb) mcb(); };
+document.getElementById('modal-alt').onclick = ()=>{ closeModal(); if(macb) macb(); };
 
 // 앱 디자인 입력 모달 (prompt 대체). cb(value) 호출, 취소 시 cb 미호출
 function openPromptModal(title, msg, placeholder, cb, okText='확인') {
@@ -11248,54 +11261,64 @@ async function saveEdit() {
 /* 삭제 */
 function delEntry(id) {
   const e = entries.find(x=>String(x.id)===String(id)); if(!e) return;
-  openModal('수리 내역 삭제',`${e.serial} (${e.worker}) 수리 내역을 삭제할까요?`, async()=>{
+  const pc = entryPartsCount(e);
+  const doDelete = async (restore) => {
     try {
       await gasCall({action:'delete', id});
-
-      // ⭐ v2.36: 로컬 즉시 제거 + 삭제 보호 + 화면 갱신
       entries = entries.filter(x=>String(x.id)!==String(id));
       markPendingChange('entries', id, { type: 'delete' }, 5000);
       renderToday();
       renderAll();
-      notify('삭제되었습니다.');
-
-      // ⭐ 부품 재고 원복 (사용량은 entries 역산이라 자동 반영)
-      const pc = entryPartsCount(e);
-      if(pc > 0 && stock.length && confirm(`이 수리에 사용한 부품 ${pc}개를 재고로 복구할까요?\n\n[확인] 재고 다시 채움 (입고 기록 남김)\n[취소] 복구 안 함`)) {
+      if(restore && pc > 0 && stock.length) {
         const restored = await restoreStockForEntry(e);
         try { renderStock(); } catch(e){}
-        notify(`부품 ${restored}개 재고 복구 완료.`);
+        notify(`삭제 완료 · 부품 ${restored}개 재고 복구됨.`);
+      } else {
+        notify('삭제되었습니다.');
       }
-
-      // 백그라운드 검증
       setTimeout(async () => {
         try { await syncData(true, true); } catch(e) { console.warn(e); }
       }, 1500);
     } catch { notify('삭제 실패. 다시 시도해주세요.','error'); }
-  });
+  };
+  if(pc > 0 && stock.length) {
+    openModal('수리 내역 삭제',
+      `${e.serial} (${e.worker}) 수리를 삭제합니다.\n이 수리에 사용한 부품 ${pc}개를 재고로 복구할까요?`,
+      () => doDelete(true),                 // 확인 = 복구하고 삭제
+      '복구하고 삭제', 'btn-primary',
+      { altText:'복구 없이 삭제', altClass:'btn-danger', altCb:() => doDelete(false) });
+  } else {
+    openModal('수리 내역 삭제', `${e.serial} (${e.worker}) 수리 내역을 삭제할까요?`, () => doDelete(false));
+  }
 }
 function delEntryH(id) {
   const e = entries.find(x=>String(x.id)===String(id)); if(!e) return;
-  openModal('수리 내역 삭제',`${e.serial} (${e.worker}) 수리 내역을 삭제할까요?`, async()=>{
+  const pc = entryPartsCount(e);
+  const doDelete = async (restore) => {
     try {
       await gasCall({action:'delete', id});
       entries = entries.filter(x=>String(x.id)!==String(id));
       renderHistory(); renderToday();
-      renderAll(); // ⭐ v2.7: 삭제 후 전체 갱신
-      notify('삭제되었습니다.');
-
-      // ⭐ 부품 재고 원복
-      const pc = entryPartsCount(e);
-      if(pc > 0 && stock.length && confirm(`이 수리에 사용한 부품 ${pc}개를 재고로 복구할까요?\n\n[확인] 재고 다시 채움 (입고 기록 남김)\n[취소] 복구 안 함`)) {
+      renderAll();
+      if(restore && pc > 0 && stock.length) {
         const restored = await restoreStockForEntry(e);
         try { renderStock(); } catch(e){}
-        notify(`부품 ${restored}개 재고 복구 완료.`);
+        notify(`삭제 완료 · 부품 ${restored}개 재고 복구됨.`);
+      } else {
+        notify('삭제되었습니다.');
       }
-
-      // ⭐ v2.15: 삭제 후 즉시 서버 동기화
       setTimeout(() => syncData(true), 100);
     } catch { notify('삭제 실패. 다시 시도해주세요.','error'); }
-  });
+  };
+  if(pc > 0 && stock.length) {
+    openModal('수리 내역 삭제',
+      `${e.serial} (${e.worker}) 수리를 삭제합니다.\n이 수리에 사용한 부품 ${pc}개를 재고로 복구할까요?`,
+      () => doDelete(true),
+      '복구하고 삭제', 'btn-primary',
+      { altText:'복구 없이 삭제', altClass:'btn-danger', altCb:() => doDelete(false) });
+  } else {
+    openModal('수리 내역 삭제', `${e.serial} (${e.worker}) 수리 내역을 삭제할까요?`, () => doDelete(false));
+  }
 }
 
 /* 일일 마감 */
@@ -13976,21 +13999,28 @@ function renderStock() {
     h += '</div>';
   });
 
-  // 최근 이력
+  // 이번 달 부품별 사용량(출고) 집계
   if(stockLog.length) {
-    const recent = [...stockLog].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,10);
-    h += `<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:20px 0 8px;">최근 입출고 이력</div>
-    <div class="card" style="padding:0;"><div class="table-wrap"><table>
-      <thead><tr><th>날짜</th><th>부품명</th><th>구분</th><th style="text-align:right">수량</th><th>메모</th><th>작업자</th></tr></thead>
-      <tbody>${recent.map(l=>`<tr>
-        <td style="font-size:11px;font-family:'JetBrains Mono',monospace;">${fmtDT(l.date)}</td>
-        <td>${l.partName}</td>
-        <td><span class="badge ${l.type==='in'?'badge-ok':'badge-under'}">${l.type==='in'?'입고':'출고'}</span></td>
-        <td style="text-align:right;font-weight:600;color:${l.type==='in'?'var(--green)':'var(--red)'};">${l.type==='in'?'+':'−'}${l.qty}</td>
-        <td style="font-size:12px;color:var(--text2);">${l.note||'-'}</td>
-        <td style="font-size:12px;">${l.worker||'-'}</td>
-      </tr>`).join('')}</tbody>
-    </table></div></div>`;
+    const now = new Date();
+    const curMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    const usedThisMonth = {};
+    stockLog.forEach(l => {
+      if(l.type !== 'out') return;
+      if(String(l.date).slice(0,7) !== curMonth) return;
+      usedThisMonth[l.partName] = (usedThisMonth[l.partName]||0) + Number(l.qty||0);
+    });
+    const rows = Object.entries(usedThisMonth).sort((a,b)=>b[1]-a[1]);
+    if(rows.length) {
+      h += `<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:20px 0 8px;">${now.getMonth()+1}월 부품 사용량</div>
+      <div class="card" style="padding:0;"><div class="table-wrap"><table>
+        <thead><tr><th>부품명</th><th style="text-align:right">이번 달 사용</th></tr></thead>
+        <tbody>${rows.map(([name,qty])=>`<tr>
+          <td style="font-weight:600;">${escapeHtml(name)}</td>
+          <td style="text-align:right;font-weight:700;color:var(--red);">−${fmt(qty)}<span style="font-size:11px;color:var(--text3);font-weight:400;">개</span></td>
+        </tr>`).join('')}</tbody>
+      </table></div></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px;">전체 월별 추세는 상단 <b>📊 부품 사용량</b> 탭에서 볼 수 있어요.</div>`;
+    }
   }
   el.innerHTML = h;
 }
@@ -14297,8 +14327,6 @@ async function deductStock(works, partsData, model) {
     let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')===curModel);
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
-    // 🐞 진단 로그
-    try { console.log('[차감]', JSON.stringify({부품:partName, 수량:qty, 기종:curModel, 매칭:idx>=0?stock[idx].name:'❌없음', 매칭전재고:idx>=0?stock[idx].qty:null})); } catch(e){}
     if(idx < 0) continue; // 재고에 없는 부품은 스킵
     const deductQty = Math.min(qty, stock[idx].qty); // 재고보다 많이 차감 방지
     if(deductQty <= 0) continue;
