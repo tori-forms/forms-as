@@ -1921,10 +1921,10 @@ window.addEventListener('DOMContentLoaded', function(){
       <div class="login-title" id="pw-login-title">🔧 비밀번호 입력</div>
       <div class="login-sub" id="pw-login-sub">비밀번호를 입력해주세요</div>
       <div style="font-size:13px;color:var(--text2);margin:14px 0 10px;font-weight:600;" id="pw-login-name">—</div>
-      <div class="login-master-row" style="flex-direction:column;gap:8px;">
-        <input type="password" id="pw-login-input1" placeholder="비밀번호" style="width:100%;" autocomplete="off" onkeydown="if(event.key==='Enter') pwLoginSubmit()">
-        <input type="password" id="pw-login-input2" placeholder="비밀번호 확인 (다시 입력)" style="width:100%;display:none;" autocomplete="off" onkeydown="if(event.key==='Enter') pwLoginSubmit()">
-        <button class="btn btn-primary" style="width:100%;" onclick="pwLoginSubmit()" id="pw-login-btn">확인</button>
+      <div class="login-master-row" style="flex-direction:column;gap:10px;">
+        <input type="password" id="pw-login-input1" placeholder="비밀번호" style="width:100%;height:52px;font-size:16px;text-align:center;border-radius:12px;" autocomplete="off" onkeydown="if(event.key==='Enter') pwLoginSubmit()">
+        <input type="password" id="pw-login-input2" placeholder="비밀번호 확인 (다시 입력)" style="width:100%;height:52px;font-size:16px;text-align:center;border-radius:12px;display:none;" autocomplete="off" onkeydown="if(event.key==='Enter') pwLoginSubmit()">
+        <button class="btn btn-primary" style="width:100%;height:50px;font-size:16px;font-weight:700;border-radius:12px;" onclick="pwLoginSubmit()" id="pw-login-btn">확인</button>
       </div>
       <button class="login-back-btn" onclick="pwLoginBack()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>뒤로</button>
     </div>
@@ -2593,6 +2593,7 @@ async function syncData(silent=false, force=false) {
   if(!silent) notifyPersist('데이터 불러오는 중...');
   try {
     const data = await gasCall({action:'load'});
+    window._dataLoaded = true;  // ⭐ 데이터 1회 이상 로드 완료 (로그인 가드용)
     entries = (data.entries || []).map(e => {
       let parts = {};
       if(e.parts) {
@@ -3249,20 +3250,16 @@ function showLoginAdmin() {
 
 // ⭐ 엔지니어/QC 비밀번호 로그인 — 이름 클릭 시 진입
 function pwLoginStart(name, role) {
+  // ⭐ 데이터(비번 포함)가 아직 안 왔으면 로그인 차단 — 빈 PASSWORD_MAP로 "처음 로그인" 오판 방지
+  if(!window._dataLoaded || !window.PASSWORD_MAP) {
+    const errEl = document.getElementById('login-error');
+    if(errEl) errEl.textContent = '데이터를 불러오는 중입니다. 잠시 후 다시 눌러주세요.';
+    return;
+  }
   _pwLoginName = name;
   _pwLoginRole = role || 'engineer';
   const hasPw = !!getPwHash(name);
   _pwLoginIsSetup = !hasPw;  // 비번 미등록이면 '설정' 모드
-  // 🐞 디버그: 비번 매칭 진단 (문제 해결 후 제거 가능)
-  try {
-    console.log('[PW-LOGIN]', JSON.stringify({
-      clicked: name,
-      clickedLen: String(name).length,
-      hasPw: hasPw,
-      keys: Object.keys(window.PASSWORD_MAP || {}),
-      directHit: !!(window.PASSWORD_MAP||{})[name]
-    }));
-  } catch(e){}
 
   // 단계 전환
   document.getElementById('login-step-1').style.display = 'none';
@@ -10217,116 +10214,152 @@ function buildAdminControlBoard() {
 function buildT4StatsHtml() {
   const now = new Date();
   const pad = n => String(n).padStart(2,'0');
-  const ym = (y,m) => `${y}-${pad(m)}`;
-  const curKey = ym(now.getFullYear(), now.getMonth()+1);
-  const prevD = new Date(now.getFullYear(), now.getMonth()-1, 1);
-  const prevKey = ym(prevD.getFullYear(), prevD.getMonth()+1);
-
+  const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
   const all = entries || [];
-  // 누적 (전체 기간)
-  const totalCnt = all.length;
-  const totalAmt = all.reduce((s,e)=>s+Number(e.total||0),0);
-  // 당월 / 전월
-  const curList = all.filter(e => String(e.date).startsWith(curKey));
-  const prevList = all.filter(e => String(e.date).startsWith(prevKey));
-  const curCnt = curList.length, prevCnt = prevList.length;
-  const curAmt = curList.reduce((s,e)=>s+Number(e.total||0),0);
-  const prevAmt = prevList.reduce((s,e)=>s+Number(e.total||0),0);
 
-  const delta = (cur, prev) => {
-    if(!prev) return { txt: cur>0?'신규':'-', color:'var(--text3)', arrow:'' };
-    const diff = cur - prev;
-    const pct = Math.round(diff/prev*100);
-    if(diff > 0) return { txt:`+${pct}%`, color:'#10b981', arrow:'▲' };
-    if(diff < 0) return { txt:`${pct}%`, color:'#ef4444', arrow:'▼' };
-    return { txt:'0%', color:'var(--text3)', arrow:'–' };
+  // 기간 경계
+  const today = ymd(now);
+  // 이번 주 (월~오늘) — 월요일 시작
+  const dow = (now.getDay()+6)%7;   // 월=0
+  const weekStart = new Date(now); weekStart.setDate(now.getDate()-dow);
+  const weekStartStr = ymd(weekStart);
+  // 이번 달 / 저번 달
+  const curMonth = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
+  const prevD = new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const prevMonth = `${prevD.getFullYear()}-${pad(prevD.getMonth()+1)}`;
+  // 최근 3개월 (이번달 포함 직전 3개월)
+  const m3Start = new Date(now.getFullYear(), now.getMonth()-2, 1);
+  const m3StartStr = ymd(m3Start);
+
+  const dnorm = e => toLocalDay(e.date);   // 수리 등록일 기준
+  const agg = (filterFn) => {
+    const list = all.filter(filterFn);
+    return { cnt: list.length, amt: list.reduce((s,e)=>s+Number(e.total||0),0) };
   };
-  const dCnt = delta(curCnt, prevCnt);
-  const dAmt = delta(curAmt, prevAmt);
 
-  const card = (label, big, sub, d) => `
-    <div class="stat-card" style="flex:1;min-width:150px;">
-      <div class="stat-label">${label}</div>
-      <div style="font-size:22px;font-weight:800;color:var(--text);margin:3px 0;">${big}</div>
-      <div style="display:flex;align-items:center;gap:6px;font-size:11.5px;">
-        <span style="color:var(--text3);">${sub}</span>
-        <span style="color:${d.color};font-weight:700;">${d.arrow} ${d.txt}</span>
-        <span style="color:var(--text3);">전월비</span>
-      </div>
+  const sToday = agg(e => dnorm(e) === today);
+  const sWeek  = agg(e => dnorm(e) >= weekStartStr && dnorm(e) <= today);
+  const sMonth = agg(e => dnorm(e).startsWith(curMonth));
+  const sPrev  = agg(e => dnorm(e).startsWith(prevMonth));
+  const s3M    = agg(e => dnorm(e) >= m3StartStr);
+  const sTotal = agg(() => true);
+
+  // 행: 구간별 한 줄에 건수 + 공임비
+  const row = (label, s, hi) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;background:${hi?'var(--accent-bg,rgba(13,148,136,.08))':'var(--surface2)'};margin-bottom:5px;">
+      <span style="font-size:12.5px;font-weight:700;color:var(--text);min-width:72px;">${label}</span>
+      <span style="font-size:13px;color:var(--text);"><b>${fmt(s.cnt)}</b><span style="font-size:11px;color:var(--text3);">건</span></span>
+      <span style="flex:1;text-align:right;font-size:13px;color:var(--text);"><b>${fmt(s.amt)}</b><span style="font-size:11px;color:var(--text3);">원</span></span>
     </div>`;
 
+  // 이번달 vs 저번달 증감
+  const delta = (cur, prev) => {
+    if(!prev) return cur>0?'<span style="color:#10b981;font-weight:700;">신규</span>':'<span style="color:var(--text3);">-</span>';
+    const diff = cur-prev, pct = Math.round(diff/prev*100);
+    if(diff>0) return `<span style="color:#10b981;font-weight:700;">▲ +${pct}%</span>`;
+    if(diff<0) return `<span style="color:#ef4444;font-weight:700;">▼ ${pct}%</span>`;
+    return '<span style="color:var(--text3);">0%</span>';
+  };
+
   return `<div class="card" style="padding:16px 18px;margin-bottom:16px;">
-    <div style="font-size:15px;font-weight:800;color:var(--text);margin-bottom:12px;">📊 수리 누적 현황</div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;">
-      ${card('누적 수리 건수', fmt(totalCnt)+'건', `이번달 ${fmt(curCnt)}건`, dCnt)}
-      ${card('누적 공임비', fmt(totalAmt)+'원', `이번달 ${fmt(curAmt)}원`, dAmt)}
+    <div style="font-size:15px;font-weight:800;color:var(--text);margin-bottom:4px;">📊 수리 실적 현황</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:12px;">수리 등록일 기준 · 건수 / 공임비</div>
+    <div style="display:flex;gap:10px;font-size:10.5px;color:var(--text3);padding:0 12px 6px;">
+      <span style="min-width:72px;">구간</span><span>건수</span><span style="flex:1;text-align:right;">공임비</span>
+    </div>
+    ${row('오늘', sToday, true)}
+    ${row('이번 주', sWeek)}
+    ${row('이번 달', sMonth)}
+    ${row('저번 달', sPrev)}
+    ${row('최근 3개월', s3M)}
+    ${row('누적 전체', sTotal)}
+    <div style="display:flex;justify-content:space-between;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;">
+      <span style="color:var(--text2);">전월 대비</span>
+      <span>건수 ${delta(sMonth.cnt, sPrev.cnt)} · 공임비 ${delta(sMonth.amt, sPrev.amt)}</span>
     </div>
   </div>`;
 }
 
 // ⭐ 엔지니어별 월별 수리 건수 추세 (최근 6개월) — SVG 라인 그래프
+// ⭐ 엔지니어별 성장 그래프 — 입사 주차별 주간 수리 건수 (개인별 막대)
 function buildEngTrendHtml() {
-  const now = new Date();
-  const pad = n => String(n).padStart(2,'0');
-  // 최근 6개월 키
-  const months = [];
-  for(let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    months.push({ key: `${d.getFullYear()}-${pad(d.getMonth()+1)}`, label: `${d.getMonth()+1}월` });
-  }
   const engs = workers.filter(isRepairEngineer);
   if(!engs.length) return '';
 
-  // 엔지니어별 월별 건수
-  const series = engs.map(w => {
-    const counts = months.map(m => (entries||[]).filter(e => e.worker===w && String(e.date).startsWith(m.key)).length);
-    return { name: w, counts, total: counts.reduce((a,b)=>a+b,0) };
-  }).filter(s => s.total > 0)        // 데이터 있는 사람만
-    .sort((a,b)=>b.total-a.total);
-
-  if(!series.length) return '';
-
-  const maxV = Math.max(1, ...series.flatMap(s=>s.counts));
-  const W = 600, H = 220, padL = 36, padR = 12, padT = 16, padB = 28;
-  const plotW = W - padL - padR, plotH = H - padT - padB;
-  const x = i => padL + (months.length===1?plotW/2:plotW * i/(months.length-1));
-  const y = v => padT + plotH * (1 - v/maxV);
-
+  const all = entries || [];
   const colors = ['#2563eb','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16'];
 
-  // 격자 + Y축 라벨 (0, max/2, max)
-  let grid = '';
-  [0, Math.round(maxV/2), maxV].forEach(v => {
-    grid += `<line x1="${padL}" y1="${y(v)}" x2="${W-padR}" y2="${y(v)}" stroke="var(--border)" stroke-width="1"/>
-      <text x="${padL-6}" y="${y(v)+3}" text-anchor="end" font-size="10" fill="var(--text3)">${v}</text>`;
-  });
-  // X축 라벨
-  let xlabels = months.map((m,i)=>`<text x="${x(i)}" y="${H-10}" text-anchor="middle" font-size="10" fill="var(--text3)">${m.label}</text>`).join('');
+  // 엔지니어별: 입사 주차(week) → 그 주 수리 건수
+  const blocks = engs.map((w, wi) => {
+    const hd = hireDateMap[w];
+    if(!hd) return null;                       // 입사일 없으면 스킵
+    const start = new Date(String(hd) + 'T00:00:00');
+    if(isNaN(start.getTime())) return null;
 
-  // 라인 + 점
-  let lines = series.map((s,si) => {
-    const c = colors[si % colors.length];
-    const pts = s.counts.map((v,i)=>`${x(i)},${y(v)}`).join(' ');
-    const dots = s.counts.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="${c}"/>`).join('');
-    return `<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"/>${dots}`;
-  }).join('');
+    // 각 수리건의 입사 주차 카운트
+    const weekCounts = {};
+    let maxWeek = 0;
+    all.filter(e => e.worker === w).forEach(e => {
+      const wk = tenureWeek(w, new Date(toLocalDay(e.date) + 'T00:00:00'));
+      if(wk && wk >= 1) { weekCounts[wk] = (weekCounts[wk]||0)+1; if(wk>maxWeek) maxWeek = wk; }
+    });
+    const total = Object.values(weekCounts).reduce((a,b)=>a+b,0);
+    if(total === 0) return null;               // 실적 없으면 스킵
 
-  // 범례
-  let legend = series.map((s,si)=>{
-    const c = colors[si % colors.length];
-    return `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text2);margin-right:12px;">
-      <span style="width:10px;height:10px;border-radius:2px;background:${c};display:inline-block;"></span>${escapeHtml(s.name)} <span style="color:var(--text3);">${s.total}건</span></span>`;
-  }).join('');
+    // 현재 몇 주차인지
+    const curWeek = tenureWeek(w, new Date()) || maxWeek;
+    const upto = Math.max(maxWeek, Math.min(curWeek, 16));   // 최대 16주까지 표시
+    const weeks = [];
+    for(let k=1; k<=upto; k++) weeks.push({ wk:k, cnt: weekCounts[k]||0 });
+
+    const maxV = Math.max(1, ...weeks.map(x=>x.cnt));
+    const c = colors[wi % colors.length];
+
+    // 막대그래프 (SVG)
+    const W = 560, H = 130, padL = 30, padR = 10, padT = 12, padB = 22;
+    const plotW = W-padL-padR, plotH = H-padT-padB;
+    const bw = plotW / weeks.length;
+    const bars = weeks.map((x,i) => {
+      const bh = plotH * (x.cnt / maxV);
+      const bx = padL + i*bw + bw*0.15;
+      const by = padT + plotH - bh;
+      const lbl = x.cnt>0 ? `<text x="${bx+bw*0.35}" y="${by-3}" text-anchor="middle" font-size="9" fill="var(--text2)">${x.cnt}</text>` : '';
+      return `<rect x="${bx}" y="${by}" width="${bw*0.7}" height="${bh}" rx="2" fill="${c}"/>${lbl}
+        <text x="${bx+bw*0.35}" y="${H-8}" text-anchor="middle" font-size="8.5" fill="var(--text3)">${x.wk}주</text>`;
+    }).join('');
+    // 기준선 라벨
+    const grid = `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT+plotH}" stroke="var(--border)" stroke-width="1"/>
+      <line x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}" stroke="var(--border)" stroke-width="1"/>
+      <text x="${padL-5}" y="${padT+5}" text-anchor="end" font-size="9" fill="var(--text3)">${maxV}</text>`;
+
+    // 추세: 최근 절반 평균 vs 앞 절반 평균
+    const half = Math.floor(weeks.length/2);
+    let trend = '';
+    if(weeks.length >= 4) {
+      const early = weeks.slice(0,half).reduce((a,b)=>a+b.cnt,0)/Math.max(1,half);
+      const late = weeks.slice(half).reduce((a,b)=>a+b.cnt,0)/Math.max(1,weeks.length-half);
+      if(late > early*1.1) trend = `<span style="color:#10b981;font-weight:700;">▲ 성장세</span>`;
+      else if(late < early*0.9) trend = `<span style="color:#ef4444;font-weight:700;">▼ 둔화</span>`;
+      else trend = `<span style="color:var(--text3);">― 유지</span>`;
+    }
+
+    return `<div style="margin-bottom:16px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <span style="width:10px;height:10px;border-radius:2px;background:${c};display:inline-block;"></span>
+        <span style="font-size:13px;font-weight:700;color:var(--text);">${escapeHtml(w)}${tierBadge(tierMap[w]||'')}</span>
+        <span style="font-size:11px;color:var(--text3);">입사 ${hd} · 현재 ${curWeek}주차 · 누적 ${total}건</span>
+        <span style="font-size:11px;margin-left:auto;">${trend}</span>
+      </div>
+      <div style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:360px;height:auto;display:block;">${grid}${bars}</svg></div>
+    </div>`;
+  }).filter(Boolean).join('');
+
+  if(!blocks) return '';
 
   return `<div class="card" style="padding:16px 18px;margin-bottom:16px;">
-    <div style="font-size:15px;font-weight:800;color:var(--text);margin-bottom:4px;">📈 엔지니어별 월별 수리 건수 추세</div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:12px;">최근 6개월 · 꾸준히 느는지 확인</div>
-    <div style="overflow-x:auto;">
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:420px;height:auto;display:block;">
-        ${grid}${lines}${xlabels}
-      </svg>
-    </div>
-    <div style="margin-top:10px;line-height:1.9;">${legend}</div>
+    <div style="font-size:15px;font-weight:800;color:var(--text);margin-bottom:4px;">📈 엔지니어별 성장 추세 (입사 주차별)</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:14px;">각자 입사일 기준 주차별 주간 수리 건수 · 꾸준히 느는지 확인</div>
+    ${blocks}
   </div>`;
 }
 
@@ -10450,34 +10483,36 @@ async function renderMyDash() {
     if(titleEl) titleEl.textContent = `🛰️ ${currentUser}님 — 운영 현황`;
     // 미달 슬롯엔 캐시가 있으면 먼저 표시 (깜빡임 방지)
     const missInit = _missSummaryCache || '<div style="color:var(--text3);font-size:13px;padding:10px 2px;">미달 현황 불러오는 중…</div>';
+    const boardOpen = !!window._boardOpen;   // ⭐ 펼침 상태 유지
     el.innerHTML =
       buildT4StatsHtml() +
       buildEngTrendHtml() +
       `<div id="t4-miss-slot">${missInit}</div>
-      <details id="t4-board-details" style="margin-top:4px;">
+      <details id="t4-board-details" style="margin-top:4px;"${boardOpen?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
-          <span style="font-size:12px;transition:transform .15s;" class="t4-board-arrow">▶</span>
+          <span style="font-size:12px;transition:transform .15s;" class="t4-board-arrow">${boardOpen?'▼':'▶'}</span>
           🛰️ 엔지니어별 미처리 관제판 <span style="font-size:12px;color:var(--text3);font-weight:400;">(펼치기)</span>
         </summary>
         <div id="t4-board-slot" style="margin-top:10px;"></div>
       </details>`;
 
-    // 접이식 화살표 토글 + 펼칠 때만 관제판 렌더 (성능)
     const det = document.getElementById('t4-board-details');
     const boardSlot = document.getElementById('t4-board-slot');
-    let _boardRendered = false;
+    const renderBoard = () => {
+      boardSlot.innerHTML = buildAdminControlBoard();
+      try {
+        const ds = entries.filter(e => e.agingStart).map(e => new Date(e.agingStart).getTime());
+        if(ds.length) ensureHolidaysLoaded(Math.min(...ds), nowMs(), () => { if(det.open) boardSlot.innerHTML = buildAdminControlBoard(); });
+      } catch(e){}
+    };
     if(det) {
+      // 펼쳐진 상태로 렌더된 경우 즉시 내용 채움
+      if(boardOpen) renderBoard();
       det.addEventListener('toggle', () => {
+        window._boardOpen = det.open;        // ⭐ 상태 저장
         const arrow = det.querySelector('.t4-board-arrow');
         if(arrow) arrow.textContent = det.open ? '▼' : '▶';
-        if(det.open && !_boardRendered) {
-          boardSlot.innerHTML = buildAdminControlBoard();
-          _boardRendered = true;
-          try {
-            const ds = entries.filter(e => e.agingStart).map(e => new Date(e.agingStart).getTime());
-            if(ds.length) ensureHolidaysLoaded(Math.min(...ds), nowMs(), () => { if(det.open) boardSlot.innerHTML = buildAdminControlBoard(); });
-          } catch(e){}
-        }
+        if(det.open) renderBoard();
       });
     }
 
@@ -10719,9 +10754,9 @@ async function renderMyDash() {
         <div style="flex:1;height:1px;background:var(--border);"></div>
       </div>
       <div id="t3-miss-slot">${_missSummaryCache || '<div style="color:var(--text3);font-size:13px;padding:10px 2px;">미달 현황 불러오는 중…</div>'}</div>
-      <details id="t3-board-details" style="margin-top:4px;">
+      <details id="t3-board-details" style="margin-top:4px;"${window._board3Open?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
-          <span style="font-size:12px;" class="t3-board-arrow">▶</span>
+          <span style="font-size:12px;" class="t3-board-arrow">${window._board3Open?'▼':'▶'}</span>
           🛰️ 엔지니어별 미처리 관제판 <span style="font-size:12px;color:var(--text3);font-weight:400;">(펼치기)</span>
         </summary>
         <div id="t3-board-slot" style="margin-top:10px;"></div>
@@ -10729,19 +10764,20 @@ async function renderMyDash() {
 
     const det3 = document.getElementById('t3-board-details');
     const boardSlot3 = document.getElementById('t3-board-slot');
-    let _board3Rendered = false;
+    const renderBoard3 = () => {
+      boardSlot3.innerHTML = buildAdminControlBoard();
+      try {
+        const ds = entries.filter(e => e.agingStart).map(e => new Date(e.agingStart).getTime());
+        if(ds.length) ensureHolidaysLoaded(Math.min(...ds), nowMs(), () => { if(det3.open) boardSlot3.innerHTML = buildAdminControlBoard(); });
+      } catch(e){}
+    };
     if(det3) {
+      if(window._board3Open) renderBoard3();
       det3.addEventListener('toggle', () => {
+        window._board3Open = det3.open;
         const arrow = det3.querySelector('.t3-board-arrow');
         if(arrow) arrow.textContent = det3.open ? '▼' : '▶';
-        if(det3.open && !_board3Rendered) {
-          boardSlot3.innerHTML = buildAdminControlBoard();
-          _board3Rendered = true;
-          try {
-            const ds = entries.filter(e => e.agingStart).map(e => new Date(e.agingStart).getTime());
-            if(ds.length) ensureHolidaysLoaded(Math.min(...ds), nowMs(), () => { if(det3.open) boardSlot3.innerHTML = buildAdminControlBoard(); });
-          } catch(e){}
-        }
+        if(det3.open) renderBoard3();
       });
     }
 
