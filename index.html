@@ -10189,25 +10189,151 @@ function buildAdminControlBoard() {
   return html;
 }
 
+// ⭐ T4 운영 통계 — 누적 금액/건수 + 전월 대비 증감 카드
+function buildT4StatsHtml() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const ym = (y,m) => `${y}-${pad(m)}`;
+  const curKey = ym(now.getFullYear(), now.getMonth()+1);
+  const prevD = new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const prevKey = ym(prevD.getFullYear(), prevD.getMonth()+1);
+
+  const all = entries || [];
+  // 누적 (전체 기간)
+  const totalCnt = all.length;
+  const totalAmt = all.reduce((s,e)=>s+Number(e.total||0),0);
+  // 당월 / 전월
+  const curList = all.filter(e => String(e.date).startsWith(curKey));
+  const prevList = all.filter(e => String(e.date).startsWith(prevKey));
+  const curCnt = curList.length, prevCnt = prevList.length;
+  const curAmt = curList.reduce((s,e)=>s+Number(e.total||0),0);
+  const prevAmt = prevList.reduce((s,e)=>s+Number(e.total||0),0);
+
+  const delta = (cur, prev) => {
+    if(!prev) return { txt: cur>0?'신규':'-', color:'var(--text3)', arrow:'' };
+    const diff = cur - prev;
+    const pct = Math.round(diff/prev*100);
+    if(diff > 0) return { txt:`+${pct}%`, color:'#10b981', arrow:'▲' };
+    if(diff < 0) return { txt:`${pct}%`, color:'#ef4444', arrow:'▼' };
+    return { txt:'0%', color:'var(--text3)', arrow:'–' };
+  };
+  const dCnt = delta(curCnt, prevCnt);
+  const dAmt = delta(curAmt, prevAmt);
+
+  const card = (label, big, sub, d) => `
+    <div class="stat-card" style="flex:1;min-width:150px;">
+      <div class="stat-label">${label}</div>
+      <div style="font-size:22px;font-weight:800;color:var(--text);margin:3px 0;">${big}</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:11.5px;">
+        <span style="color:var(--text3);">${sub}</span>
+        <span style="color:${d.color};font-weight:700;">${d.arrow} ${d.txt}</span>
+        <span style="color:var(--text3);">전월비</span>
+      </div>
+    </div>`;
+
+  return `<div class="card" style="padding:16px 18px;margin-bottom:16px;">
+    <div style="font-size:15px;font-weight:800;color:var(--text);margin-bottom:12px;">📊 수리 누적 현황</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      ${card('누적 수리 건수', fmt(totalCnt)+'건', `이번달 ${fmt(curCnt)}건`, dCnt)}
+      ${card('누적 공임비', fmt(totalAmt)+'원', `이번달 ${fmt(curAmt)}원`, dAmt)}
+    </div>
+  </div>`;
+}
+
+// ⭐ 엔지니어별 월별 수리 건수 추세 (최근 6개월) — SVG 라인 그래프
+function buildEngTrendHtml() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  // 최근 6개월 키
+  const months = [];
+  for(let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    months.push({ key: `${d.getFullYear()}-${pad(d.getMonth()+1)}`, label: `${d.getMonth()+1}월` });
+  }
+  const engs = workers.filter(isRepairEngineer);
+  if(!engs.length) return '';
+
+  // 엔지니어별 월별 건수
+  const series = engs.map(w => {
+    const counts = months.map(m => (entries||[]).filter(e => e.worker===w && String(e.date).startsWith(m.key)).length);
+    return { name: w, counts, total: counts.reduce((a,b)=>a+b,0) };
+  }).filter(s => s.total > 0)        // 데이터 있는 사람만
+    .sort((a,b)=>b.total-a.total);
+
+  if(!series.length) return '';
+
+  const maxV = Math.max(1, ...series.flatMap(s=>s.counts));
+  const W = 600, H = 220, padL = 36, padR = 12, padT = 16, padB = 28;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const x = i => padL + (months.length===1?plotW/2:plotW * i/(months.length-1));
+  const y = v => padT + plotH * (1 - v/maxV);
+
+  const colors = ['#2563eb','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16'];
+
+  // 격자 + Y축 라벨 (0, max/2, max)
+  let grid = '';
+  [0, Math.round(maxV/2), maxV].forEach(v => {
+    grid += `<line x1="${padL}" y1="${y(v)}" x2="${W-padR}" y2="${y(v)}" stroke="var(--border)" stroke-width="1"/>
+      <text x="${padL-6}" y="${y(v)+3}" text-anchor="end" font-size="10" fill="var(--text3)">${v}</text>`;
+  });
+  // X축 라벨
+  let xlabels = months.map((m,i)=>`<text x="${x(i)}" y="${H-10}" text-anchor="middle" font-size="10" fill="var(--text3)">${m.label}</text>`).join('');
+
+  // 라인 + 점
+  let lines = series.map((s,si) => {
+    const c = colors[si % colors.length];
+    const pts = s.counts.map((v,i)=>`${x(i)},${y(v)}`).join(' ');
+    const dots = s.counts.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="${c}"/>`).join('');
+    return `<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"/>${dots}`;
+  }).join('');
+
+  // 범례
+  let legend = series.map((s,si)=>{
+    const c = colors[si % colors.length];
+    return `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text2);margin-right:12px;">
+      <span style="width:10px;height:10px;border-radius:2px;background:${c};display:inline-block;"></span>${escapeHtml(s.name)} <span style="color:var(--text3);">${s.total}건</span></span>`;
+  }).join('');
+
+  return `<div class="card" style="padding:16px 18px;margin-bottom:16px;">
+    <div style="font-size:15px;font-weight:800;color:var(--text);margin-bottom:4px;">📈 엔지니어별 월별 수리 건수 추세</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:12px;">최근 6개월 · 꾸준히 느는지 확인</div>
+    <div style="overflow-x:auto;">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:420px;height:auto;display:block;">
+        ${grid}${lines}${xlabels}
+      </svg>
+    </div>
+    <div style="margin-top:10px;line-height:1.9;">${legend}</div>
+  </div>`;
+}
+
 // ⭐ 관리자용 '미달 요약' — 최근 7영업일 미달 현황 + 사유 (HTML 문자열 반환)
-// 직전 영업일들(주말·공휴일 제외) 최대 7일을 모아 날짜별로 표시. 깜빡임 방지 위해 1회 렌더용.
+// 깜빡임 방지: 마지막 생성 HTML을 _missSummaryCache에 저장 → 재렌더 시 즉시 표시 후 갱신
+let _missSummaryCache = '';
 async function buildMissSummaryHtml() {
   const today = todayStr();
   const monthAgo = new Date(); monthAgo.setMonth(monthAgo.getMonth() - 2);
   await ensureHolidaysLoaded(monthAgo.getTime(), Date.now(), null);
 
-  // 직전 영업일 7개 수집 (오늘 제외)
+  // 직전 영업일 7개 수집 (오늘 제외, 6/30 이전 제외)
   const days = [];
   let cursor = today;
-  for(let i = 0; i < 7; i++) {
+  for(let i = 0; i < 14 && days.length < 7; i++) {
     const d = prevBizDayStr(cursor);
     if(!d) break;
-    days.push(d);
     cursor = d;
+    if(d < MISS_START_DATE) break;   // 시작일 이전이면 중단
+    days.push(d);
   }
-  if(!days.length) return '';
+  if(!days.length) {
+    const html = `<div class="card" style="padding:16px 18px;margin-bottom:16px;">
+      <div style="font-size:15px;font-weight:800;color:var(--text);margin-bottom:6px;">📉 목표 미달 · 지연 사유</div>
+      <div style="font-size:12.5px;color:var(--text3);">${MISS_START_DATE}부터 집계를 시작합니다.</div>
+    </div>`;
+    _missSummaryCache = html;
+    return html;
+  }
 
-  // 각 날짜별 미달자 계산 + 사유 조회 (병렬)
+  // 각 날짜별 사유 조회 (병렬)
   const reasonsByDay = {};
   await Promise.all(days.map(async (dayStr) => {
     try {
@@ -10220,7 +10346,9 @@ async function buildMissSummaryHtml() {
 
   const repairEngs = workers.filter(isRepairEngineer);
 
-  // 날짜별 블록
+  // 전체 집계 (상단 요약 배지용)
+  let totalMissPersonDays = 0, totalPending = 0;
+
   const dayBlocks = days.map(dayStr => {
     const missList = [];
     repairEngs.forEach(w => {
@@ -10230,48 +10358,61 @@ async function buildMissSummaryHtml() {
     const reasonMap = reasonsByDay[dayStr] || {};
     const dow = ['일','월','화','수','목','금','토'][new Date(dayStr+'T00:00:00').getDay()];
     const isYesterday = (dayStr === days[0]);
+    const mmdd = dayStr.slice(5);  // MM-DD
 
-    let inner;
+    totalMissPersonDays += missList.length;
+    const pending = missList.filter(m => !reasonMap[m.name]).length;
+    totalPending += pending;
+
+    // 달성한 날은 한 줄로 압축
     if(!missList.length) {
-      inner = `<div style="font-size:12px;color:var(--green);padding:6px 0;">✅ 전원 목표 달성</div>`;
-    } else {
-      // 사유 미작성 인원수
-      const pending = missList.filter(m => !reasonMap[m.name]).length;
-      inner = missList.map(m => {
-        const reason = reasonMap[m.name];
-        const reasonHtml = reason
-          ? `<span style="font-size:12px;color:var(--text2);">📝 ${escapeHtml(reason)}</span>`
-          : `<span style="font-size:12px;color:#f59e0b;font-weight:600;">⏳ 사유 미작성</span>`;
-        return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border:1px solid var(--border);border-radius:9px;margin-bottom:5px;background:var(--surface);">
-          <div style="display:flex;align-items:center;gap:8px;min-width:0;">
-            <span style="font-weight:700;font-size:13px;color:var(--text);white-space:nowrap;">${escapeHtml(m.name)}${tierBadge(tierMap[m.name]||'')}</span>
-            <span style="font-size:11px;font-weight:700;color:#ef4444;white-space:nowrap;">${m.short}건 부족</span>
-            <span style="font-size:11px;color:var(--text3);white-space:nowrap;">실적 ${m.done} / 목표 ${m.target}</span>
-          </div>
-          <div style="text-align:right;min-width:0;overflow:hidden;text-overflow:ellipsis;">${reasonHtml}</div>
-        </div>`;
-      }).join('');
+      return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:12px;font-weight:600;color:var(--text2);min-width:78px;">${mmdd} (${dow})</span>
+        <span style="font-size:12px;color:var(--green);">✅ 전원 달성</span>
+      </div>`;
     }
 
-    const badge = missList.length
-      ? `<span style="font-size:11px;font-weight:700;color:#ef4444;">미달 ${missList.length}명${(()=>{const p=missList.filter(m=>!reasonMap[m.name]).length;return p?` · 사유 ${p}건 대기`:'';})()}</span>`
-      : `<span style="font-size:11px;color:var(--green);">달성</span>`;
+    const rows = missList.map(m => {
+      const reason = reasonMap[m.name];
+      const reasonHtml = reason
+        ? `<span style="font-size:12px;color:var(--text2);">${escapeHtml(reason)}</span>`
+        : `<span style="font-size:11.5px;color:#f59e0b;font-weight:700;background:#f59e0b1a;padding:2px 8px;border-radius:99px;">사유 미작성</span>`;
+      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;background:var(--surface2);margin-bottom:4px;">
+        <span style="font-weight:700;font-size:12.5px;color:var(--text);min-width:54px;">${escapeHtml(m.name)}</span>
+        <span style="font-size:11px;font-weight:700;color:#ef4444;white-space:nowrap;">${m.short}건 부족</span>
+        <span style="font-size:11px;color:var(--text3);white-space:nowrap;">${m.done}/${m.target}</span>
+        <span style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${reasonHtml}</span>
+      </div>`;
+    }).join('');
 
-    return `<div style="margin-bottom:14px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;">
-        <span style="font-size:12.5px;font-weight:700;color:var(--text);">${dayStr} (${dow})${isYesterday?' · 어제':''}</span>
-        ${badge}
+    return `<div style="padding:9px 0;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span style="font-size:12.5px;font-weight:700;color:var(--text);min-width:78px;">${mmdd} (${dow})</span>
+        ${isYesterday?'<span style="font-size:10px;font-weight:700;color:#fff;background:var(--accent);padding:1px 7px;border-radius:99px;">어제</span>':''}
+        <span style="font-size:11px;font-weight:700;color:#ef4444;">미달 ${missList.length}명</span>
+        ${pending?`<span style="font-size:11px;color:#f59e0b;font-weight:600;">· 사유 ${pending}건 대기</span>`:'<span style="font-size:11px;color:var(--green);">· 사유 완료</span>'}
       </div>
-      ${inner}
+      ${rows}
     </div>`;
   }).join('');
 
-  return `<div class="card" style="padding:16px 18px;margin-bottom:16px;">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
-      <span style="font-size:15px;font-weight:800;color:var(--text);">📉 목표 미달 · 지연 사유 (최근 7영업일)</span>
+  // 상단 요약 헤더
+  const headBadge = totalPending > 0
+    ? `<span style="font-size:12px;font-weight:700;color:#f59e0b;background:#f59e0b1a;padding:3px 10px;border-radius:99px;">⏳ 사유 ${totalPending}건 대기</span>`
+    : (totalMissPersonDays > 0
+        ? `<span style="font-size:12px;font-weight:600;color:var(--green);">사유 모두 작성됨</span>`
+        : `<span style="font-size:12px;font-weight:600;color:var(--green);">미달 없음 👍</span>`);
+
+  const html = `<div class="card" style="padding:16px 18px;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+      <span style="font-size:15px;font-weight:800;color:var(--text);">📉 목표 미달 · 지연 사유</span>
+      ${headBadge}
     </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">최근 7영업일 · ${MISS_START_DATE}~ 집계</div>
     ${dayBlocks}
   </div>`;
+  _missSummaryCache = html;
+  return html;
 }
 
 async function renderMyDash() {
@@ -10280,10 +10421,15 @@ async function renderMyDash() {
   if(!el || !currentUser) return;
   if(titleEl) titleEl.textContent = `✨ ${currentUser}님의 대시보드`;
 
-  // ⭐ T4(대표/팀장): 미달·지연 사유 요약(메인) + 접이식 미처리 관제판
+  // ⭐ T4(대표/팀장): 운영 통계 + 추세 + 미달 사유 요약 + 접이식 관제판
   if(isFullAdmin()) {
     if(titleEl) titleEl.textContent = `🛰️ ${currentUser}님 — 운영 현황`;
-    el.innerHTML = `<div id="t4-miss-slot"><div style="color:var(--text3);font-size:13px;padding:10px 2px;">미달 현황 불러오는 중…</div></div>
+    // 미달 슬롯엔 캐시가 있으면 먼저 표시 (깜빡임 방지)
+    const missInit = _missSummaryCache || '<div style="color:var(--text3);font-size:13px;padding:10px 2px;">미달 현황 불러오는 중…</div>';
+    el.innerHTML =
+      buildT4StatsHtml() +
+      buildEngTrendHtml() +
+      `<div id="t4-miss-slot">${missInit}</div>
       <details id="t4-board-details" style="margin-top:4px;">
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
           <span style="font-size:12px;transition:transform .15s;" class="t4-board-arrow">▶</span>
@@ -10303,7 +10449,6 @@ async function renderMyDash() {
         if(det.open && !_boardRendered) {
           boardSlot.innerHTML = buildAdminControlBoard();
           _boardRendered = true;
-          // 에이징 경과 영업일 계산용 공휴일 로드되면 관제판만 갱신
           try {
             const ds = entries.filter(e => e.agingStart).map(e => new Date(e.agingStart).getTime());
             if(ds.length) ensureHolidaysLoaded(Math.min(...ds), nowMs(), () => { if(det.open) boardSlot.innerHTML = buildAdminControlBoard(); });
@@ -10312,15 +10457,11 @@ async function renderMyDash() {
       });
     }
 
-    // 미달 요약은 비동기로 1회만 채움 (깜빡임 없음)
+    // 미달 요약 갱신 (캐시 먼저 보였으니 빈 화면 없음)
     buildMissSummaryHtml().then(html => {
       const slot = document.getElementById('t4-miss-slot');
-      if(slot) slot.innerHTML = html || '<div style="color:var(--text3);font-size:13px;padding:10px 2px;">미달 데이터가 없습니다.</div>';
-    }).catch(e => {
-      console.error(e);
-      const slot = document.getElementById('t4-miss-slot');
-      if(slot) slot.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:10px 2px;">미달 현황을 불러오지 못했습니다.</div>';
-    });
+      if(slot && html) slot.innerHTML = html;
+    }).catch(e => { console.error(e); });
     return;
   }
 
@@ -10553,7 +10694,7 @@ async function renderMyDash() {
         <span style="font-size:14px;font-weight:800;color:var(--text);">운영 현황</span>
         <div style="flex:1;height:1px;background:var(--border);"></div>
       </div>
-      <div id="t3-miss-slot"><div style="color:var(--text3);font-size:13px;padding:10px 2px;">미달 현황 불러오는 중…</div></div>
+      <div id="t3-miss-slot">${_missSummaryCache || '<div style="color:var(--text3);font-size:13px;padding:10px 2px;">미달 현황 불러오는 중…</div>'}</div>
       <details id="t3-board-details" style="margin-top:4px;">
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
           <span style="font-size:12px;" class="t3-board-arrow">▶</span>
@@ -10582,12 +10723,8 @@ async function renderMyDash() {
 
     buildMissSummaryHtml().then(html => {
       const slot = document.getElementById('t3-miss-slot');
-      if(slot) slot.innerHTML = html || '<div style="color:var(--text3);font-size:13px;padding:10px 2px;">미달 데이터가 없습니다.</div>';
-    }).catch(e => {
-      console.error(e);
-      const slot = document.getElementById('t3-miss-slot');
-      if(slot) slot.innerHTML = '';
-    });
+      if(slot && html) slot.innerHTML = html;
+    }).catch(e => { console.error(e); });
   }
 }
 
@@ -11079,6 +11216,9 @@ async function getDailyTarget(dateStr) {
 }
 
 /* ===== ⭐ 목표 미달 사유 기능 ===== */
+// ⭐ 미달 사유 수집 시작일 — 이 날짜(포함) 이전 건은 미달 검사·요약에서 제외
+const MISS_START_DATE = '2026-06-30';
+
 // 직전 영업일(YYYY-MM-DD) 반환 — 주말·공휴일 제외. holidayCache 읽기 전용.
 function prevBizDayStr(fromStr) {
   const base = fromStr ? new Date(fromStr + 'T00:00:00') : new Date();
@@ -11096,8 +11236,9 @@ function prevBizDayStr(fromStr) {
   return null;
 }
 
-// 특정 엔지니어의 특정 날짜 미달 여부 계산 → {target, done, short} 또는 null(목표없음/달성)
+// 특정 엔지니어의 특정 날짜 미달 여부 계산 → {target, done, short} 또는 null(목표없음/달성/시작일이전)
 function calcMissForDay(name, dayStr) {
+  if(dayStr < MISS_START_DATE) return null;        // ⭐ 6/30 이전은 미달 검사 안 함
   const refD = new Date(dayStr + 'T00:00:00');
   const target = getPersonalDailyTarget(name, refD);
   if(!target || target <= 0) return null;          // 목표 없는 사람(관리자·교육중·QC) 제외
