@@ -9876,8 +9876,11 @@ async function addEntry() {
     const parts = JSON.stringify(getPartsData());
     await gasCall({action:'add', id, worker, serial, works:JSON.stringify(works), total, date, note, model, parts});
 
+    // ⭐ 부품 데이터는 폼 비우기 전에 미리 계산 (clearChecks 후엔 빈 값!)
+    const partsSnapshot = getPartsData();
+
     // ⭐ v2.36: 로컬 즉시 추가
-    entries.push({id, worker, serial, works, total, date, note, model, parts:getPartsData(), status: 'aging', agingStart: date});
+    entries.push({id, worker, serial, works, total, date, note, model, parts:partsSnapshot, status: 'aging', agingStart: date});
 
     // 폼 초기화
     document.getElementById('inp-serial').value = '';
@@ -9890,9 +9893,10 @@ async function addEntry() {
     renderToday();
     renderAll();
     notify(`${serial} 수리 등록 완료!`);
-    if(stock.length) deductStock(works, getPartsData(), model);
+    // ⭐ 미리 계산한 스냅샷으로 차감 (폼 비운 것과 무관)
+    if(stock.length) await deductStock(works, partsSnapshot, model);
 
-    // 백그라운드 검증
+    // 백그라운드 검증 (차감 저장 끝난 뒤 동기화)
     setTimeout(async () => {
       try {
         await syncData(true, true);
@@ -14293,6 +14297,8 @@ async function deductStock(works, partsData, model) {
     let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')===curModel);
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
+    // 🐞 진단 로그
+    try { console.log('[차감]', JSON.stringify({부품:partName, 수량:qty, 기종:curModel, 매칭:idx>=0?stock[idx].name:'❌없음', 매칭전재고:idx>=0?stock[idx].qty:null})); } catch(e){}
     if(idx < 0) continue; // 재고에 없는 부품은 스킵
     const deductQty = Math.min(qty, stock[idx].qty); // 재고보다 많이 차감 방지
     if(deductQty <= 0) continue;
