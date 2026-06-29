@@ -2236,30 +2236,19 @@ function getPartsData() {
   const checked = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
   const model = getModel();
   const result = {};
-  const map = window.WORK_PARTS_MAP || null;
   checked.forEach(k => {
-    if(map && Array.isArray(map[k])) {
-      // ⭐ 화면에서 설정한 작업별 부품 매핑 사용 (기종 필터: 공용 또는 현재기종)
-      map[k].forEach(p => {
-        const pm = p.model || '공용';
-        if(pm !== '공용' && pm !== model) return;
-        const qty = Number(p.qty)||0;
-        if(qty > 0) result[p.name] = (result[p.name]||0) + qty;
-      });
-    } else {
-      // 폴백: 기존 WORKS 정의
-      (WORKS[k]?.parts||[]).forEach(p => {
-        if(p.modelOnly && p.modelOnly !== model) return;
-        const qty = partQtys[k]?.[p.name] ?? p.qty;
-        if(qty > 0) result[p.name] = (result[p.name]||0) + qty;
-      });
-      Object.entries(partQtys[k]||{}).forEach(([key, val]) => {
-        if(!key.startsWith('__extra_')) return;
-        const name = typeof val==='object' ? val.name : '';
-        const qty = typeof val==='object' ? val.qty : val;
-        if(name && qty > 0) result[name] = (result[name]||0) + qty;
-      });
-    }
+    // 화면에 표시되는 부품 = getWorkParts (매핑 우선, WORKS 폴백)
+    getWorkParts(k, model).forEach(p => {
+      const qty = partQtys[k]?.[p.name] ?? p.qty;   // 사용자가 −/+로 조정한 값 우선
+      if(qty > 0) result[p.name] = (result[p.name]||0) + qty;
+    });
+    // + 부품 추가로 넣은 항목
+    Object.entries(partQtys[k]||{}).forEach(([key, val]) => {
+      if(!key.startsWith('__extra_')) return;
+      const name = typeof val==='object' ? val.name : '';
+      const qty = typeof val==='object' ? val.qty : val;
+      if(name && qty > 0) result[name] = (result[name]||0) + qty;
+    });
   });
   return result;
 }
@@ -9618,8 +9607,22 @@ const WORK_DISPLAY_ORDER = ['nonbat', 'battery', 'pcb', 'panel', 'board'];
 const WORK_ROW1 = ['nonbat', 'battery'];
 const WORK_ROW2 = ['pcb', 'panel', 'board'];
 
+// ⭐ 작업 k의 부품 목록 반환 — 매핑(WORK_PARTS_MAP) 우선, 없으면 WORKS 폴백
+// 반환 형식: [{name, qty, modelOnly}]  (modelOnly: 공용이면 '', 아니면 기종값)
+function getWorkParts(k, model) {
+  const map = window.WORK_PARTS_MAP || null;
+  if(map && Array.isArray(map[k])) {
+    return map[k]
+      .filter(p => { const pm = p.model||'공용'; return pm==='공용' || pm===model; })
+      .map(p => ({ name:p.name, qty:Number(p.qty)||1, modelOnly: (p.model && p.model!=='공용') ? p.model : '' }));
+  }
+  return (WORKS[k]?.parts||[])
+    .filter(p => !p.modelOnly || p.modelOnly === model)
+    .map(p => ({ name:p.name, qty:p.qty, modelOnly:p.modelOnly||'' }));
+}
+
 function _renderWorkCheckHTML(k, v, model) {
-  const visibleParts = (v.parts||[]).filter(p => !p.modelOnly || p.modelOnly === model);
+  const visibleParts = getWorkParts(k, model);
   return `<label class="work-check" id="wc-${k}" style="cursor:pointer;">
     <input type="checkbox" value="${k}" style="margin-top:4px;accent-color:var(--accent);width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="toggleCheck('${k}');updatePP();renderPartQtys('${k}')">
     <div style="flex:1;">
@@ -9678,7 +9681,7 @@ function renderPartQtys(k) {
   const partsEl = document.getElementById('parts-'+k);
   const toggleBtn = document.getElementById('parts-toggle-'+k);
   const model = getModel();
-  const visibleParts = (WORKS[k]?.parts||[]).filter(p => !p.modelOnly || p.modelOnly === model);
+  const visibleParts = getWorkParts(k, model);
 
   if(!checked) {
     if(partsEl) partsEl.style.display = 'none';
@@ -9707,7 +9710,7 @@ function togglePartsSection(k) {
   const partsEl = document.getElementById('parts-'+k);
   const toggleBtn = document.getElementById('parts-toggle-'+k);
   const model = getModel();
-  const visibleParts = (WORKS[k]?.parts||[]).filter(p => !p.modelOnly || p.modelOnly === model);
+  const visibleParts = getWorkParts(k, model);
   if(!partsEl) return;
   const isOpen = partsEl.style.display === 'block';
   partsEl.style.display = isOpen ? 'none' : 'block';
@@ -9715,7 +9718,9 @@ function togglePartsSection(k) {
 }
 function changeQty(workKey, partName, delta) {
   if(!partQtys[workKey]) partQtys[workKey] = {};
-  const cur = partQtys[workKey][partName] ?? (WORKS[workKey].parts||[]).find(p=>p.name===partName)?.qty ?? 1;
+  const model = getModel();
+  const defQty = getWorkParts(workKey, model).find(p=>p.name===partName)?.qty ?? 1;
+  const cur = partQtys[workKey][partName] ?? defQty;
   const newVal = Math.max(0, cur + delta);
   partQtys[workKey][partName] = newVal;
   const safeKey = partName.replace(/[^a-zA-Z0-9]/g,'_');
@@ -9734,10 +9739,16 @@ function addExtraPart(workKey) {
   div.id = id;
   div.className = 'part-qty-row';
   div.style.marginTop = '6px';
+  // ⭐ 재고 부품 드롭다운 (자유입력 대신) — 차감 정확도 보장
+  const model = getModel();
+  const opts = (stock||[])
+    .filter(p => { const m=p.model||'공용'; return m==='공용'||m===model; })
+    .map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}${(p.model&&p.model!=='공용')?` (${p.model})`:''}</option>`).join('');
   div.innerHTML = `
-    <input type="text" placeholder="부품명" id="extraname-${id}"
-      style="flex:1;height:26px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:4px;outline:none;"
-      oninput="syncExtraPart('${workKey}','${id}')">
+    <select id="extraname-${id}" onchange="syncExtraPart('${workKey}','${id}')"
+      style="flex:1;height:26px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:4px;outline:none;">
+      <option value="">부품 선택…</option>${opts}
+    </select>
     <div style="display:flex;align-items:center;gap:4px;margin-left:8px;">
       <button class="qty-btn" type="button" onclick="changeExtraQty('${workKey}','${id}',-1)">−</button>
       <span class="qty-num" id="extraqty-${id}">1</span>
