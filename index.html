@@ -13400,6 +13400,8 @@ function downloadCSV(content, filename) {
 /* ===== 재고 관리 ===== */
 let editPartId = null;
 let stockInPartId = null;
+// ⭐ 재고 통계(사용량/발주/추세) 집계 시작일 — 이 날짜 이전 출고 기록은 통계에서 제외
+const STOCK_STATS_START = '2026-06-30';
 
 function switchStockTab(tab) {
   const inventoryPanel = document.getElementById('stock-inventory-panel');
@@ -14006,12 +14008,15 @@ function renderStock() {
     const usedThisMonth = {};
     stockLog.forEach(l => {
       if(l.type !== 'out') return;
+      const day = String(l.date).slice(0,10);
+      if(day < STOCK_STATS_START) return;          // ⭐ 6/30 이전 제외
       if(String(l.date).slice(0,7) !== curMonth) return;
       usedThisMonth[l.partName] = (usedThisMonth[l.partName]||0) + Number(l.qty||0);
     });
     const rows = Object.entries(usedThisMonth).sort((a,b)=>b[1]-a[1]);
     if(rows.length) {
-      h += `<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:20px 0 8px;">${now.getMonth()+1}월 부품 사용량</div>
+      h += `<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:20px 0 4px;">${now.getMonth()+1}월 부품 사용량</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">운영 시작일(${STOCK_STATS_START})부터 집계</div>
       <div class="card" style="padding:0;"><div class="table-wrap"><table>
         <thead><tr><th>부품명</th><th style="text-align:right">이번 달 사용</th></tr></thead>
         <tbody>${rows.map(([name,qty])=>`<tr>
@@ -14035,14 +14040,15 @@ function renderOrderList() {
     el.innerHTML = `<div class="empty"><div class="empty-icon">✅</div>발주가 필요한 부품이 없습니다.<br><span style="font-size:12px;color:var(--text3);">모든 부품이 최소재고 이상입니다.</span></div>`;
     return;
   }
-  // 최근 30일 일평균 소모량으로 권장 발주량 추정
+  // 최근 30일 일평균 소모량으로 권장 발주량 추정 (단, 운영 시작일 6/30 이전 제외)
   const now = Date.now();
   const since = now - 30*86400000;
+  const startMs = new Date(STOCK_STATS_START + 'T00:00:00').getTime();
   const usedByPart = {};
   (stockLog||[]).forEach(l => {
     if(l.type !== 'out') return;
     const t = new Date(l.date).getTime();
-    if(isNaN(t) || t < since) return;
+    if(isNaN(t) || t < since || t < startMs) return;   // ⭐ 6/30 이전 제외
     usedByPart[l.partName] = (usedByPart[l.partName]||0) + Number(l.qty||0);
   });
 
@@ -14164,10 +14170,12 @@ function renderPartsUsageTrend() {
   const months = [];
   for(let i=5;i>=0;i--){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); months.push({key:`${d.getFullYear()}-${pad(d.getMonth()+1)}`, label:`${d.getMonth()+1}월`}); }
 
-  // 부품별 × 월별 소모(out) 합계
+  // 부품별 × 월별 소모(out) 합계 (운영 시작일 6/30 이전 제외)
   const byPart = {};
   (stockLog||[]).forEach(l => {
     if(l.type!=='out') return;
+    const day = String(l.date).slice(0,10);
+    if(day < STOCK_STATS_START) return;        // ⭐ 6/30 이전 제외
     const key = String(l.date).slice(0,7);  // YYYY-MM
     if(!months.find(m=>m.key===key)) return;
     if(!byPart[l.partName]) byPart[l.partName] = {};
