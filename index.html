@@ -1972,6 +1972,20 @@ window.addEventListener('DOMContentLoaded', function(){
   </div>
 </div>
 
+<!-- ⭐ 목표 미달 사유 입력 모달 (강제 — 닫기 불가) -->
+<div class="modal-overlay" id="miss-modal">
+  <div class="modal" style="width:440px;">
+    <div class="modal-title" style="color:var(--red-text);">⚠️ 목표 미달 사유 입력</div>
+    <div style="font-size:13px;color:var(--text2);margin:8px 0 14px;line-height:1.6;" id="miss-modal-desc">—</div>
+    <div id="miss-list"></div>
+    <div id="miss-error" style="color:var(--red-text);font-size:12px;min-height:18px;margin:6px 0;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-primary" onclick="submitMissReasons()">제출하고 계속</button>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:10px;text-align:center;">사유를 입력해야 다음으로 진행할 수 있습니다.</div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="part-modal">
   <div class="modal" style="width:420px;">
     <div class="modal-title" id="part-modal-title">부품 추가</div>
@@ -3430,6 +3444,8 @@ function loginAs(name) {
   if(!isAdmin && role !== 'inspector') {
     renderMyDash();
   }
+  // ⭐ 목표 미달 사유 검사 (수리 엔지니어만, 직전 영업일 미달 시 강제 입력)
+  setTimeout(() => { try { checkMissOnLogin(); } catch(e){ console.error(e); } }, 1200);
 }
 async function loginMaster() {
   if(!_selectedAdminName) {
@@ -10173,7 +10189,56 @@ function buildAdminControlBoard() {
   return html;
 }
 
-async function renderMyDash() {
+// ⭐ 관리자용 '어제 미달 요약' — GAS에서 직전 영업일 미달 기록 조회 후 표시
+async function appendMissSummary(containerEl) {
+  if(!containerEl) return;
+  const today = todayStr();
+  const monthAgo = new Date(); monthAgo.setMonth(monthAgo.getMonth() - 1);
+  await ensureHolidaysLoaded(monthAgo.getTime(), Date.now(), null);
+  const dayStr = prevBizDayStr(today);
+  if(!dayStr) return;
+
+  // 그날 미달자 = 목표 있는 수리 엔지니어 중 실적 < 목표
+  const refD = new Date(dayStr + 'T00:00:00');
+  const missList = [];
+  workers.filter(isRepairEngineer).forEach(w => {
+    const m = calcMissForDay(w, dayStr);
+    if(m) missList.push({ name: w, ...m });
+  });
+
+  // 사유 기록 조회
+  let reasonMap = {};
+  try {
+    const res = await gasCall({ action: 'getMissReasons', date: dayStr });
+    if(res && Array.isArray(res.items)) res.items.forEach(it => { reasonMap[it.name] = it.reason; });
+  } catch(e){}
+
+  let html = `<div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+      <span style="font-size:14px;font-weight:800;color:var(--text);">📉 어제(${dayStr}) 목표 미달 요약</span>
+      <span style="font-size:12px;color:var(--text2);">미달 ${missList.length}명</span>
+    </div>`;
+  if(!missList.length) {
+    html += `<div style="font-size:13px;color:var(--green);padding:10px 0;">✅ 전원 목표 달성 — 미달자 없음</div>`;
+  } else {
+    html += missList.map(m => {
+      const reason = reasonMap[m.name];
+      const reasonHtml = reason
+        ? `<span style="font-size:12px;color:var(--text2);">📝 ${escapeHtml(reason)}</span>`
+        : `<span style="font-size:12px;color:#f59e0b;font-weight:600;">⏳ 사유 미작성</span>`;
+      return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:6px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-weight:700;font-size:13px;color:var(--text);">${escapeHtml(m.name)}${tierBadge(tierMap[m.name]||'')}</span>
+          <span style="font-size:12px;font-weight:700;color:#ef4444;">${m.short}건 미달</span>
+          <span style="font-size:11px;color:var(--text3);">(${m.done}/${m.target})</span>
+        </div>
+        ${reasonHtml}
+      </div>`;
+    }).join('');
+  }
+  html += `</div>`;
+  containerEl.insertAdjacentHTML('beforeend', html);
+}
   const el = document.getElementById('mydash-body');
   const titleEl = document.getElementById('mydash-title');
   if(!el || !currentUser) return;
@@ -10186,8 +10251,9 @@ async function renderMyDash() {
     // 에이징 경과 영업일 계산용 공휴일 로드
     try {
       const ds = entries.filter(e => e.agingStart).map(e => new Date(e.agingStart).getTime());
-      if(ds.length) ensureHolidaysLoaded(Math.min(...ds), nowMs(), () => { if(isFullAdmin()) { el.innerHTML = buildAdminControlBoard(); } });
+      if(ds.length) ensureHolidaysLoaded(Math.min(...ds), nowMs(), () => { if(isFullAdmin()) { el.innerHTML = buildAdminControlBoard(); appendMissSummary(el); } });
     } catch(e){}
+    appendMissSummary(el);
     return;
   }
 
@@ -10421,6 +10487,7 @@ async function renderMyDash() {
         <div style="flex:1;height:1px;background:var(--border);"></div>
       </div>
       ${buildAdminControlBoard()}`;
+    appendMissSummary(el);
     // 영업일 계산용 공휴일 로드되면 관제판만 다시 그림
     try {
       const ds = entries.filter(e => e.agingStart).map(e => new Date(e.agingStart).getTime());
@@ -10914,6 +10981,98 @@ async function getDailyTarget(dateStr) {
   if(!workdays) return 0;
   // T2~T4 작업자의 1일 목표 (T1은 별도 t1DailyTarget)
   return Math.ceil(monthKPI / workdays / kpiTargetCount);
+}
+
+/* ===== ⭐ 목표 미달 사유 기능 ===== */
+// 직전 영업일(YYYY-MM-DD) 반환 — 주말·공휴일 제외. holidayCache 읽기 전용.
+function prevBizDayStr(fromStr) {
+  const base = fromStr ? new Date(fromStr + 'T00:00:00') : new Date();
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  for(let i = 0; i < 14; i++) {            // 최대 2주 거슬러 탐색
+    d.setDate(d.getDate() - 1);
+    const dow = d.getDay();
+    if(dow === 0 || dow === 6) continue;   // 주말 제외
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const ds = `${key}-${String(d.getDate()).padStart(2,'0')}`;
+    const hol = holidayCache[key];
+    if(hol && hol.includes(ds)) continue;  // 공휴일 제외
+    return ds;
+  }
+  return null;
+}
+
+// 특정 엔지니어의 특정 날짜 미달 여부 계산 → {target, done, short} 또는 null(목표없음/달성)
+function calcMissForDay(name, dayStr) {
+  const refD = new Date(dayStr + 'T00:00:00');
+  const target = getPersonalDailyTarget(name, refD);
+  if(!target || target <= 0) return null;          // 목표 없는 사람(관리자·교육중·QC) 제외
+  const done = entries.filter(e => e.worker === name && toLocalDay(e.date) === dayStr).length;
+  if(done >= target) return null;                  // 달성 → 미달 아님
+  return { target, done, short: target - done };
+}
+
+// 로그인 직후 호출 — 본인의 '직전 영업일' 미달이 있고 아직 사유 미작성이면 모달 강제
+let _missPending = null; // { dayStr, name, target, done, short }
+async function checkMissOnLogin() {
+  if(!currentUser) return;
+  if(isFullAdmin() || isPartMaster()) return;      // 관리자(T3·T4) 제외
+  if(!isRepairEngineer(currentUser)) return;       // 수리 엔지니어만
+
+  const today = todayStr();
+  // 공휴일 캐시 먼저 로드 (이번달+지난달)
+  const monthAgo = new Date(); monthAgo.setMonth(monthAgo.getMonth() - 1);
+  await ensureHolidaysLoaded(monthAgo.getTime(), Date.now(), null);
+
+  const dayStr = prevBizDayStr(today);
+  if(!dayStr) return;
+
+  const miss = calcMissForDay(currentUser, dayStr);
+  if(!miss) return;                                // 미달 아님
+
+  // 이미 사유 작성했는지 GAS에서 확인
+  let already = false;
+  try {
+    const res = await gasCall({ action: 'getMissReason', name: currentUser, date: dayStr });
+    already = !!(res && res.exists);
+  } catch(e) { /* 조회 실패 시 일단 진행 */ }
+  if(already) return;
+
+  _missPending = { dayStr, name: currentUser, ...miss };
+  openMissModal();
+}
+
+function openMissModal() {
+  if(!_missPending) return;
+  const { dayStr, target, done, short } = _missPending;
+  document.getElementById('miss-modal-desc').innerHTML =
+    `<b>${dayStr}</b> 목표 <b>${target}건</b> 중 <b>${done}건</b> 완료 — <span style="color:var(--red-text);font-weight:700;">${short}건 미달</span>입니다.<br>미달 사유를 입력해주세요.`;
+  document.getElementById('miss-list').innerHTML = `
+    <textarea id="miss-reason-input" placeholder="예: 특이건 분해 3시간 소요 / 부품 결품 대기 / 교육 참석 등" style="width:100%;min-height:80px;"></textarea>`;
+  document.getElementById('miss-error').textContent = '';
+  document.getElementById('miss-modal').style.display = 'flex';
+  setTimeout(() => { const t = document.getElementById('miss-reason-input'); if(t) t.focus(); }, 100);
+}
+
+async function submitMissReasons() {
+  const errEl = document.getElementById('miss-error');
+  errEl.textContent = '';
+  const reason = (document.getElementById('miss-reason-input').value || '').trim();
+  if(reason.length < 2) { errEl.textContent = '사유를 입력해주세요 (2자 이상).'; return; }
+  if(!_missPending) { document.getElementById('miss-modal').style.display = 'none'; return; }
+  const { dayStr, name, target, done, short } = _missPending;
+  try {
+    await gasCall({
+      action: 'saveMissReason',
+      date: dayStr, name, target, done, short, reason,
+      submittedAt: new Date().toISOString()
+    });
+    document.getElementById('miss-modal').style.display = 'none';
+    _missPending = null;
+    notify('미달 사유가 등록되었습니다.');
+  } catch(e) {
+    errEl.textContent = '저장 실패. 잠시 후 다시 시도해주세요.';
+    console.error(e);
+  }
 }
 
 /* ===== 일일 마감 ===== */
