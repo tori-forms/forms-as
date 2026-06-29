@@ -2009,6 +2009,14 @@ window.addEventListener('DOMContentLoaded', function(){
       <label class="form-label">카테고리</label>
       <input type="text" id="part-category" placeholder="예: 메인부품" style="width:100%;">
     </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">기종</label>
+      <select id="part-model" style="width:100%;">
+        <option value="공용">공용 (모든 기종)</option>
+        <option value="S2_N">S2_N 전용</option>
+        <option value="S2PRO_N">S2PRO_N 전용</option>
+      </select>
+    </div>
     <div style="display:flex;gap:12px;margin-bottom:12px;">
       <div class="form-group" style="flex:1;">
         <label class="form-label">현재 재고</label>
@@ -13785,20 +13793,39 @@ function renderStock() {
     el.innerHTML = `<div class="empty"><div class="empty-icon">📦</div>등록된 부품이 없습니다.${isAdmin ? '<br><button class="btn btn-primary" style="margin-top:12px;" onclick="openAddPartModal()">+ 부품 추가</button>' : ''}</div>`;
     return;
   }
+  window._stockModelFilter = window._stockModelFilter || 'all';
+  const mf = window._stockModelFilter;
+  const modelBadge = (m) => {
+    const mm = m || '공용';
+    const cfg = mm==='S2_N' ? {bg:'#dbeafe',c:'#1d4ed8'} : mm==='S2PRO_N' ? {bg:'#ede9fe',c:'#6d28d9'} : {bg:'#f1f5f9',c:'#64748b'};
+    return `<span style="font-size:10px;font-weight:700;background:${cfg.bg};color:${cfg.c};padding:1px 7px;border-radius:99px;">${mm}</span>`;
+  };
+  // 기종 필터 버튼
+  const counts = { all: stock.length, '공용':0, 'S2_N':0, 'S2PRO_N':0 };
+  stock.forEach(p => { const m = p.model||'공용'; counts[m] = (counts[m]||0)+1; });
+  const fbtn = (val,label) => `<button onclick="setStockModelFilter('${val}')" style="padding:6px 14px;font-size:12px;font-weight:600;border-radius:8px;border:1px solid ${mf===val?'var(--accent)':'var(--border)'};background:${mf===val?'var(--accent)':'var(--surface)'};color:${mf===val?'#fff':'var(--text2)'};cursor:pointer;">${label} ${counts[val]||0}</button>`;
+  let h = `<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;">
+    ${fbtn('all','전체')}${fbtn('공용','공용')}${fbtn('S2_N','S2_N')}${fbtn('S2PRO_N','S2PRO_N')}</div>`;
+
+  const filtered = mf==='all' ? stock : stock.filter(p => (p.model||'공용')===mf);
+  if(!filtered.length) {
+    h += `<div class="empty" style="padding:30px;">해당 기종 부품이 없습니다.</div>`;
+    el.innerHTML = h; return;
+  }
   // 카테고리별 그룹
-  const cats = [...new Set(stock.map(p => p.category || '기타'))].sort();
-  let h = '';
+  const cats = [...new Set(filtered.map(p => p.category || '기타'))].sort();
   cats.forEach(cat => {
-    const parts = stock.filter(p => (p.category || '기타') === cat);
+    const parts = filtered.filter(p => (p.category || '기타') === cat);
     h += `<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px;">${cat}</div>`;
     h += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:8px;">`;
     parts.forEach(p => {
       const isLow = p.qty <= p.minQty;
       const isEmpty = p.qty <= 0;
       const color = isEmpty ? 'var(--red)' : isLow ? 'var(--amber)' : 'var(--green)';
-      const bg = isEmpty ? 'var(--red-bg)' : isLow ? 'var(--amber-bg)' : 'var(--green-bg)';
       h += `<div style="background:var(--surface);border:1px solid ${isEmpty?'#fca5a5':isLow?'#fcd34d':'var(--border)'};border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);">
-        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">${p.name}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+          <span style="font-size:13px;font-weight:600;">${p.name}</span>${modelBadge(p.model)}
+        </div>
         <div style="font-size:28px;font-weight:700;color:${color};margin-bottom:4px;">${p.qty}<span style="font-size:13px;color:var(--text2);font-weight:400;">개</span></div>
         ${isEmpty ? '<div style="font-size:11px;color:var(--red-text);font-weight:600;">⚠ 재고 없음</div>' : isLow ? `<div style="font-size:11px;color:var(--amber-text);font-weight:600;">⚠ 재고 부족 (최소 ${p.minQty}개)</div>` : `<div style="font-size:11px;color:var(--green-text);">✓ 정상</div>`}
         <div style="display:flex;gap:6px;margin-top:10px;">
@@ -13829,6 +13856,7 @@ function renderStock() {
   }
   el.innerHTML = h;
 }
+function setStockModelFilter(v){ window._stockModelFilter = v; renderStock(); }
 
 // ⭐ 발주 리스트 — 최소재고 이하(부족/없음) 부품 모아서 발주 목록
 function renderOrderList() {
@@ -14019,6 +14047,7 @@ function openAddPartModal() {
   document.getElementById('part-category').value = '';
   document.getElementById('part-qty').value = '';
   document.getElementById('part-min-qty').value = '5';
+  const ms = document.getElementById('part-model'); if(ms) ms.value = '공용';
   document.getElementById('part-modal').classList.add('open');
 }
 function openEditPartModal(id) {
@@ -14029,6 +14058,7 @@ function openEditPartModal(id) {
   document.getElementById('part-category').value = p.category || '';
   document.getElementById('part-qty').value = p.qty;
   document.getElementById('part-min-qty').value = p.minQty || 0;
+  const ms = document.getElementById('part-model'); if(ms) ms.value = p.model || '공용';
   document.getElementById('part-modal').classList.add('open');
 }
 function closePartModal() { document.getElementById('part-modal').classList.remove('open'); }
@@ -14038,12 +14068,13 @@ async function savePart() {
   const category = document.getElementById('part-category').value.trim();
   const qty = Number(document.getElementById('part-qty').value) || 0;
   const minQty = Number(document.getElementById('part-min-qty').value) || 0;
+  const model = (document.getElementById('part-model')||{}).value || '공용';
   if(!name){ notify('부품명을 입력하세요.','error'); return; }
   if(editPartId) {
     const idx = stock.findIndex(x=>x.id===editPartId);
-    if(idx>-1) stock[idx] = {...stock[idx], name, category, qty, minQty};
+    if(idx>-1) stock[idx] = {...stock[idx], name, category, qty, minQty, model};
   } else {
-    stock.push({id:'p'+Date.now(), name, category, qty, minQty});
+    stock.push({id:'p'+Date.now(), name, category, qty, minQty, model});
   }
   await saveStockToServer();
   closePartModal();
@@ -14062,7 +14093,7 @@ function deletePart(id) {
 }
 
 async function saveStockToServer() {
-  const stockData = stock.map(p=>`${p.id}::${p.name}::${p.qty}::${p.category||''}::${p.minQty||0}`).join('||');
+  const stockData = stock.map(p=>`${p.id}::${p.name}::${p.qty}::${p.category||''}::${p.minQty||0}::${p.model||'공용'}`).join('||');
   await gasCall({action:'saveStock', stockData});
 }
 
@@ -14122,8 +14153,12 @@ async function deductStock(works, partsData, model) {
 
   for(const [partName, qty] of Object.entries(toDeduct)) {
     if(qty <= 0) continue;
-    // 재고에서 이름 정확 매칭 (대소문자 무시)
-    const idx = stock.findIndex(p => p.name.trim().toLowerCase() === partName.trim().toLowerCase());
+    // ⭐ 기종 우선 매칭: (1)해당기종 전용 → (2)공용 → (3)이름만 일치
+    const nm = partName.trim().toLowerCase();
+    const curModel = model || '';
+    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')===curModel);
+    if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
+    if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
     if(idx < 0) continue; // 재고에 없는 부품은 스킵
     const deductQty = Math.min(qty, stock[idx].qty); // 재고보다 많이 차감 방지
     if(deductQty <= 0) continue;
