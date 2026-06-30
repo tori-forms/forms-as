@@ -3760,6 +3760,48 @@ function showAllShipviewSubtabs() {
   if(svSubtabWrap) svSubtabWrap.style.display = '';
 }
 
+// ⭐ v2.55: 출고 목록에서 시리얼 정정 (출고이력 + 수리데이터 + 품질/교품 동기화)
+let _shipSerialEditOld = '';
+function openShipSerialEdit(oldSerial) {
+  _shipSerialEditOld = oldSerial;
+  const cur = String(oldSerial || '');
+  document.getElementById('modal-title').textContent = '출고 시리얼 정정';
+  document.getElementById('modal-msg').innerHTML =
+    `현재 시리얼: <b style="font-family:monospace;">${escapeHtml(cur)}</b><br>` +
+    `올바른 시리얼로 정정합니다. 출고이력·수리데이터·품질·교품 기록이 모두 함께 바뀝니다.<br><br>` +
+    `<input id="ship-serial-new" type="text" value="${escapeHtml(cur)}" ` +
+    `style="width:100%;height:40px;padding:0 12px;font-size:14px;font-family:monospace;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:6px;">`;
+  const okBtn = document.getElementById('modal-ok');
+  okBtn.textContent = '정정';
+  okBtn.className = 'btn btn-primary';
+  document.getElementById('modal-alt').style.display = 'none';
+  document.getElementById('modal').classList.add('open');
+  mcb = doShipSerialEdit;
+  macb = null;
+  setTimeout(() => { const inp = document.getElementById('ship-serial-new'); if(inp){inp.focus();inp.select();} }, 100);
+}
+async function doShipSerialEdit() {
+  const oldS = _shipSerialEditOld;
+  const newS = (document.getElementById('ship-serial-new')?.value || '').trim();
+  if(!newS) { notify('새 시리얼을 입력하세요.', 'error'); return; }
+  if(newS === oldS) { notify('변경 사항이 없습니다.'); return; }
+  try {
+    notify('시리얼 정정 중...', 'info');
+    await gasCall({ action:'updateShipSerial', oldSerial: oldS, newSerial: newS });
+    // 로컬 데이터 동기화
+    (shipHistory||[]).forEach(h => { if(String(h.serial)===String(oldS)) h.serial = newS; });
+    entries.forEach(e => { if(String(e.serial)===String(oldS)) e.serial = newS; });
+    (window.inspections||[]).forEach(q => { if(String(q.serial)===String(oldS)) q.serial = newS; });
+    (exchangeList||[]).forEach(x => { if(String(x.serial)===String(oldS)) x.serial = newS; });
+    notify(`시리얼 정정 완료: ${oldS} → ${newS}`);
+    window._shipOk = null; window._shipHold = null;
+    try { renderShippingList(); renderShipping(); renderAll(); } catch(e){}
+  } catch(e) {
+    notify('시리얼 정정 실패. 다시 시도해주세요.', 'error');
+    console.warn(e);
+  }
+}
+
 // ⭐ v2.5: 출고 목록 렌더 (기존 출고 현황의 "출고 목록" 탭 스타일 그대로)
 function renderShippingList() {
   const el = document.getElementById('shipping-list-content');
@@ -3871,7 +3913,7 @@ function renderShippingList() {
         const works = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k).join(' · ') : String(h.works||'').replace(/\|/g, ' · ');
         html += `<tr>
           <td style="text-align:center;"><input type="checkbox" class="sv-check" data-group="${groupId}" data-idx="${idx}" style="accent-color:var(--accent);cursor:pointer;"></td>
-          <td style="font-family:monospace;font-weight:600;">${escapeHtml(String(h.serial||''))}</td>
+          <td style="font-family:monospace;font-weight:600;white-space:nowrap;">${escapeHtml(String(h.serial||''))} <span onclick="event.stopPropagation();openShipSerialEdit('${escapeJs(String(h.serial||''))}')" title="시리얼 수정" style="cursor:pointer;font-size:11px;opacity:.5;margin-left:4px;">✏️</span></td>
           <td><span style="font-size:11px;font-weight:700;background:${model==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${model==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${escapeHtml(model)}</span></td>
           <td>${escapeHtml(workerName)}</td>
           <td style="font-size:12px;color:var(--text2);">${works}</td>
@@ -6543,7 +6585,7 @@ function renderShipping() {
     <div class="table-wrap"><table>
       <thead><tr>
         <th style="width:36px;text-align:center;"><input type="checkbox" id="ship-all-check" style="accent-color:var(--accent);" onchange="toggleAllShip(this.checked)"></th>
-        <th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>특이사항</th>
+        <th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>특이사항</th><th style="width:60px;text-align:center;" title="무상 재출고 — 공임 0원, 청구 제외">무상</th>
       </tr></thead>
       <tbody>${ok.map((x,i) => `<tr>
         <td style="text-align:center;"><input type="checkbox" class="ship-row-check" data-idx="${i}" data-serial="${x.entry.serial}" style="accent-color:var(--accent);" onchange="onShipCheckChange()"></td>
@@ -6553,6 +6595,7 @@ function renderShipping() {
         <td>${workTags(x.entry.works)}</td>
         <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
         <td style="font-size:12px;color:${x.entry.note?'var(--amber-text)':'var(--text3)'};">${x.entry.note||'-'}</td>
+        <td style="text-align:center;"><input type="checkbox" class="ship-free-check" data-serial="${escapeHtml(x.entry.serial)}" style="accent-color:#f59e0b;" title="무상 재출고 (공임 0원)"></td>
       </tr>`).join('')}</tbody>
     </table></div>
   </div>`;
@@ -6842,19 +6885,29 @@ function completeShipping() {
   const shipLabel = `${dateVal}`;
 
   const isAllMode = checkedBoxes.length === 0;
+  const _freeCount = [...document.querySelectorAll('.ship-free-check:checked')].length;
   openModal(
     '출고 완료 처리',
-    `${isAllMode ? '전체' : '선택한'} ${targets.length}건을 ${shipLabel} 출고 완료 처리할까요?`,
+    `${isAllMode ? '전체' : '선택한'} ${targets.length}건을 ${shipLabel} 출고 완료 처리할까요?` +
+      (_freeCount > 0 ? `\n\n⚠️ 이 중 무상 재출고 ${_freeCount}건은 공임 0원으로 청구에서 제외됩니다.` : ''),
     async () => {
       try {
+        // ⭐ 무상 재출고 체크된 시리얼 수집 (공임 0원·청구 제외)
+        const freeSerials = new Set(
+          [...document.querySelectorAll('.ship-free-check:checked')].map(cb => String(cb.dataset.serial))
+        );
         const validTargets = targets.filter(x => x.entry);
-        const shipData = validTargets.map(x => ({
-          serial: x.entry.serial,
-          worker: x.entry.worker || '',
-          model: x.entry.model || '',
-          works: parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k).join('|'),
-          fee: x.entry.total || 0
-        }));
+        const shipData = validTargets.map(x => {
+          const isFree = freeSerials.has(String(x.entry.serial));
+          const worksStr = parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k).join('|');
+          return {
+            serial: x.entry.serial,
+            worker: x.entry.worker || '',
+            model: x.entry.model || '',
+            works: isFree ? ('[무상]' + worksStr) : worksStr,   // 무상 표시
+            fee: isFree ? 0 : (x.entry.total || 0)               // 무상이면 공임 0
+          };
+        });
         // 40건씩 자동 배치 처리 (버튼 한 번 → 전체 자동 처리)
         const SHIP_BATCH = 20; // 20건×269자=5680자 (안전)
         const totalBatches = Math.ceil(shipData.length / SHIP_BATCH);
@@ -6870,14 +6923,39 @@ function completeShipping() {
           });
         }
 
+        // ⭐ 무상 재출고 건: 해당 수리건(entries)의 공임을 0으로 수정
+        //   → voltales 청구(e.total 기준)에서도 제외됨. 작업 기록(works)은 유지.
+        for(const x of validTargets) {
+          if(!freeSerials.has(String(x.entry.serial))) continue;
+          const ent = x.entry;
+          const origTotal = Number(ent.total || 0);
+          if(origTotal === 0) continue; // 이미 0
+          try {
+            await gasCall({
+              action: 'edit',
+              id: ent.id,
+              works: JSON.stringify(parseWorks(ent.works)),
+              total: 0,
+              note: ((ent.note ? ent.note + ' / ' : '') + `[무상재출고] 원공임 ${fmt(origTotal)}원`),
+              parts: (ent.parts && typeof ent.parts==='object') ? Object.entries(ent.parts).map(([k,v])=>encodeURIComponent(k)+'='+v).join('|') : ''
+            });
+            // 로컬 entries도 반영
+            const le = entries.find(e => String(e.id) === String(ent.id));
+            if(le) { le.note = (le.note ? le.note + ' / ' : '') + `[무상재출고] 원공임 ${fmt(origTotal)}원`; le.total = 0; }
+          } catch(e) { console.warn('무상 공임 0 처리 실패', ent.serial, e); }
+        }
+
         // 로컬 이력에 추가
         validTargets.forEach(x => {
+          const isFree = freeSerials.has(String(x.entry.serial));
+          const tags = parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k);
+          if(isFree) tags.unshift('무상');
           shipHistory.push({
             serial: x.entry.serial,
             shipDate: shipDTStr,
             worker: x.entry.worker || '',
             model: x.entry.model || '',
-            works: JSON.stringify(parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k))
+            works: JSON.stringify(tags)
           });
         });
 
