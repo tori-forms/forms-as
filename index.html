@@ -11016,9 +11016,28 @@ function renderToday() {
 
 /* 수정 모달 */
 let editTargetId = null;
-function openEditModal(id) {
+async function openEditModal(id) {
   const e = entries.find(x=>String(x.id)===String(id)); if(!e) return;
   if(!canDelete(e)){ notify('수정 권한이 없습니다.','error'); return; }
+  // ⭐ load 경량화로 출고완료 건은 parts가 비어있음 → 수정 시 상세를 따로 불러옴
+  if((!e.parts || (typeof e.parts==='object' && !Object.keys(e.parts).length) || e.parts==='') && e.status==='shipped') {
+    try {
+      const res = await gasCall({ action:'getEntryDetail', id });
+      if(res && res.detail) {
+        e.note = res.detail.note || e.note || '';
+        // parts 문자열 → 객체 파싱 (load 때와 동일 방식)
+        let pj = res.detail.parts;
+        if(pj && typeof pj === 'string') {
+          try { e.parts = JSON.parse(pj); }
+          catch {
+            const o = {};
+            pj.split('&').forEach(kv => { const [k,v]=kv.split('='); if(k) { try{o[decodeURIComponent(k)]=Number(v)||0;}catch{} } });
+            e.parts = o;
+          }
+        }
+      }
+    } catch(err) { console.warn('상세 로드 실패', err); }
+  }
   editTargetId = id;
   // 부품 수량 초기화 후 기존 저장된 수량으로 복원
   initPartQtys();
