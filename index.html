@@ -11429,11 +11429,12 @@ async function saveEdit() {
 
     closeEditModal();
     renderToday(); renderAll();
-    notify('수정되었습니다!');
+    notifyPersist('저장 중...');
     btn.disabled = false; btn.textContent = '저장';
 
-    // 서버 반영은 백그라운드 (화면 안 기다림)
+    // 서버 반영은 백그라운드 (화면 안 기다림) — 응답 오면 알림 교체
     gasCall({action:'edit', id:String(editTargetId), works:JSON.stringify(works), total, note, parts:partsSafe, serial:newSerial, model:newModel})
+      .then(() => notify('수정되었습니다!'))
       .catch(() => notify('서버 반영 실패 — 새로고침으로 확인하세요.','error'));
     return;
   } catch { notify('저장 실패. 다시 시도해주세요.','error'); }
@@ -11451,13 +11452,15 @@ function delEntry(id) {
     markPendingChange('entries', id, { type: 'delete' }, 5000);
     renderToday();
     renderAll();
-    notify('삭제되었습니다.');
+    notifyPersist('삭제 중...');   // 서버 반영 진행 표시 (응답 오면 아래에서 교체)
     try {
       await gasCall({action:'delete', id});
       if(restore && pc > 0 && stock.length) {
         const restored = await restoreStockForEntry(e);
         try { renderStock(); } catch(e){}
-        notify(`부품 ${restored}개 재고 복구됨.`);
+        notify(`삭제 완료 · 부품 ${restored}개 재고 복구됨.`);
+      } else {
+        notify('삭제되었습니다.');
       }
     } catch { notify('서버 반영 실패 — 새로고침으로 확인하세요.','error'); }
   };
@@ -11480,13 +11483,15 @@ function delEntryH(id) {
     markPendingChange('entries', id, { type: 'delete' }, 5000);
     renderHistory(); renderToday();
     renderAll();
-    notify('삭제되었습니다.');
+    notifyPersist('삭제 중...');
     try {
       await gasCall({action:'delete', id});
       if(restore && pc > 0 && stock.length) {
         const restored = await restoreStockForEntry(e);
         try { renderStock(); } catch(e){}
-        notify(`부품 ${restored}개 재고 복구됨.`);
+        notify(`삭제 완료 · 부품 ${restored}개 재고 복구됨.`);
+      } else {
+        notify('삭제되었습니다.');
       }
     } catch { notify('서버 반영 실패 — 새로고침으로 확인하세요.','error'); }
   };
