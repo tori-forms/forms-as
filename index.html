@@ -2728,7 +2728,8 @@ async function syncData(silent=false, force=false) {
       } catch {}
     });
     stock = data.stock || [];
-    stockLog = data.stockLog || [];
+    // ⭐ v2.57: 메인 load는 재고이력 미포함(lean) → 있을 때만 갱신, 없으면 기존값 유지(백그라운드 loadStockLog가 채움)
+    if(data.stockLog) stockLog = data.stockLog;
     // ⭐ 작업별 부품 매핑 (관리자가 화면에서 설정) — 있으면 WORKS 대신 사용
     if(data.workPartsMap && Object.keys(data.workPartsMap).length) {
       window.WORK_PARTS_MAP = data.workPartsMap;
@@ -2807,6 +2808,7 @@ async function syncData(silent=false, force=false) {
     }
     setSyncStatus('ok');
     renderAll();
+    loadHeavyTablesInBackground();  // ⭐ v2.57: 출고/재고 이력은 백그라운드로 (로그인·메인 즉시 표시)
     if(!silent) notify('데이터를 불러왔습니다.');
     // ⭐ v2.22: 로그인 화면 — 엔지니어/관리자/QC 그리드 모두 갱신
     // (관리자는 tierMap 로드 후에야 채워지므로 동기화 후 다시 빌드해야 함)
@@ -2834,6 +2836,34 @@ async function syncData(silent=false, force=false) {
     _syncInProgress = false;
   }
 }
+// ⭐ v2.57: 무거운 이력(출고/재고)을 메인 load에서 분리 → 로그인·메인은 즉시 뜨고,
+//   출고이력/재고이력은 백그라운드로 병렬 로드해 도착하면 해당 탭만 다시 그림.
+//   (메인 load 응답이 GAS 캐시한계 95KB 밑으로 유지돼 캐시가 항상 동작 → 로그인 빠름)
+let _heavyLoadInFlight = false;
+async function loadHeavyTablesInBackground() {
+  if(_heavyLoadInFlight) return;        // 중복 호출 방지 (auto-sync 5분 주기와 겹침 방지)
+  _heavyLoadInFlight = true;
+  try {
+    const [shipRes, stockRes] = await Promise.allSettled([
+      gasCall({ action: 'loadShipLog' }),
+      gasCall({ action: 'loadStockLog' })
+    ]);
+    let changed = false;
+    if(shipRes.status === 'fulfilled' && shipRes.value && Array.isArray(shipRes.value.shipLog)) {
+      shipHistory = shipRes.value.shipLog; changed = true;
+    }
+    if(stockRes.status === 'fulfilled' && stockRes.value && Array.isArray(stockRes.value.stockLog)) {
+      stockLog = stockRes.value.stockLog; changed = true;
+    }
+    // 출고/재고가 도착했으니 의존 화면(출고관리/현황·재고·대시보드 등) 다시 렌더
+    if(changed && !ENGRAVE_MODE && typeof renderAll === 'function') renderAll();
+  } catch(e) {
+    console.warn('[heavy load] 출고/재고 이력 백그라운드 로드 실패:', e && e.message);
+  } finally {
+    _heavyLoadInFlight = false;
+  }
+}
+
 function renderAll() {
   if(ENGRAVE_MODE) return;  // 각인 모드에서는 메인 UI 렌더링 스킵
   renderWorkerSel(); renderToday(); renderWorkers();
@@ -9600,6 +9630,11 @@ function initEngraveMode() {
 
   // 데이터 로드 + 5초마다 자동 갱신
   console.log('[ENGRAVE] 첫 데이터 로드 시작');
+  // ⭐ v2.57: 메인 load가 lean(출고이력 미포함)이 되었으므로, 각인 모드도 출고이력을 1회 별도 로드
+  //   (출고완료 상태 표시용 — 5초 폴링엔 포함 안 함, 부하 최소화)
+  gasCall({action:'loadShipLog'}).then(r => {
+    if(r && Array.isArray(r.shipLog)) { shipHistory = r.shipLog; if(typeof renderEngravePage==='function') renderEngravePage(); }
+  }).catch(()=>{});
   syncDataForEngrave();
   setInterval(syncDataForEngrave, 5000);
 }
