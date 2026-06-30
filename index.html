@@ -2541,6 +2541,31 @@ function gasCall(params) {
     pauseSync(8000); // 8초간 정지 (변경 보호 5초 + 여유)
   }
 
+  // ⭐ v2.54: load(큰 응답)는 fetch 우선 — JSONP(script태그)는 646KB+ 큰 응답/302에 약해 timeout 빈발.
+  //   fetch는 302 자동 추적 + 큰 응답에 강함. 실패 시 아래 JSONP로 폴백.
+  const isLoad = !params || !params.action || params.action === 'load';
+  if(isLoad && typeof fetch === 'function') {
+    const qs0 = Object.entries({...params}).filter(([k])=>k!=='callback')
+      .map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
+    const url = GAS + (qs0 ? ('?'+qs0) : '');
+    return fetch(url, { method:'GET', redirect:'follow' })
+      .then(r => r.text())
+      .then(txt => {
+        // GAS가 callback 없이 호출되면 순수 JSON 반환
+        try { return JSON.parse(txt); }
+        catch(e) {
+          // 혹시 콜백으로 감싸져 오면 벗겨내기
+          const m = txt.match(/^[^(]*\((.*)\)\s*;?\s*$/s);
+          if(m) { try { return JSON.parse(m[1]); } catch(e2){} }
+          throw new Error('parse');
+        }
+      })
+      .catch(() => _gasCallJsonp(params));  // fetch 실패 → JSONP 폴백
+  }
+  return _gasCallJsonp(params);
+}
+
+function _gasCallJsonp(params) {
   return new Promise((resolve, reject) => {
     const cb = '__gas_' + Date.now() + '_' + (Math.random()*1e6|0);
     const qs = Object.entries({...params, callback:cb})
