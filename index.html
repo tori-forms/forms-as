@@ -9767,7 +9767,7 @@ function _renderWorkCheckHTML(k, v, model) {
             <span style="color:var(--text2);">${p.name}${p.modelOnly?` <span style="font-size:10px;color:var(--accent);">(${p.modelOnly})</span>`:''}</span>
             <div style="display:flex;align-items:center;gap:6px;">
               <button class="qty-btn" type="button" onclick="event.preventDefault();event.stopPropagation();changeQty('${k}','${p.name}',-1)">−</button>
-              <span class="qty-num" id="qty-${k}-${p.name.replace(/[^a-zA-Z0-9]/g,'_')}">${p.qty}</span>
+              <span class="qty-num" id="qty-${k}-${partSafeKey(p.name)}">${p.qty}</span>
               <button class="qty-btn" type="button" onclick="event.preventDefault();event.stopPropagation();changeQty('${k}','${p.name}',1)">+</button>
             </div>
           </div>`).join('')}
@@ -9851,10 +9851,18 @@ function changeQty(workKey, partName, delta) {
   const cur = partQtys[workKey][partName] ?? defQty;
   const newVal = Math.max(0, cur + delta);
   partQtys[workKey][partName] = newVal;
-  const safeKey = partName.replace(/[^a-zA-Z0-9]/g,'_');
+  const safeKey = partSafeKey(partName);
   const el = document.getElementById('qty-'+workKey+'-'+safeKey);
   if(el) el.textContent = newVal;
   updatePP();
+}
+
+// ⭐ 부품명 → 고유 안전키 (한글 등 영숫자 외 문자를 코드포인트로 인코딩 → 충돌 방지)
+//   기존 replace(/[^a-zA-Z0-9]/g,'_')는 한글이 전부 '_'로 뭉개져 서로 다른 부품이 같은 ID가 됨
+function partSafeKey(name) {
+  return String(name||'').split('').map(ch =>
+    /[a-zA-Z0-9]/.test(ch) ? ch : ('c' + ch.charCodeAt(0))
+  ).join('');
 }
 let extraPartCounters = {};
 function addExtraPart(workKey) {
@@ -11198,7 +11206,7 @@ function renderEditParts(ws) {
     html += `<div style="margin-bottom:10px;">`;
     html += `<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;">${v.tag || v.label}</div>`;
     (assign[k] || []).forEach(({name, qty}) => {
-      const safeKey = ('saved-'+name).replace(/[^a-zA-Z0-9]/g,'_');
+      const safeKey = k + '-' + partSafeKey(name);
       if(!partQtys[k]) partQtys[k] = {};
       if(partQtys[k][name] === undefined) partQtys[k][name] = Number(qty);
       html += `<div class="part-qty-row">
@@ -14381,6 +14389,18 @@ function deletePart(id) {
 }
 
 async function saveStockToServer() {
+  // ⭐ 안전 가드: 데이터가 제대로 로드되지 않았으면 저장 금지
+  //   (load 실패/지연 상태에서 빈·불완전 stock으로 시트 전체를 덮어쓰면 기종 등 데이터 유실 → 참사 방지)
+  if(!window._dataLoaded) {
+    console.warn('[재고저장 차단] 데이터 미로드 상태 — 시트 덮어쓰기 방지');
+    notify('데이터 로딩이 완료되지 않아 재고 저장을 건너뛰었습니다. 새로고침 후 다시 시도하세요.', 'error');
+    return;
+  }
+  if(!Array.isArray(stock) || stock.length === 0) {
+    console.warn('[재고저장 차단] stock 비어있음 — 시트 덮어쓰기 방지');
+    notify('재고 목록이 비어 있어 저장을 건너뛰었습니다. (데이터 보호)', 'error');
+    return;
+  }
   const stockData = stock.map(p=>`${p.id}::${p.name}::${p.qty}::${p.category||''}::${p.minQty||0}::${p.model||'공용'}`).join('||');
   await gasCall({action:'saveStock', stockData});
 }
