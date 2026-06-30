@@ -2546,7 +2546,7 @@ function gasCall(params) {
     const qs = Object.entries({...params, callback:cb})
       .map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
     const s = document.createElement('script');
-    const timer = setTimeout(()=>{ cleanup(); reject(new Error('timeout')); }, 30000);
+    const timer = setTimeout(()=>{ cleanup(); reject(new Error('timeout')); }, 90000);
     window[cb] = data => {
       cleanup();
       resolve(data);
@@ -2847,9 +2847,9 @@ function renderAll() {
   if(tab?.includes('에이징') && !agingHasChecks) { try { renderAging && renderAging(); } catch {} }
   if(tab?.includes('검수대기') || tab?.includes('검수 관리')) { try { renderInspect && renderInspect(); } catch {} }
 }
-// ⭐ v2.15: 자동 동기화 5초 주기 (거의 실시간, GAS 부담 안전 범위)
-// 데이터 변경(등록/수정/삭제) 후에는 즉시 서버 동기화로 100% 최신 보장
-setInterval(()=>syncData(true), 5000);
+// ⭐ 자동 동기화 — 데이터가 많아 load가 무거우므로 30초 주기 + 진행중이면 스킵
+// (5초마다 부르면 무거운 load 요청이 쌓여 더 느려지고 timeout 유발)
+setInterval(()=>{ if(!_syncInProgress) syncData(true); }, 30000);
 
 /* 날짜 바 */
 const DATE_INP = {input:'date-input', summary:'date-summary'};
