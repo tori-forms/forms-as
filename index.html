@@ -1529,7 +1529,6 @@ window.addEventListener('DOMContentLoaded', function(){
       <button id="admtab-kpi" onclick="switchAdminTab('kpi')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">📊 KPI 설정</button>
       <button id="admtab-report" onclick="switchAdminTab('report')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">📈 실적 리포트</button>
       <button id="admtab-shipview" onclick="switchAdminTab('shipview')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">📈 출고 현황</button>
-      <button id="admtab-stock" onclick="switchAdminTab('stock')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">📦 재고 관리</button>
       <button id="admtab-price" onclick="switchAdminTab('price')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">💰 단가 설정</button>
       <button id="admtab-workparts" onclick="switchAdminTab('workparts')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">🔧 작업별 부품</button>
     </div>
@@ -10853,9 +10852,9 @@ async function renderMyDash() {
     // 미달 슬롯엔 캐시가 있으면 먼저 표시 (깜빡임 방지)
     const missInit = _missSummaryCache || '<div style="color:var(--text3);font-size:13px;padding:10px 2px;">미달 현황 불러오는 중…</div>';
     const boardOpen = !!window._boardOpen;   // ⭐ 펼침 상태 유지
+    const t4ReportMonth = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
     el.innerHTML =
-      buildT4StatsHtml() +
-      buildEngTrendHtml() +
+      `<div id="t4-report-slot"><div style="color:var(--text3);font-size:13px;padding:10px 2px;">실적 리포트 불러오는 중…</div></div>` +
       `<div id="t4-miss-slot">${missInit}</div>
       <details id="t4-board-details" style="margin-top:4px;"${boardOpen?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
@@ -10864,6 +10863,9 @@ async function renderMyDash() {
         </summary>
         <div id="t4-board-slot" style="margin-top:10px;"></div>
       </details>`;
+
+    // ⭐ 실적 리포트 임베드 (관리자탭의 실적 리포트를 대시보드에 표시)
+    try { renderReportInto('t4-report-slot', t4ReportMonth); } catch(e) { console.warn(e); }
 
     const det = document.getElementById('t4-board-details');
     const boardSlot = document.getElementById('t4-board-slot');
