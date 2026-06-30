@@ -2656,11 +2656,11 @@ async function syncData(silent=false, force=false) {
   try {
     let data;
     try {
-      data = await gasCall({action:'load', noShip:1});
+      data = await gasCall({action:'load'});
     } catch(e1) {
       // ⭐ timeout 등 1차 실패 시 1회 재시도 (데이터가 많아 가끔 느림)
       console.warn('[syncData] 1차 실패, 재시도:', e1 && e1.message);
-      data = await gasCall({action:'load', noShip:1});
+      data = await gasCall({action:'load'});
     }
     window._dataLoaded = true;  // ⭐ 데이터 1회 이상 로드 완료 (로그인 가드용)
     entries = (data.entries || []).map(e => {
@@ -2754,12 +2754,9 @@ async function syncData(silent=false, force=false) {
       const nk = String(k).trim();
       if(nk) window.PASSWORD_MAP[nk] = _rawPw[k];
     });
-    // 출고 이력은 별도 로드 (noShip으로 빠르게 받았으므로). shipLog가 응답에 있으면 반영, 없으면 유지 후 백그라운드 로드
-    if(data.shipLog && data.shipLog.length) {
+    // 출고 이력도 같이 로드
+    if(data.shipLog) {
       shipHistory = data.shipLog;
-    } else {
-      // ⭐ v2.56: 출고이력 분리 로드 — 기본 로딩을 막지 않게 백그라운드로
-      loadShipHistory();
     }
     // 현재 열린 탭에 따라 자동 렌더
     const activeTab = document.querySelector('.nav-btn.active')?.getAttribute('onclick');
@@ -9010,35 +9007,6 @@ function loadPriceSettings() {
 /* Init */
 // 전역 변수 선언
 let shipHistory = [];
-let _shipHistoryLoaded = false;
-let _shipHistoryLoading = false;
-// ⭐ v2.56: 출고이력 별도 로드 (기본 load는 noShip으로 가볍게, 출고이력은 백그라운드/탭진입 시)
-async function loadShipHistory(force) {
-  if(_shipHistoryLoading) return;
-  if(_shipHistoryLoaded && !force) return;
-  _shipHistoryLoading = true;
-  try {
-    const r = await gasCall({action:'loadShipLog'});
-    if(r && Array.isArray(r.shipLog)) {
-      shipHistory = r.shipLog;
-      _shipHistoryLoaded = true;
-      window._shipOk = null; window._shipHold = null;
-      // 출고 관련 화면이 열려 있으면 재렌더
-      const activeTab = document.querySelector('.nav-btn.active')?.getAttribute('onclick') || '';
-      try {
-        if(activeTab.includes('shipping')) renderShipping();
-        if(activeTab.includes('shipview')) renderShipview();
-        if(typeof renderShippingList==='function') renderShippingList();
-        if(typeof renderShipHistory==='function') renderShipHistory();
-        if(typeof renderAll==='function') renderAll();
-      } catch(e){}
-    }
-  } catch(e) {
-    console.warn('[출고이력 로드 실패]', e && e.message);
-  } finally {
-    _shipHistoryLoading = false;
-  }
-}
 
 function updateAdminNav() {
   const adminBtn = document.getElementById('nav-admin');
@@ -9640,7 +9608,7 @@ async function syncDataForEngrave() {
   console.log('[ENGRAVE] syncDataForEngrave 호출');
   try {
     // syncData 우회: GAS 직접 호출 (DOM 의존 없음)
-    const data = await gasCall({action:'load', noShip:1});
+    const data = await gasCall({action:'load'});
     console.log('[ENGRAVE] gasCall 응답:', data ? 'OK' : 'EMPTY');
 
     // entries 파싱 (syncData 로직 미러링)
@@ -9727,12 +9695,6 @@ function switchTab(name, btn) {
   if(name==='admin') { switchAdminTab('workers'); }
   if(name==='aging') { renderAging(); startAgingTimer(); } else { stopAgingTimer(); }
   if(name==='inspect') { renderInspect(); }
-
-  // ⭐ v2.56: 출고이력이 필요한 탭 진입 시, 아직 로드 안 됐으면 백그라운드 로드
-  const SHIPLOG_TABS = ['summary','shipping','shipview','history','search','mydash','report'];
-  if(SHIPLOG_TABS.indexOf(name) !== -1 && !_shipHistoryLoaded) {
-    loadShipHistory();
-  }
 
   // ⭐ v2.14: 탭 클릭 시 자동으로 최신 데이터 가져오기 (실시간 느낌)
   // - 즉시 로컬 데이터로 렌더 → 사용자는 기다림 X
@@ -12988,7 +12950,7 @@ function deleteKPI(key) {
     try {
       await gasCall({action:'saveKPI', kpiData});
       // 삭제 후 서버에서 다시 확인
-      const verify = await gasCall({action:'load', noShip:1});
+      const verify = await gasCall({action:'load'});
       const raw = verify.kpiMap || {};
       kpiMap = {};
       Object.entries(raw).forEach(([k,v])=>{
