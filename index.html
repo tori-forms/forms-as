@@ -12828,6 +12828,7 @@ async function renderKPI() {
 
 function renderKPIList(listId = 'kpi-list') {
   const el = document.getElementById(listId);
+  if(!el) return;  // ⭐ 해당 목록이 화면에 없으면 무시 (kpi-list / kpi-list2 양쪽 호출 안전)
   const keys = Object.keys(kpiMap).sort((a,b)=>b.localeCompare(a));
   if(!keys.length){ el.innerHTML='<div class="empty" style="padding:20px;">저장된 KPI가 없습니다.</div>'; return; }
   el.innerHTML = keys.map(k=>{
@@ -13036,7 +13037,7 @@ function deleteKPI(key) {
         const m2 = String(k).match(/(\d{4})-(\d{2})/);
         if(m2) kpiMap[`${m2[1]}-${m2[2]}`]=v;
       });
-      renderKPIList();
+      renderKPIList('kpi-list'); renderKPIList('kpi-list2');  // ⭐ 양쪽 목록 모두 갱신 (관리자탭=kpi-list2)
       notify('삭제되었습니다.');
     } catch { notify('삭제 실패.','error'); }
   });
