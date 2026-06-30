@@ -2849,7 +2849,9 @@ function renderAll() {
 }
 // ⭐ 자동 동기화 — 데이터가 많아 load가 무거우므로 30초 주기 + 진행중이면 스킵
 // (5초마다 부르면 무거운 load 요청이 쌓여 더 느려지고 timeout 유발)
-setInterval(()=>{ if(!_syncInProgress) syncData(true); }, 30000);
+// ⭐ 자동 동기화 5분 주기 (GAS 부하 최소화 — 실시간 갱신은 상단 '새로고침' 버튼으로)
+//   데이터가 많아 load가 무거우므로, 잦은 자동 호출이 GAS 실행 큐를 막아 timeout 유발
+setInterval(()=>{ if(!_syncInProgress) syncData(true); }, 300000);
 
 /* 날짜 바 */
 const DATE_INP = {input:'date-input', summary:'date-summary'};
