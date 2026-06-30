@@ -9164,7 +9164,17 @@ if(ENGRAVE_MODE) {
 /* ───── 각인 페이지 렌더링 (하루 전체 + 작업자 그룹) ───── */
 
 // 각인 대상 작업 키 (배열 — 향후 'cover_replace' 등 추가 가능)
-const ENGRAVE_TARGET_WORKS = ['nonbat'];
+const ENGRAVE_TARGET_WORKS = ['nonbat'];  // (구) 작업종류 기준 — 현재 미사용
+
+// ⭐ 각인 대상 판정: 후면커버(백커버) 부품이 실제로 들어간 작업건
+//   parts 객체의 키에 '백커버' 또는 '후면커버'가 포함되고 수량>0 이면 대상
+function engraveHasBackCover(e) {
+  const parts = e && e.parts;
+  if(!parts || typeof parts !== 'object') return false;
+  return Object.keys(parts).some(name =>
+    (name.includes('백커버') || name.includes('후면커버')) && Number(parts[name]) > 0
+  );
+}
 
 // 복사 흔적 저장 (브라우저 메모리, 자정에 자동 초기화)
 let engraveCopiedMap = {};  // {entryId: '14:35:12'}
@@ -9190,9 +9200,9 @@ function renderEngravePage() {
   }
   engraveCurrentDay = todayStr;
 
-  // 오늘 등록된 각인 대상 작업만 필터 (현재: 논배터리, 향후: 후면커버 등)
+  // 오늘 등록된 각인 대상(후면커버 부품 포함) 작업만 필터
   const todayNonbat = allEntries
-    .filter(e => Array.isArray(e.works) && e.works.some(w => ENGRAVE_TARGET_WORKS.includes(w)))
+    .filter(e => engraveHasBackCover(e))
     .filter(e => String(e.date || '').slice(0,10) === todayStr)
     .sort((a,b) => {
       // 등록 순서대로 (id 오름차순 - 위에서부터 처리하기 좋게)
@@ -9212,13 +9222,13 @@ function renderEngravePage() {
 
   // 빈 상태 처리
   if(todayNonbat.length === 0) {
-    document.getElementById('engrave-summary').textContent = '오늘 등록된 논배터리 작업이 없습니다';
+    document.getElementById('engrave-summary').textContent = '오늘 등록된 후면커버 교체 작업이 없습니다';
     document.getElementById('engrave-worker-filter').innerHTML = '';
     document.getElementById('engrave-groups').innerHTML =
       '<div style="text-align:center;padding:60px 20px;background:#111;border:1px solid #222;border-radius:16px;">' +
       '<div style="font-size:64px;opacity:0.3;margin-bottom:20px;">🔍</div>' +
       '<div style="font-size:18px;color:#888;font-weight:600;">대기 중인 각인 작업이 없습니다</div>' +
-      '<div style="font-size:13px;color:#555;margin-top:10px;">새 논배터리 작업이 등록되면 자동으로 표시됩니다</div>' +
+      '<div style="font-size:13px;color:#555;margin-top:10px;">후면커버 교체 작업이 등록되면 자동으로 표시됩니다</div>' +
       '</div>';
     return;
   }
