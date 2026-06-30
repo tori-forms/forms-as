@@ -3310,10 +3310,13 @@ function showLoginAdmin() {
 
 // ⭐ 엔지니어/QC 비밀번호 로그인 — 이름 클릭 시 진입
 function pwLoginStart(name, role) {
-  // ⭐ 데이터(비번 포함)가 아직 안 왔으면 로그인 차단 — 빈 PASSWORD_MAP로 "처음 로그인" 오판 방지
-  if(!window._dataLoaded || !window.PASSWORD_MAP) {
+  // ⭐ 비번 맵이 비어있을 때만 차단 (데이터 로딩 실패해도 비번만 오면 로그인 허용)
+  const pwReady = window.PASSWORD_MAP && Object.keys(window.PASSWORD_MAP).length > 0;
+  if(!pwReady) {
     const errEl = document.getElementById('login-error');
-    if(errEl) errEl.textContent = '데이터를 불러오는 중입니다. 잠시 후 다시 눌러주세요.';
+    if(errEl) errEl.textContent = '데이터를 불러오는 중입니다. 잠시 후 다시 눌러주세요. (계속되면 새로고침)';
+    // 데이터 재시도 트리거
+    if(typeof syncData === 'function') { try { syncData(true); } catch(e){} }
     return;
   }
   _pwLoginName = name;
