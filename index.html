@@ -11095,32 +11095,43 @@ function renderEditParts(ws) {
   // ⭐ 수정 중인 entry의 model 사용
   const origEntry = entries.find(x => String(x.id) === String(editTargetId));
   const model = origEntry?.model || (typeof detectModel === 'function' ? detectModel(String(origEntry?.serial||'')) : '');
-  // ⭐ 이 수리에 실제 저장된 부품(e.parts) = 차감된 부품. 이것만 보여줌 (WORKS 기본부품 중복 제거)
+  // ⭐ 이 수리에 실제 저장된 부품(e.parts) = 차감된 부품
   const savedParts = (origEntry && origEntry.parts && typeof origEntry.parts === 'object') ? origEntry.parts : {};
+
+  // ⭐ B안: 저장된 부품을 각 작업(매핑) 소속으로 분류
+  //   각 작업의 getWorkParts에 부품명이 있으면 그 작업 소속. 어디에도 없으면 첫 작업(기타)에.
+  const assign = {};               // { workKey: [ {name, qty} ] }
+  ws.forEach(k => { assign[k] = []; });
+  const firstWork = ws[0];
+  Object.entries(savedParts).forEach(([name, qty]) => {
+    if(!name || Number(qty) <= 0) return;
+    let placed = false;
+    for(const k of ws) {
+      const names = getWorkParts(k, model).map(p => p.name);
+      if(names.includes(name)) { assign[k].push({name, qty:Number(qty)}); placed = true; break; }
+    }
+    if(!placed && firstWork) assign[firstWork].push({name, qty:Number(qty)});  // 매핑에 없는 기타 부품
+  });
+
   let html = '';
-  ws.forEach((k, wi) => {
+  ws.forEach((k) => {
     const v = WORKS[k];
     if(!v) return;
     html += `<div style="margin-bottom:10px;">`;
     html += `<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;">${v.tag || v.label}</div>`;
-    // 저장된 부품은 첫 작업 블록에 모두 표시 (작업별 정확한 귀속 정보가 없으므로)
-    if(wi === 0) {
-      Object.entries(savedParts).forEach(([name, qty]) => {
-        if(!name || Number(qty) <= 0) return;
-        const safeKey = ('saved-'+name).replace(/[^a-zA-Z0-9]/g,'_');
-        if(!partQtys[k]) partQtys[k] = {};
-        if(partQtys[k][name] === undefined) partQtys[k][name] = Number(qty);
-        html += `<div class="part-qty-row">
-          <span style="color:var(--text2);font-size:12px;">${escapeHtml(name)}</span>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <button class="qty-btn" type="button" onclick="changeQty('${k}','${escapeJs(name)}',-1);document.getElementById('eqty-${safeKey}').textContent=partQtys['${k}']['${escapeJs(name)}']">−</button>
-            <span class="qty-num" id="eqty-${safeKey}">${Number(qty)}</span>
-            <button class="qty-btn" type="button" onclick="changeQty('${k}','${escapeJs(name)}',1);document.getElementById('eqty-${safeKey}').textContent=partQtys['${k}']['${escapeJs(name)}']">+</button>
-          </div>
-        </div>`;
-      });
-    }
-    // 부품 추가 버튼
+    (assign[k] || []).forEach(({name, qty}) => {
+      const safeKey = ('saved-'+name).replace(/[^a-zA-Z0-9]/g,'_');
+      if(!partQtys[k]) partQtys[k] = {};
+      if(partQtys[k][name] === undefined) partQtys[k][name] = Number(qty);
+      html += `<div class="part-qty-row">
+        <span style="color:var(--text2);font-size:12px;">${escapeHtml(name)}</span>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button class="qty-btn" type="button" onclick="changeQty('${k}','${escapeJs(name)}',-1);document.getElementById('eqty-${safeKey}').textContent=partQtys['${k}']['${escapeJs(name)}']">−</button>
+          <span class="qty-num" id="eqty-${safeKey}">${Number(qty)}</span>
+          <button class="qty-btn" type="button" onclick="changeQty('${k}','${escapeJs(name)}',1);document.getElementById('eqty-${safeKey}').textContent=partQtys['${k}']['${escapeJs(name)}']">+</button>
+        </div>
+      </div>`;
+    });
     html += `<div id="edit-extra-parts-${k}"></div>
       <div style="margin-top:6px;">
         <button type="button" onclick="event.preventDefault();event.stopPropagation();addEditExtraPart('${k}')" style="font-size:11px;color:var(--accent);background:none;border:1px dashed var(--accent);border-radius:4px;padding:3px 8px;cursor:pointer;">+ 부품 추가</button>
