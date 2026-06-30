@@ -11039,37 +11039,9 @@ async function openEditModal(id) {
     } catch(err) { console.warn('상세 로드 실패', err); }
   }
   editTargetId = id;
-  // 부품 수량 초기화 후 기존 저장된 수량으로 복원
+  // 부품 수량 초기화 (renderEditParts가 e.parts를 직접 읽어 표시)
   initPartQtys();
-  // e.parts = { 부품명: 수량 } 형태 - 기존 저장 수량을 partQtys에 복원
-  if(e.parts && typeof e.parts === 'object') {
-    const ws0 = parseWorks(e.works);
-    // 표준 부품명 집합 (이 작업들에 정의된 부품)
-    const standardNames = new Set();
-    ws0.forEach(k => {
-      (WORKS[k]&&WORKS[k].parts||[]).forEach(p => {
-        standardNames.add(p.name);
-        if(e.parts[p.name] !== undefined) {
-          if(!partQtys[k]) partQtys[k] = {};
-          partQtys[k][p.name] = Number(e.parts[p.name]);
-        }
-      });
-    });
-    // ⭐ 표준에 없는 부품(스피커 등 기타 부품)은 첫 작업에 기타 부품으로 복원
-    const firstWork = ws0[0];
-    if(firstWork) {
-      editExtraCounters = {}; // 카운터 초기화
-      Object.entries(e.parts).forEach(([name, qty]) => {
-        if(standardNames.has(name)) return;       // 표준 부품은 위에서 처리됨
-        if(!name || Number(qty) <= 0) return;
-        if(!editExtraCounters[firstWork]) editExtraCounters[firstWork] = 0;
-        const idx = editExtraCounters[firstWork]++;
-        const exId = `eextra-${firstWork}-${idx}-r`;
-        if(!partQtys[firstWork]) partQtys[firstWork] = {};
-        partQtys[firstWork]['__extra_'+exId] = { name, qty: Number(qty), fixed: true };
-      });
-    }
-  }
+  editExtraCounters = {};
   document.getElementById('edit-serial-label').textContent = `엔지니어: ${e.worker}`;
   const serialInput = document.getElementById('edit-serial');
   const modelInput = document.getElementById('edit-model');
@@ -11093,29 +11065,35 @@ async function openEditModal(id) {
 }
 function closeEditModal() { document.getElementById('edit-modal').classList.remove('open'); editTargetId = null; }
 function renderEditParts(ws) {
-  // ⭐ 수정 중인 entry의 model 사용 (getModel은 수리등록 화면용이라 부정확)
+  // ⭐ 수정 중인 entry의 model 사용
   const origEntry = entries.find(x => String(x.id) === String(editTargetId));
   const model = origEntry?.model || (typeof detectModel === 'function' ? detectModel(String(origEntry?.serial||'')) : '');
+  // ⭐ 이 수리에 실제 저장된 부품(e.parts) = 차감된 부품. 이것만 보여줌 (WORKS 기본부품 중복 제거)
+  const savedParts = (origEntry && origEntry.parts && typeof origEntry.parts === 'object') ? origEntry.parts : {};
   let html = '';
-  ws.forEach(k => {
+  ws.forEach((k, wi) => {
     const v = WORKS[k];
     if(!v) return;
-    const visibleParts = (v.parts||[]).filter(p => !p.modelOnly || p.modelOnly === model);
     html += `<div style="margin-bottom:10px;">`;
     html += `<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;">${v.tag || v.label}</div>`;
-    visibleParts.forEach(p => {
-      const cur = partQtys[k]?.[p.name] ?? p.qty;
-      const safeKey = (k+'-'+p.name).replace(/[^a-zA-Z0-9]/g,'_');
-      html += `<div class="part-qty-row">
-        <span style="color:var(--text2);font-size:12px;">${p.name}</span>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <button class="qty-btn" type="button" onclick="changeQty('${k}','${p.name}',-1);document.getElementById('eqty-${safeKey}').textContent=partQtys['${k}']['${p.name}']">−</button>
-          <span class="qty-num" id="eqty-${safeKey}">${cur}</span>
-          <button class="qty-btn" type="button" onclick="changeQty('${k}','${p.name}',1);document.getElementById('eqty-${safeKey}').textContent=partQtys['${k}']['${p.name}']">+</button>
-        </div>
-      </div>`;
-    });
-    // ⭐ 기타 부품 추가 (수정 모달 전용 ID로 — 수리등록 화면과 충돌 방지)
+    // 저장된 부품은 첫 작업 블록에 모두 표시 (작업별 정확한 귀속 정보가 없으므로)
+    if(wi === 0) {
+      Object.entries(savedParts).forEach(([name, qty]) => {
+        if(!name || Number(qty) <= 0) return;
+        const safeKey = ('saved-'+name).replace(/[^a-zA-Z0-9]/g,'_');
+        if(!partQtys[k]) partQtys[k] = {};
+        if(partQtys[k][name] === undefined) partQtys[k][name] = Number(qty);
+        html += `<div class="part-qty-row">
+          <span style="color:var(--text2);font-size:12px;">${escapeHtml(name)}</span>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <button class="qty-btn" type="button" onclick="changeQty('${k}','${escapeJs(name)}',-1);document.getElementById('eqty-${safeKey}').textContent=partQtys['${k}']['${escapeJs(name)}']">−</button>
+            <span class="qty-num" id="eqty-${safeKey}">${Number(qty)}</span>
+            <button class="qty-btn" type="button" onclick="changeQty('${k}','${escapeJs(name)}',1);document.getElementById('eqty-${safeKey}').textContent=partQtys['${k}']['${escapeJs(name)}']">+</button>
+          </div>
+        </div>`;
+      });
+    }
+    // 부품 추가 버튼
     html += `<div id="edit-extra-parts-${k}"></div>
       <div style="margin-top:6px;">
         <button type="button" onclick="event.preventDefault();event.stopPropagation();addEditExtraPart('${k}')" style="font-size:11px;color:var(--accent);background:none;border:1px dashed var(--accent);border-radius:4px;padding:3px 8px;cursor:pointer;">+ 부품 추가</button>
@@ -11126,19 +11104,7 @@ function renderEditParts(ws) {
   const container = document.getElementById('edit-parts-container');
   if(html) { container.innerHTML = html; section.style.display = 'block'; }
   else { section.style.display = 'none'; }
-  // ⭐ 복원된 기타 부품을 화면에 다시 그림 (openEditModal에서 _restore 플래그로 표시된 것)
-  ws.forEach(k => {
-    const extras = partQtys[k] || {};
-    Object.entries(extras).forEach(([key, val]) => {
-      if(!key.startsWith('__extra_')) return;
-      if(typeof val !== 'object') return;
-      const id = key.replace('__extra_', '');
-      const el = document.getElementById('edit-extra-parts-'+k);
-      if(!el || document.getElementById('edit-'+id)) return;
-      _appendEditExtraRow(k, id, val.name||'', val.qty||1, val.fixed);
-    });
-  });
-  return; // 아래 중복 분기 방지
+  return;
 }
 
 /* ⭐ 수정 모달 전용 기타 부품 함수 (수리등록 화면과 ID 충돌 방지) */
