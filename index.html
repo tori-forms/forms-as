@@ -13834,11 +13834,12 @@ function renderPartsUsage() {
     return;
   }
 
-  // 기간 계산
+  // 기간 계산 (로컬/KST 기준 — toISOString은 UTC라 오전에 하루 밀림)
   const today = new Date();
-  const todayStr = today.toISOString().slice(0,10);
+  const _pad = n => String(n).padStart(2,'0');
+  const todayStr = `${today.getFullYear()}-${_pad(today.getMonth()+1)}-${_pad(today.getDate())}`;
   // 이번 달 1일
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0,10);
+  const monthStart = `${today.getFullYear()}-${_pad(today.getMonth()+1)}-01`;
   // 누적: 전체
   const allDates = allEntries.map(e => String(e.date||'').slice(0,10)).filter(Boolean).sort();
   const earliestDate = allDates[0] || todayStr;
@@ -14327,6 +14328,7 @@ async function deductStock(works, partsData, model) {
     });
   }
 
+  let changed = false;
   for(const [partName, qty] of Object.entries(toDeduct)) {
     if(qty <= 0) continue;
     // ⭐ 기종 우선 매칭: (1)해당기종 전용 → (2)공용 → (3)이름만 일치
@@ -14339,15 +14341,15 @@ async function deductStock(works, partsData, model) {
     const deductQty = Math.min(qty, stock[idx].qty); // 재고보다 많이 차감 방지
     if(deductQty <= 0) continue;
     stock[idx].qty -= deductQty;
+    changed = true;
     const logId = 'l'+Date.now()+(Math.random()*1000|0);
     const logDate = new Date().toISOString();
     const log = {logId, partId:stock[idx].id, partName:stock[idx].name, type:'out', qty:deductQty, note:'수리 자동 차감', date:logDate, worker:currentUser||''};
     stockLog.push(log);
-    try {
-      await saveStockToServer();
-      await gasCall({action:'addStockLog', ...log});
-    } catch {}
+    try { await gasCall({action:'addStockLog', ...log}); } catch {}
   }
+  // ⭐ 재고 저장은 한 번만 (부품마다 반복 저장 방지)
+  if(changed) { try { await saveStockToServer(); } catch {} }
 }
 
 // ⭐ 수리 삭제 시 부품 재고 원복 — 그 수리에 쓴 부품을 재고에 다시 더하고 '복구' 입고 기록
@@ -14366,20 +14368,23 @@ async function restoreStockForEntry(e) {
     });
   }
   let restored = 0;
+  const curModel = e.model || '';
   for(const [partName, qty] of Object.entries(toRestore)) {
     if(qty <= 0) continue;
-    const idx = stock.findIndex(p => p.name.trim().toLowerCase() === partName.trim().toLowerCase());
+    // ⭐ 차감(deductStock)과 동일한 기종 우선 매칭: (1)해당기종 →(2)공용 →(3)이름만
+    const nm = partName.trim().toLowerCase();
+    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')===curModel);
+    if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
+    if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
     if(idx < 0) continue;
     stock[idx].qty += qty;
     restored += qty;
     const logId = 'l'+Date.now()+(Math.random()*1000|0);
     const log = {logId, partId:stock[idx].id, partName:stock[idx].name, type:'in', qty, note:'수리 삭제 복구', date:new Date().toISOString(), worker:currentUser||''};
     stockLog.push(log);
-    try {
-      await saveStockToServer();
-      await gasCall({action:'addStockLog', ...log});
-    } catch {}
+    try { await gasCall({action:'addStockLog', ...log}); } catch {}
   }
+  if(restored > 0) { try { await saveStockToServer(); } catch {} }
   return restored;
 }
 
