@@ -2550,7 +2550,8 @@ async function _decodeZEnvelope(obj) {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
   const text = await new Response(stream).text();
   const data = JSON.parse(text);
-  ['entries','inspections','exchange'].forEach(k => { if(data[k]) data[k] = _unpackTbl(data[k]); });
+  // ⭐ v2.59: tbl로 압축된 모든 배열 필드 복원 (entries/inspections/exchange/shipLog/stockLog 등 무엇이든)
+  for(const k in data) { if(data[k] && data[k]._t === 'tbl') data[k] = _unpackTbl(data[k]); }
   return data;
 }
 
@@ -2562,11 +2563,13 @@ function gasCall(params) {
   }
 
   // ⭐ v2.54: load(큰 응답)는 fetch 우선 — JSONP(script태그)는 646KB+ 큰 응답/302에 약해 timeout 빈발.
-  //   fetch는 302 자동 추적 + 큰 응답에 강함. 실패 시 아래 JSONP로 폴백.
-  const isLoad = !params || !params.action || params.action === 'load';
-  // ⭐ v2.58: load는 압축(fmt=2) 요청 (DecompressionStream 지원 브라우저만). 미지원/폴백 시 구형식.
-  const reqParams = (isLoad && _ZSUPPORTED) ? {...params, fmt:2} : {...params};
-  if(isLoad && typeof fetch === 'function') {
+  //   fetch는 302(echo) 자동 추적 + 큰 응답에 강함. 실패 시 아래 JSONP로 폴백.
+  // ⭐ v2.59: loadShipLog/loadStockLog도 큰 읽기 → fetch+압축 경로로. (JSONP로 나가면 echo 302→404 발생)
+  const isBigRead = !params || !params.action || params.action === 'load'
+    || params.action === 'loadShipLog' || params.action === 'loadStockLog';
+  // 압축(fmt=2) 요청 (DecompressionStream 지원 브라우저만). 미지원이어도 fetch경로라 echo는 안전.
+  const reqParams = (isBigRead && _ZSUPPORTED) ? {...params, fmt:2} : {...params};
+  if(isBigRead && typeof fetch === 'function') {
     const qs0 = Object.entries(reqParams).filter(([k])=>k!=='callback')
       .map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
     const url = GAS + (qs0 ? ('?'+qs0) : '');
