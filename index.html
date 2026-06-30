@@ -2834,7 +2834,11 @@ async function syncData(silent=false, force=false) {
     }
     setSyncStatus('ok');
     renderAll();
-    loadHeavyTablesInBackground();  // ⭐ v2.57: 출고/재고 이력은 백그라운드로 (로그인·메인 즉시 표시)
+    // ⭐ v2.58.1: 출고/재고 이력 백그라운드 로드 조건
+    //   - 로그인 첫 동기화(아직 미로드): 받아옴
+    //   - 수동 '새로고침'(silent=false): 다른 PC 변경분 반영 위해 받아옴
+    //   - 자동(5분)·저장 후 강제 동기화(silent=true): 건너뜀 → GAS 큐 보호(저장 지연 방지)
+    if(!window._heavyLoadedOnce || !silent) loadHeavyTablesInBackground();
     if(!silent) notify('데이터를 불러왔습니다.');
     // ⭐ v2.22: 로그인 화면 — 엔지니어/관리자/QC 그리드 모두 갱신
     // (관리자는 tierMap 로드 후에야 채워지므로 동기화 후 다시 빌드해야 함)
@@ -2875,12 +2879,15 @@ async function loadHeavyTablesInBackground() {
       gasCall({ action: 'loadStockLog' })
     ]);
     let changed = false;
+    let okCount = 0;
     if(shipRes.status === 'fulfilled' && shipRes.value && Array.isArray(shipRes.value.shipLog)) {
-      shipHistory = shipRes.value.shipLog; changed = true;
+      shipHistory = shipRes.value.shipLog; changed = true; okCount++;
     }
     if(stockRes.status === 'fulfilled' && stockRes.value && Array.isArray(stockRes.value.stockLog)) {
-      stockLog = stockRes.value.stockLog; changed = true;
+      stockLog = stockRes.value.stockLog; changed = true; okCount++;
     }
+    // ⭐ v2.58.1: 둘 다 성공했을 때만 "1회 완료" 표시 → 실패 시 다음 동기화에서 재시도
+    if(okCount === 2) window._heavyLoadedOnce = true;
     // 출고/재고가 도착했으니 의존 화면(출고관리/현황·재고·대시보드 등) 다시 렌더
     if(changed && !ENGRAVE_MODE && typeof renderAll === 'function') renderAll();
   } catch(e) {
