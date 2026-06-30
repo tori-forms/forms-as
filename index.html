@@ -2629,7 +2629,14 @@ async function syncData(silent=false, force=false) {
   setSyncStatus('loading');
   if(!silent) notifyPersist('데이터 불러오는 중...');
   try {
-    const data = await gasCall({action:'load'});
+    let data;
+    try {
+      data = await gasCall({action:'load'});
+    } catch(e1) {
+      // ⭐ timeout 등 1차 실패 시 1회 재시도 (데이터가 많아 가끔 느림)
+      console.warn('[syncData] 1차 실패, 재시도:', e1 && e1.message);
+      data = await gasCall({action:'load'});
+    }
     window._dataLoaded = true;  // ⭐ 데이터 1회 이상 로드 완료 (로그인 가드용)
     entries = (data.entries || []).map(e => {
       let parts = {};
@@ -8578,7 +8585,7 @@ function renderWorkParts() {
       h += `<div style="display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid ${checked?j.color:'var(--border)'};border-radius:8px;background:${checked?j.bg+'55':'var(--surface)'};">
         <input type="checkbox" id="wp-${j.key}-${p.id}" ${checked?'checked':''} onchange="toggleWorkPart('${j.key}','${escapeJs(p.name)}',this.checked)" style="width:16px;height:16px;cursor:pointer;">
         <label for="wp-${j.key}-${p.id}" style="flex:1;font-size:12px;cursor:pointer;min-width:0;">${escapeHtml(p.name)}${modelBadge(p.model)}</label>
-        <input type="number" min="1" value="${qty}" id="wpq-${j.key}-${p.id}" onchange="setWorkPartQty('${j.key}','${escapeJs(p.name)}',this.value)" style="width:46px;height:28px;text-align:center;font-size:12px;" title="수량">
+        <input type="number" min="1" value="${qty}" id="wpq-${j.key}-${p.id}" onchange="setWorkPartQty('${j.key}','${escapeJs(p.name)}',this.value)" style="width:46px;height:28px;text-align:center;font-size:13px;font-weight:700;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:6px;" title="수량">
       </div>`;
     });
     h += `</div></details>`;
@@ -14115,7 +14122,7 @@ function renderStockAudit() {
     h += `<tr>
       <td style="font-weight:600;">${escapeHtml(p.name)}</td>
       <td style="text-align:right;color:var(--text2);" id="audit-book-${p.id}">${p.qty}</td>
-      <td style="text-align:center;"><input type="number" id="audit-real-${p.id}" placeholder="${p.qty}" style="width:80px;height:32px;text-align:center;" oninput="updateAuditDiff('${p.id}')"></td>
+      <td style="text-align:center;"><input type="number" id="audit-real-${p.id}" placeholder="${p.qty}" style="width:80px;height:32px;text-align:center;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:6px;" oninput="updateAuditDiff('${p.id}')"></td>
       <td style="text-align:right;font-weight:700;" id="audit-diff-${p.id}">-</td>
     </tr>`;
   });
