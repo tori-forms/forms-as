@@ -2534,6 +2534,23 @@ const _DATA_MUTATION_ACTIONS = new Set([
   'restartAging', 'updateRepairStatus'                      // 상태
 ]);
 
+// ⭐ v2.57c: 압축(fmt=2) 응답 해제 헬퍼 (load 입구에서만 사용 — 그 외 로직 무수정)
+const _ZSUPPORTED = (typeof DecompressionStream === 'function');
+function _unpackTbl(v) {
+  if(v && v._t === 'tbl' && Array.isArray(v.cols) && Array.isArray(v.rows)) {
+    return v.rows.map(r => { const o = {}; for(let i=0;i<v.cols.length;i++) o[v.cols[i]] = r[i]; return o; });
+  }
+  return v;
+}
+async function _decodeZEnvelope(obj) {
+  const bytes = Uint8Array.from(atob(obj._z), c => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const text = await new Response(stream).text();
+  const data = JSON.parse(text);
+  ['entries','inspections','exchange'].forEach(k => { if(data[k]) data[k] = _unpackTbl(data[k]); });
+  return data;
+}
+
 function gasCall(params) {
   // ⭐ v2.37: 호출 즉시 자동 동기화 정지 (응답 받기 전부터)
   // → await 동안 자동 동기화가 entries/inspections 갈아끼우는 경쟁 상태 방지
@@ -2544,23 +2561,29 @@ function gasCall(params) {
   // ⭐ v2.54: load(큰 응답)는 fetch 우선 — JSONP(script태그)는 646KB+ 큰 응답/302에 약해 timeout 빈발.
   //   fetch는 302 자동 추적 + 큰 응답에 강함. 실패 시 아래 JSONP로 폴백.
   const isLoad = !params || !params.action || params.action === 'load';
+  // ⭐ v2.57c: load는 압축(fmt=2) 요청 (DecompressionStream 지원 시). 미지원/폴백 시 구형식 그대로.
+  const reqParams = (isLoad && _ZSUPPORTED) ? {...params, fmt:2} : {...params};
   if(isLoad && typeof fetch === 'function') {
-    const qs0 = Object.entries({...params}).filter(([k])=>k!=='callback')
+    const qs0 = Object.entries(reqParams).filter(([k])=>k!=='callback')
       .map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
     const url = GAS + (qs0 ? ('?'+qs0) : '');
     return fetch(url, { method:'GET', redirect:'follow' })
       .then(r => r.text())
       .then(txt => {
         // GAS가 callback 없이 호출되면 순수 JSON 반환
-        try { return JSON.parse(txt); }
+        let obj;
+        try { obj = JSON.parse(txt); }
         catch(e) {
           // 혹시 콜백으로 감싸져 오면 벗겨내기
           const m = txt.match(/^[^(]*\((.*)\)\s*;?\s*$/s);
-          if(m) { try { return JSON.parse(m[1]); } catch(e2){} }
-          throw new Error('parse');
+          if(m) { try { obj = JSON.parse(m[1]); } catch(e2){} }
+          if(!obj) throw new Error('parse');
         }
+        // ⭐ v2.57c: 압축 봉투면 해제 후 반환. 아니면(구형식) 그대로.
+        if(obj && typeof obj._z === 'string') return _decodeZEnvelope(obj);
+        return obj;
       })
-      .catch(() => _gasCallJsonp(params));  // fetch 실패 → JSONP 폴백
+      .catch(() => _gasCallJsonp(params));  // fetch/해제 실패 → JSONP 폴백(fmt 없이 구형식)
   }
   return _gasCallJsonp(params);
 }
