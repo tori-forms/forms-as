@@ -4522,16 +4522,10 @@ function openAddPartsModal(entryId) {
   const model = e.model || '';
   const visibleWorks = Object.entries(WORKS);
 
-  // 사용 가능한 부품 목록 수집 (중복 제거)
-  const partsSet = new Set();
-  visibleWorks.forEach(([wk, wv]) => {
-    (wv.parts||[]).forEach(p => {
-      if(p.modelOnly && p.modelOnly !== model) return;
-      partsSet.add(p.name);
-    });
-  });
-  const partsOptions = Array.from(partsSet)
-    .map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+  // 사용 가능한 부품 목록 = 재고 등록 부품 (현재 이름, 기종 필터). 옛이름 방지.
+  const partsOptions = (stock||[])
+    .filter(s => { const m = s.model||'공용'; return m==='공용' || m===model; })
+    .map(s => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}${(s.model&&s.model!=='공용')?` (${s.model})`:''}</option>`)
     .join('');
 
   const c = calcAging(e.agingStart);
@@ -4556,7 +4550,6 @@ function openAddPartsModal(entryId) {
           <div style="display:flex;gap:6px;align-items:flex-start;">
             <select id="add-part-name" onchange="document.getElementById('add-part-custom-wrap').style.display=(this.value==='__custom__'?'block':'none');" style="flex:1;height:38px;padding:0 10px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--surface,#fff);color:var(--text,#000);">
               ${partsOptions}
-              <option value="__custom__">+ 직접 입력 (목록에 없는 부품)</option>
             </select>
             <input type="number" id="add-part-qty" value="1" min="1" max="50" style="width:70px;height:38px;padding:0 8px;border:1px solid var(--border2,#d1d5db);border-radius:6px;font-size:13px;background:var(--surface,#fff);color:var(--text,#000);text-align:center;" title="수량">
             <button onclick="addPartToBasket()" style="height:38px;padding:0 14px;border:none;background:var(--accent,#10b981);color:#fff;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">담기</button>
