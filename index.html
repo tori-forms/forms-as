@@ -14682,12 +14682,14 @@ async function applyStockDelta(oldParts, newParts, model) {
     return idx;
   };
   let changed = false;
+  const _dbg = [];
   for(const name of names) {
     const before = Number(oldParts?.[name] || 0);
     const after  = Number(newParts?.[name] || 0);
     const diff = after - before;                    // +면 더 씀(차감), -면 덜 씀(복구)
     if(diff === 0) continue;
     const idx = findIdx(name);
+    _dbg.push(`${name}: ${before}→${after} (${diff>0?'+':''}${diff}) ${idx<0?'[재고없음·스킵]':'[재고 '+stock[idx].qty+']'}`);
     if(idx < 0) continue;                            // 재고에 없는 부품(옛이름 등) 스킵
     if(diff > 0) {
       const deduct = Math.min(diff, stock[idx].qty); // 재고보다 많이 차감 방지
@@ -14704,7 +14706,8 @@ async function applyStockDelta(oldParts, newParts, model) {
       changed = true;
     }
   }
-  if(changed) { try { await saveStockToServer(); } catch {} }
+  console.log('[재고 delta]', _dbg.length ? _dbg.join(' | ') : '변화 없음 (diff 전부 0)');
+  if(changed) { try { await saveStockToServer(); } catch {} try { renderStock(); } catch {} }
 }
 
 // ⭐ 수리 삭제 시 부품 재고 원복 — 그 수리에 쓴 부품을 재고에 다시 더하고 '복구' 입고 기록
