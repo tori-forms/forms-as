@@ -4626,10 +4626,12 @@ function askRemoveSavedPart(rowIdx, entryId, partName) {
 
 // ⭐ v2.57p: 저장된 부품 1종 제거 → parts에서 빼고 재고 복구 + 서버 저장
 async function doRemoveSavedPart(entryId, partName) {
+  if(busy) { notify('처리 중입니다. 잠시만요.','error'); return; }
   const e = entries.find(x => String(x.id) === String(entryId));
   if(!e || !e.parts || typeof e.parts !== 'object') return;
   const qty = Number(e.parts[partName] || 0);
   if(qty <= 0) return;
+  busy = true;
   const newParts = {...e.parts};
   delete newParts[partName];
   try {
@@ -4644,6 +4646,7 @@ async function doRemoveSavedPart(entryId, partName) {
     try { renderCurrentParts(entryId); renderStock(); renderAging(); } catch(x){}
     notify(`"${partName}" 제거 완료 · 재고 ${qty}개 복구됨.`);
   } catch(err) { notify('실패: ' + (err.message||err), 'error'); }
+  finally { busy = false; }
 }
 
 // 담긴 부품 목록 렌더
@@ -4701,6 +4704,7 @@ function closeAddPartsModal() {
 }
 
 async function submitAddParts(entryId) {
+  if(busy) { notify('처리 중입니다. 잠시만요.','error'); return; }
   // 담기 안 누르고 선택만 한 경우, 현재 선택값을 basket에 자동 포함
   let basket = (window._addPartsBasket || []).slice();
   if(basket.length === 0) {
@@ -4715,6 +4719,7 @@ async function submitAddParts(entryId) {
   const note = (document.getElementById('add-part-note')?.value || '').trim();
   const e = entries.find(x => String(x.id) === String(entryId));
   if(!e) return;
+  busy = true;
 
   // parts 업데이트 (여러 부품 합산)
   const newParts = {...(e.parts||{})};
@@ -4785,6 +4790,7 @@ async function submitAddParts(entryId) {
   } catch(err) {
     notify('실패: ' + (err.message||err), 'error');
   }
+  finally { busy = false; }
 }
 
 // ── 🧪 검수대기 탭 렌더 (서브탭 통합 진입점) ────────────────────
