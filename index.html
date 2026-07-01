@@ -9199,9 +9199,9 @@ function renderEngravePage() {
   }
   engraveCurrentDay = todayStr;
 
-  // 오늘 등록된 각인 대상(후면커버 부품 포함) 작업만 필터
+  // 오늘 등록된 각인 대상(논배터리 작업) 필터
   const todayNonbat = allEntries
-    .filter(e => engraveHasBackCover(e))
+    .filter(e => Array.isArray(e.works) && e.works.some(w => ENGRAVE_TARGET_WORKS.includes(w)))
     .filter(e => String(e.date || '').slice(0,10) === todayStr)
     .sort((a,b) => {
       // 등록 순서대로 (id 오름차순 - 위에서부터 처리하기 좋게)
@@ -9221,13 +9221,13 @@ function renderEngravePage() {
 
   // 빈 상태 처리
   if(todayNonbat.length === 0) {
-    document.getElementById('engrave-summary').textContent = '오늘 등록된 후면커버 교체 작업이 없습니다';
+    document.getElementById('engrave-summary').textContent = '오늘 등록된 논배터리 작업이 없습니다';
     document.getElementById('engrave-worker-filter').innerHTML = '';
     document.getElementById('engrave-groups').innerHTML =
       '<div style="text-align:center;padding:60px 20px;background:#111;border:1px solid #222;border-radius:16px;">' +
       '<div style="font-size:64px;opacity:0.3;margin-bottom:20px;">🔍</div>' +
       '<div style="font-size:18px;color:#888;font-weight:600;">대기 중인 각인 작업이 없습니다</div>' +
-      '<div style="font-size:13px;color:#555;margin-top:10px;">후면커버 교체 작업이 등록되면 자동으로 표시됩니다</div>' +
+      '<div style="font-size:13px;color:#555;margin-top:10px;">논배터리 작업이 등록되면 자동으로 표시됩니다</div>' +
       '</div>';
     return;
   }
@@ -9654,12 +9654,15 @@ function initEngraveMode() {
     }
 
     // 초기 빈 상태 표시 (데이터 로드 전에도 화면이 빈 박스로 보이지 않도록)
-    document.getElementById('engrave-current').innerHTML =
+    // ⭐ engrave-current/history는 구버전 잔재 ID(현재 HTML은 engrave-groups 사용) — 있으면만 채움
+    const _ecur = document.getElementById('engrave-current');
+    if(_ecur) _ecur.innerHTML =
       '<div style="text-align:center;padding:40px 20px;">' +
       '<div style="font-size:40px;opacity:0.3;margin-bottom:20px;">⏳</div>' +
       '<div style="font-size:16px;color:#888;font-weight:600;">데이터 불러오는 중...</div>' +
       '</div>';
-    document.getElementById('engrave-history').innerHTML = '<div style="color:#555;text-align:center;padding:20px 0;">로딩 중...</div>';
+    const _ehist = document.getElementById('engrave-history');
+    if(_ehist) _ehist.innerHTML = '<div style="color:#555;text-align:center;padding:20px 0;">로딩 중...</div>';
   } catch(e) {
     console.error('[ENGRAVE] init UI 설정 실패:', e);
   }
