@@ -168,8 +168,8 @@ tr:hover td{background:var(--surface2);}
 .empty-icon{font-size:32px;margin-bottom:10px;}
 .mono{font-family:'JetBrains Mono',monospace;font-size:12px;}
 
-.notif{position:fixed;bottom:24px;right:24px;background:#1e293b;color:#fff;padding:12px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;box-shadow:var(--shadow-md);z-index:9999;transform:translateY(80px);opacity:0;transition:all .3s cubic-bezier(.34,1.56,.64,1);pointer-events:none;white-space:pre-line;max-width:320px;line-height:1.5;}
-.notif.show{transform:translateY(0);opacity:1;}
+.notif{position:fixed;top:24px;left:50%;transform:translate(-50%,-80px);background:#1e293b;color:#fff;padding:12px 20px;border-radius:var(--radius);font-size:14px;font-weight:600;box-shadow:var(--shadow-md);z-index:100000;opacity:0;transition:all .3s cubic-bezier(.34,1.56,.64,1);pointer-events:none;white-space:pre-line;max-width:min(90vw,420px);line-height:1.5;text-align:center;}
+.notif.show{transform:translate(-50%,0);opacity:1;}
 .notif.success{background:var(--green);}
 .notif.error{background:var(--red);}
 
@@ -4605,20 +4605,31 @@ function renderCurrentParts(entryId) {
     el.innerHTML = `<div style="color:var(--text3);font-size:12px;text-align:center;padding:8px;">등록된 부품이 없습니다.</div>`;
     return;
   }
-  el.innerHTML = items.map(([name, qty]) => `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;background:var(--surface2,#1c1c1f);margin-bottom:4px;">
+  el.innerHTML = items.map(([name, qty], i) => `
+    <div id="cur-part-${i}" style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;background:var(--surface2,#1c1c1f);margin-bottom:4px;">
       <span><b>${escapeHtml(name)}</b> <span style="color:var(--text2);">× ${Number(qty)}</span></span>
-      <button onclick="removeSavedPart('${escapeJs(entryId)}','${escapeJs(name)}')" style="background:none;border:none;color:#ef4444;font-size:16px;cursor:pointer;line-height:1;" title="제거 (재고 복구)">×</button>
+      <button onclick="askRemoveSavedPart(${i},'${escapeJs(entryId)}','${escapeJs(name)}')" style="background:none;border:none;color:#ef4444;font-size:16px;cursor:pointer;line-height:1;" title="제거 (재고 복구)">×</button>
     </div>`).join('');
 }
 
+// ⭐ v2.57q: 인라인 확인 (크롬 시스템 팝업 대신) — 행 안에서 [제거][취소]
+function askRemoveSavedPart(rowIdx, entryId, partName) {
+  const row = document.getElementById('cur-part-'+rowIdx);
+  if(!row) return;
+  row.innerHTML = `
+    <span style="font-size:12px;color:var(--text);">제거하고 재고 복구할까요?</span>
+    <div style="display:flex;gap:6px;">
+      <button onclick="doRemoveSavedPart('${escapeJs(entryId)}','${escapeJs(partName)}')" style="height:26px;padding:0 10px;border:none;background:#ef4444;color:#fff;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;">제거</button>
+      <button onclick="renderCurrentParts('${escapeJs(entryId)}')" style="height:26px;padding:0 10px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);border-radius:5px;font-size:12px;cursor:pointer;">취소</button>
+    </div>`;
+}
+
 // ⭐ v2.57p: 저장된 부품 1종 제거 → parts에서 빼고 재고 복구 + 서버 저장
-async function removeSavedPart(entryId, partName) {
+async function doRemoveSavedPart(entryId, partName) {
   const e = entries.find(x => String(x.id) === String(entryId));
   if(!e || !e.parts || typeof e.parts !== 'object') return;
   const qty = Number(e.parts[partName] || 0);
   if(qty <= 0) return;
-  if(!confirm(`"${partName}" ${qty}개를 이 건에서 제거하고 재고로 복구할까요?`)) return;
   const newParts = {...e.parts};
   delete newParts[partName];
   try {
