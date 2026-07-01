@@ -8910,6 +8910,9 @@ function renderReportInto(targetId, monthVal) {
   // 기존 renderReport 로직을 targetId에 렌더
   const el = document.getElementById(targetId);
   if(!el || !monthVal) return;
+  // ⭐ v2.57z: 같은 대상+월이 이미 렌더돼 있으면 재렌더 스킵 (깜빡임 방지)
+  if(el.dataset.renderedMonth === String(monthVal) && el.innerHTML.trim()) return;
+  el.dataset.renderedMonth = String(monthVal);
   // 기존 report 렌더 함수 활용 - report-month 값 동기화 후 renderReport 호출
   const rm = document.getElementById('report-month');
   const origVal = rm?.value;
@@ -10910,6 +10913,12 @@ async function renderMyDash() {
   // ⭐ T4(대표/팀장): 운영 통계 + 추세 + 미달 사유 요약 + 접이식 관제판
   if(isFullAdmin()) {
     if(titleEl) titleEl.textContent = `🛰️ ${currentUser}님 — 운영 현황`;
+    // ⭐ v2.57z: 이미 이 사용자용으로 그려져 있으면 전체 재빌드 스킵 (300초 동기화/탭 재진입 깜빡임 방지)
+    //   데이터 갱신이 필요하면 월 변경·새로고침으로 반영됨.
+    if(el.dataset.t4RenderedFor === currentUser && document.getElementById('t4-report-slot')) {
+      return;
+    }
+    el.dataset.t4RenderedFor = currentUser;
     // 미달 슬롯엔 캐시가 있으면 먼저 표시 (깜빡임 방지)
     const missInit = _missSummaryCache || '<div style="color:var(--text3);font-size:13px;padding:10px 2px;">미달 현황 불러오는 중…</div>';
     const boardOpen = !!window._boardOpen;   // ⭐ 펼침 상태 유지
