@@ -4563,6 +4563,12 @@ function openAddPartsModal(entryId) {
           <div id="add-parts-basket" style="border:1px dashed var(--border2,#d1d5db);border-radius:8px;padding:8px;min-height:44px;font-size:13px;"></div>
         </div>
 
+        <!-- ⭐ v2.57p: 현재 이 건에 들어간 부품 (잘못 넣은 것 제거 → 재고 복구) -->
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">현재 이 건의 부품 <span style="color:var(--text3);font-weight:500;">(제거 시 재고 복구)</span></label>
+          <div id="current-parts-list" style="border:1px solid var(--border2,#d1d5db);border-radius:8px;padding:8px;font-size:13px;"></div>
+        </div>
+
         <div style="margin-bottom:14px;padding:12px;background:#dbeafe;border-radius:8px;font-size:12px;color:#1e3a8a;line-height:1.6;">
           <strong>ℹ️ 안내</strong><br>
           • 여러 부품을 <strong>담기</strong>로 추가한 뒤 한 번에 등록할 수 있어요.<br>
@@ -4585,6 +4591,48 @@ function openAddPartsModal(entryId) {
   document.body.insertAdjacentHTML('beforeend', modalHtml);
   window._addPartsBasket = [];
   renderPartsBasket();
+  renderCurrentParts(entryId);
+}
+
+// ⭐ v2.57p: 현재 이 건의 부품 목록 렌더 (제거 버튼 포함)
+function renderCurrentParts(entryId) {
+  const el = document.getElementById('current-parts-list');
+  if(!el) return;
+  const e = entries.find(x => String(x.id) === String(entryId));
+  const parts = (e && e.parts && typeof e.parts === 'object') ? e.parts : {};
+  const items = Object.entries(parts).filter(([n,q]) => n && Number(q) > 0);
+  if(!items.length) {
+    el.innerHTML = `<div style="color:var(--text3);font-size:12px;text-align:center;padding:8px;">등록된 부품이 없습니다.</div>`;
+    return;
+  }
+  el.innerHTML = items.map(([name, qty]) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;background:var(--surface2,#1c1c1f);margin-bottom:4px;">
+      <span><b>${escapeHtml(name)}</b> <span style="color:var(--text2);">× ${Number(qty)}</span></span>
+      <button onclick="removeSavedPart('${escapeJs(entryId)}','${escapeJs(name)}')" style="background:none;border:none;color:#ef4444;font-size:16px;cursor:pointer;line-height:1;" title="제거 (재고 복구)">×</button>
+    </div>`).join('');
+}
+
+// ⭐ v2.57p: 저장된 부품 1종 제거 → parts에서 빼고 재고 복구 + 서버 저장
+async function removeSavedPart(entryId, partName) {
+  const e = entries.find(x => String(x.id) === String(entryId));
+  if(!e || !e.parts || typeof e.parts !== 'object') return;
+  const qty = Number(e.parts[partName] || 0);
+  if(qty <= 0) return;
+  if(!confirm(`"${partName}" ${qty}개를 이 건에서 제거하고 재고로 복구할까요?`)) return;
+  const newParts = {...e.parts};
+  delete newParts[partName];
+  try {
+    notifyPersist('처리 중...');
+    const partsStr = Object.entries(newParts).map(([k,v])=>`${encodeURIComponent(k)}=${v}`).join('|');
+    const r = await gasCall({ action:'edit', id:String(entryId), works:(e.works||[]).join(','), total:e.total, note:e.note||'', parts:partsStr, serial:e.serial, model:e.model });
+    if(r && r.ok === false) { notify('제거 실패 — 대상 건을 찾지 못했습니다.','error'); return; }
+    // 재고 복구 (제거한 부품 = 이전 - 이후, applyStockDelta로 복구 처리)
+    try { await applyStockDelta(e.parts, newParts, e.model); } catch(err) { console.warn('재고 복구 실패', err); }
+    e.parts = newParts;
+    markPendingChange('entries', entryId, { type:'update', data:{ parts:newParts } }, 5000);
+    try { renderCurrentParts(entryId); renderStock(); renderAging(); } catch(x){}
+    notify(`"${partName}" 제거 완료 · 재고 ${qty}개 복구됨.`);
+  } catch(err) { notify('실패: ' + (err.message||err), 'error'); }
 }
 
 // 담긴 부품 목록 렌더
