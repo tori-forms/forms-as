@@ -4643,7 +4643,8 @@ async function doRemoveSavedPart(entryId, partName) {
     try { await applyStockDelta(e.parts, newParts, e.model); } catch(err) { console.warn('재고 복구 실패', err); }
     e.parts = newParts;
     markPendingChange('entries', entryId, { type:'update', data:{ parts:newParts } }, 5000);
-    try { renderCurrentParts(entryId); renderStock(); renderAging(); } catch(x){}
+    try { renderStock(); renderAging(); } catch(x){}
+    closeAddPartsModal();
     notify(`"${partName}" 제거 완료 · 재고 ${qty}개 복구됨.`);
   } catch(err) { notify('실패: ' + (err.message||err), 'error'); }
   finally { busy = false; }
