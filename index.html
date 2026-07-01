@@ -4741,21 +4741,28 @@ async function submitAddParts(entryId) {
       parts: partsStr
     });
 
-    // 부품마다 재고 차감 로그
+    // 부품마다 재고 차감 (applyStockDelta와 동일한 기종 우선 매칭)
+    const curModel = e.model || '';
+    let stockChanged = false;
     for(const b of basket) {
+      const nm = String(b.name).trim().toLowerCase();
+      let sidx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')===curModel);
+      if(sidx < 0) sidx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
+      if(sidx < 0) sidx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
+      const deduct = sidx >= 0 ? Math.min(b.qty, stock[sidx].qty) : 0;
+      if(sidx >= 0 && deduct > 0) { stock[sidx].qty -= deduct; stockChanged = true; }
       await gasCall({
         action:'addStockLog',
         logId: 'L' + Date.now() + Math.random().toString(36).slice(2,6),
-        partId: '', partName: b.name,
+        partId: sidx>=0 ? stock[sidx].id : '', partName: b.name,
         type: 'out', qty: b.qty,
         note: `에이징 중 부품 추가 (${e.serial})${note?' - '+note:''}`,
         date: new Date().toISOString(),
         worker: currentUser || ''
       });
-      // 로컬 재고도 차감
-      const sidx = stock.findIndex(p => p.name.trim().toLowerCase() === b.name.trim().toLowerCase());
-      if(sidx >= 0) stock[sidx].qty = Math.max(0, stock[sidx].qty - b.qty);
     }
+    // ⭐ v2.57r: 차감을 재고 시트에 실제 저장 (안 하면 다음 로드때 원복→제거만 남아 재고 뻥튀기)
+    if(stockChanged) { try { await saveStockToServer(); } catch {} }
 
     const curIdx = entries.findIndex(x => String(x.id) === String(entryId));
     if(curIdx === -1) {
@@ -4774,10 +4781,7 @@ async function submitAddParts(entryId) {
     closeAddPartsModal();
     notify(`부품 ${basket.length}종 추가 완료. 에이징 시간은 유지됩니다.`);
     renderAging();
-
-    setTimeout(async () => {
-      try { await syncData(true, true); renderAging(); } catch(e) { console.warn(e); }
-    }, 2000);
+    try { renderStock(); } catch(x){}
   } catch(err) {
     notify('실패: ' + (err.message||err), 'error');
   }
