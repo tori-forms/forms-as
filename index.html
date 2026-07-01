@@ -11272,6 +11272,14 @@ function renderEditParts(ws) {
     }));
   });
 
+  // ⭐ v2.57m: 저장된 부품 중 어느 작업 기본목록에도 없는 것 = "추가 부품" → 복원 대상
+  const baseNames = new Set();
+  ws.forEach(k => getWorkParts(k, model).forEach(p => baseNames.add(p.name)));
+  const savedExtras = Object.entries(savedParts)
+    .filter(([name, qty]) => name && Number(qty) > 0 && !baseNames.has(name))
+    .map(([name, qty]) => ({ name, qty: Number(qty) }));
+  const firstWork = ws[0];
+
   let html = '';
   ws.forEach((k) => {
     const v = WORKS[k];
@@ -11301,6 +11309,22 @@ function renderEditParts(ws) {
   const container = document.getElementById('edit-parts-container');
   if(html) { container.innerHTML = html; section.style.display = 'block'; }
   else { section.style.display = 'none'; }
+
+  // ⭐ v2.57m: 저장된 추가부품(기본목록에 없는 것)을 첫 작업 밑에 고정행으로 복원
+  if(html && firstWork && savedExtras.length) {
+    if(!editExtraCounters[firstWork]) editExtraCounters[firstWork] = 0;
+    if(!partQtys[firstWork]) partQtys[firstWork] = {};
+    // 재렌더 중복 방지: 이전에 자동복원한 fixed extra 제거 후 다시 추가
+    Object.keys(partQtys[firstWork]).forEach(key => {
+      if(key.startsWith('__extra_') && partQtys[firstWork][key] && partQtys[firstWork][key].fixed) delete partQtys[firstWork][key];
+    });
+    savedExtras.forEach(({name, qty}) => {
+      const idx = editExtraCounters[firstWork]++;
+      const id = `eextra-${firstWork}-${idx}-${Date.now()%100000}-${idx}`;
+      partQtys[firstWork]['__extra_'+id] = { name, qty, fixed:true };
+      _appendEditExtraRow(firstWork, id, name, qty, true);
+    });
+  }
   return;
 }
 
