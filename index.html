@@ -11432,25 +11432,31 @@ async function saveEdit() {
     // 다른 수리건과 시리얼 중복 체크
     const dup = entries.find(x => String(x.id)!==String(editTargetId) && normalizeSerial(x.serial)===normalizeSerial(newSerial));
     if(dup){ notify(`이미 등록된 시리얼입니다 (${dup.worker}).`,'error'); btn.disabled=false; btn.textContent='저장'; return; }
-    // ⭐ v2.57e: 낙관적 업데이트 — 로컬 먼저 갱신 + 화면 반영(즉시). 서버는 백그라운드.
-    //   강제 재동기화(syncData true,true) 제거 → GAS 큐 막힘 해결.
+    // ⭐ v2.57g: 수정은 서버 저장 확인 후 성공 표시 (실패를 숨기지 않음 → 새로고침 원복 방지)
+    notifyPersist('저장 중...');
+    try {
+      const r = await gasCall({action:'edit', id:String(editTargetId), works:JSON.stringify(works), total, note, parts:partsSafe, serial:newSerial, model:newModel});
+      if(r && r.ok === false) {
+        notify('저장 실패 — 대상 건을 찾지 못했습니다. 새로고침 후 다시 시도해주세요.','error');
+        btn.disabled=false; btn.textContent='저장';
+        return;
+      }
+    } catch(e) {
+      notify('서버 저장 실패 — 다시 시도해주세요.','error');
+      btn.disabled=false; btn.textContent='저장';
+      return;
+    }
+    // 서버 성공 → 로컬 반영 + 화면 갱신
     const idx = entries.findIndex(x=>String(x.id)===String(editTargetId));
     if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; entries[idx].parts=editPartsResult; entries[idx].serial=newSerial; entries[idx].model=newModel; }
-    // 변경 보호
     markPendingChange('entries', editTargetId, {
       type: 'update',
       data: { works, total, note, parts: editPartsResult, serial: newSerial, model: newModel }
-    }, 5000);
-
+    }, 8000);
     closeEditModal();
     renderToday(); renderAll();
-    notifyPersist('저장 중...');
+    notify('수정되었습니다!');
     btn.disabled = false; btn.textContent = '저장';
-
-    // 서버 반영은 백그라운드 (화면 안 기다림) — 응답 오면 알림 교체
-    gasCall({action:'edit', id:String(editTargetId), works:JSON.stringify(works), total, note, parts:partsSafe, serial:newSerial, model:newModel})
-      .then(() => notify('수정되었습니다!'))
-      .catch(() => notify('서버 반영 실패 — 새로고침으로 확인하세요.','error'));
     return;
   } catch { notify('저장 실패. 다시 시도해주세요.','error'); }
   btn.disabled = false; btn.textContent = '저장';
