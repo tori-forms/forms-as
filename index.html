@@ -11333,10 +11333,12 @@ function renderEditParts(ws) {
   });
 
   // ⭐ v2.57m: 저장된 부품 중 어느 작업 기본목록에도 없는 것 = "추가 부품" → 복원 대상
+  // ⭐ v2.57w: 단, 현재 재고(stock)에 실제 존재하는 부품만 복원 — 옛이름(재고에 없음)은 표시 안 함
   const baseNames = new Set();
   ws.forEach(k => getWorkParts(k, model).forEach(p => baseNames.add(p.name)));
+  const _stockNames = new Set((stock||[]).map(s => String(s.name).trim().toLowerCase()));
   const savedExtras = Object.entries(savedParts)
-    .filter(([name, qty]) => name && Number(qty) > 0 && !baseNames.has(name))
+    .filter(([name, qty]) => name && Number(qty) > 0 && !baseNames.has(name) && _stockNames.has(String(name).trim().toLowerCase()))
     .map(([name, qty]) => ({ name, qty: Number(qty) }));
   const firstWork = ws[0];
 
