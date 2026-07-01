@@ -2226,11 +2226,10 @@ function workTags(works) {
 // 부품 수량 상태 (수리 항목 키 → 부품명 → 수량)
 let partQtys = {};
 function initPartQtys() {
+  // ⭐ v2.57i: WORKS(구 하드코딩 부품명)로 미리 채우던 것 제거 — 이게 옛이름이 다시 저장되던 근원.
+  //   부품 수량은 getWorkParts(현재 매핑) 기준으로 그때그때 채워지고, 없으면 기본 qty가 자동 적용됨.
   partQtys = {};
-  Object.entries(WORKS).forEach(([k, v]) => {
-    partQtys[k] = {};
-    (v.parts||[]).forEach(p => { partQtys[k][p.name] = p.qty; });
-  });
+  Object.keys(WORKS).forEach(k => { partQtys[k] = {}; });
 }
 function getPartsData() {
   const checked = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
@@ -11259,22 +11258,18 @@ function renderEditParts(ws) {
   // ⭐ 수정 중인 entry의 model 사용
   const origEntry = entries.find(x => String(x.id) === String(editTargetId));
   const model = origEntry?.model || (typeof detectModel === 'function' ? detectModel(String(origEntry?.serial||'')) : '');
-  // ⭐ 이 수리에 실제 저장된 부품(e.parts) = 차감된 부품
+  // ⭐ 이 수리에 실제 저장된 부품(수량 참고용)
   const savedParts = (origEntry && origEntry.parts && typeof origEntry.parts === 'object') ? origEntry.parts : {};
 
-  // ⭐ B안: 저장된 부품을 각 작업(매핑) 소속으로 분류
-  //   각 작업의 getWorkParts에 부품명이 있으면 그 작업 소속. 어디에도 없으면 첫 작업(기타)에.
+  // ⭐ v2.57j: 작업+기종 기준 "현재 재고 부품"으로 세팅 (옛이름 부활 차단).
+  //   저장된 옛부품은 무시하고, 각 작업의 현재 매핑 부품을 그대로 표시.
+  //   수량은 저장값이 있으면 참고, 없으면 기본 1.
   const assign = {};               // { workKey: [ {name, qty} ] }
-  ws.forEach(k => { assign[k] = []; });
-  const firstWork = ws[0];
-  Object.entries(savedParts).forEach(([name, qty]) => {
-    if(!name || Number(qty) <= 0) return;
-    let placed = false;
-    for(const k of ws) {
-      const names = getWorkParts(k, model).map(p => p.name);
-      if(names.includes(name)) { assign[k].push({name, qty:Number(qty)}); placed = true; break; }
-    }
-    if(!placed && firstWork) assign[firstWork].push({name, qty:Number(qty)});  // 매핑에 없는 기타 부품
+  ws.forEach(k => {
+    assign[k] = getWorkParts(k, model).map(p => ({
+      name: p.name,
+      qty: (savedParts[p.name] && Number(savedParts[p.name]) > 0) ? Number(savedParts[p.name]) : (Number(p.qty) || 1)
+    }));
   });
 
   let html = '';
@@ -11409,8 +11404,7 @@ async function saveEdit() {
     });
     const editPartsResult = {};
     works.forEach(k => {
-      (WORKS[k].parts||[]).forEach(p => {
-        if(p.modelOnly && p.modelOnly !== model) return;
+      getWorkParts(k, model).forEach(p => {
         const qty = partQtys[k]?.[p.name] ?? p.qty;
         if(qty > 0) editPartsResult[p.name] = (editPartsResult[p.name]||0) + qty;
       });
