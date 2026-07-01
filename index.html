@@ -11323,10 +11323,20 @@ function _appendEditExtraRow(workKey, id, name, qty, fixed) {
         <button type="button" onclick="removeEditExtraPart('${workKey}','${id}')" style="margin-left:4px;font-size:12px;color:var(--red-text);background:none;border:none;cursor:pointer;">✕</button>
       </div>`;
   } else {
+    // ⭐ v2.57l: 자유 입력 대신 재고 등록 부품 드롭다운 (오타·상이 이름 방지)
+    //   현재 수정 중인 기기 기종(공용+해당기종)에 맞는 재고 부품만 표시
+    const _em = (entries.find(x=>String(x.id)===String(editTargetId))?.model) || '';
+    const _opts = (stock||[])
+      .filter(s => { const m = s.model||'공용'; return m==='공용' || m===_em; })
+      .map(s => `<option value="${String(s.name).replace(/"/g,'&quot;')}"${s.name===name?' selected':''}>${String(s.name).replace(/</g,'&lt;')}${(s.model&&s.model!=='공용')?` (${s.model})`:''}</option>`)
+      .join('');
     div.innerHTML = `
-      <input type="text" placeholder="부품명 (예: 스피커)" id="editextraname-${id}" value="${String(name||'').replace(/"/g,'&quot;')}"
-        style="flex:1;height:26px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:4px;outline:none;"
-        oninput="syncEditExtraPart('${workKey}','${id}')">
+      <select id="editextraname-${id}"
+        style="flex:1;height:26px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:4px;outline:none;background:var(--surface);color:var(--text);"
+        onchange="syncEditExtraPart('${workKey}','${id}')">
+        <option value="">부품 선택…</option>
+        ${_opts}
+      </select>
       <div style="display:flex;align-items:center;gap:4px;margin-left:8px;">
         <button class="qty-btn" type="button" onclick="changeEditExtraQty('${workKey}','${id}',-1)">−</button>
         <span class="qty-num" id="editextraqty-${id}">${qty||1}</span>
