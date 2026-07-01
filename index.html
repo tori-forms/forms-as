@@ -11426,6 +11426,8 @@ async function saveEdit() {
     // 다른 수리건과 시리얼 중복 체크
     const dup = entries.find(x => String(x.id)!==String(editTargetId) && normalizeSerial(x.serial)===normalizeSerial(newSerial));
     if(dup){ notify(`이미 등록된 시리얼입니다 (${dup.worker}).`,'error'); btn.disabled=false; btn.textContent='저장'; return; }
+    // ⭐ v2.57k: 재고 delta용 — 수정 전 저장돼 있던 부품 스냅샷
+    const _oldParts = (origEntry && origEntry.parts && typeof origEntry.parts === 'object') ? {...origEntry.parts} : {};
     // ⭐ v2.57g: 수정은 서버 저장 확인 후 성공 표시 (실패를 숨기지 않음 → 새로고침 원복 방지)
     notifyPersist('저장 중...');
     try {
@@ -11440,6 +11442,8 @@ async function saveEdit() {
       btn.disabled=false; btn.textContent='저장';
       return;
     }
+    // ⭐ v2.57k: 재고 delta 반영 (수정후 - 수정전 차이만큼 재고 증감)
+    try { await applyStockDelta(_oldParts, editPartsResult, newModel); } catch(err) { console.warn('재고 delta 실패', err); }
     // 서버 성공 → 로컬 반영 + 화면 갱신
     const idx = entries.findIndex(x=>String(x.id)===String(editTargetId));
     if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; entries[idx].parts=editPartsResult; entries[idx].serial=newSerial; entries[idx].model=newModel; }
@@ -14562,6 +14566,45 @@ async function deductStock(works, partsData, model) {
     try { await gasCall({action:'addStockLog', ...log}); } catch {}
   }
   // ⭐ 재고 저장은 한 번만 (부품마다 반복 저장 방지)
+  if(changed) { try { await saveStockToServer(); } catch {} }
+}
+
+// ⭐ v2.57k: 수정 시 재고 delta 반영 — (수정후 - 수정전) 차이만큼 재고 증감 + 로그
+//   oldParts/newParts: {부품명: 수량}. model: 기종(매칭용). 재고에 없는 이름은 자동 스킵(옛이름 안전).
+async function applyStockDelta(oldParts, newParts, model) {
+  if(!stock.length) return;
+  const names = new Set([...Object.keys(oldParts||{}), ...Object.keys(newParts||{})]);
+  const curModel = model || '';
+  const findIdx = (partName) => {
+    const nm = String(partName).trim().toLowerCase();
+    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')===curModel);
+    if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
+    if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
+    return idx;
+  };
+  let changed = false;
+  for(const name of names) {
+    const before = Number(oldParts?.[name] || 0);
+    const after  = Number(newParts?.[name] || 0);
+    const diff = after - before;                    // +면 더 씀(차감), -면 덜 씀(복구)
+    if(diff === 0) continue;
+    const idx = findIdx(name);
+    if(idx < 0) continue;                            // 재고에 없는 부품(옛이름 등) 스킵
+    if(diff > 0) {
+      const deduct = Math.min(diff, stock[idx].qty); // 재고보다 많이 차감 방지
+      if(deduct <= 0) continue;
+      stock[idx].qty -= deduct;
+      const log = {logId:'l'+Date.now()+(Math.random()*1000|0), partId:stock[idx].id, partName:stock[idx].name, type:'out', qty:deduct, note:'수리 수정 추가차감', date:new Date().toISOString(), worker:currentUser||''};
+      stockLog.push(log); try { await gasCall({action:'addStockLog', ...log}); } catch {}
+      changed = true;
+    } else {
+      const restore = -diff;
+      stock[idx].qty += restore;
+      const log = {logId:'l'+Date.now()+(Math.random()*1000|0), partId:stock[idx].id, partName:stock[idx].name, type:'in', qty:restore, note:'수리 수정 복구', date:new Date().toISOString(), worker:currentUser||''};
+      stockLog.push(log); try { await gasCall({action:'addStockLog', ...log}); } catch {}
+      changed = true;
+    }
+  }
   if(changed) { try { await saveStockToServer(); } catch {} }
 }
 
