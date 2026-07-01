@@ -11780,6 +11780,9 @@ function prevBizDayStr(fromStr) {
 // 특정 엔지니어의 특정 날짜 미달 여부 계산 → {target, done, short} 또는 null(목표없음/달성/시작일이전)
 function calcMissForDay(name, dayStr) {
   if(dayStr < MISS_START_DATE) return null;        // ⭐ 6/30 이전은 미달 검사 안 함
+  // ⭐ v2.57v: 입사일 이전 날짜는 미달 대상 아님 (입사 전엔 근무일 아님)
+  const _hd = (typeof hireDateMap !== 'undefined') ? hireDateMap[name] : null;
+  if(_hd && dayStr < String(_hd).slice(0,10)) return null;
   const refD = new Date(dayStr + 'T00:00:00');
   const target = getPersonalDailyTarget(name, refD);
   if(!target || target <= 0) return null;          // 목표 없는 사람(관리자·교육중·QC) 제외
@@ -11804,7 +11807,7 @@ async function checkMissOnLogin() {
   if(!dayStr) return;
 
   const miss = calcMissForDay(currentUser, dayStr);
-  if(!miss) return;                                // 미달 아님
+  if(!miss) return;                                // 미달 아님 (입사일 이전 포함)
 
   // 이미 사유 작성했는지 GAS에서 확인
   let already = false;
