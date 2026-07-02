@@ -12567,8 +12567,7 @@ async function renderHistory() {
         const stdQty = {};
         ws.forEach(k => {
           const model = e.model || '';
-          (WORKS[k]?.parts||[]).forEach(p => {
-            if(p.modelOnly && p.modelOnly !== model) return;
+          getWorkParts(k, model).forEach(p => {
             stdQty[p.name] = (stdQty[p.name]||0) + p.qty;
           });
         });
@@ -14123,10 +14122,9 @@ function calcPartsUsage(allEntries, fromDate, toDate) {
         if(n > 0 && name) usage[name] = (usage[name] || 0) + n;
       });
     } else {
-      // 폴백: WORKS 기본 수량 (modelOnly 필터)
+      // 폴백: 현재 매핑 기본 수량 (기종 필터)
       works.forEach(k => {
-        (WORKS[k]?.parts || []).forEach(p => {
-          if(p.modelOnly && p.modelOnly !== model) return;
+        getWorkParts(k, model).forEach(p => {
           usage[p.name] = (usage[p.name] || 0) + (p.qty || 0);
         });
       });
@@ -14643,10 +14641,9 @@ async function deductStock(works, partsData, model) {
       if(qty > 0) toDeduct[name] = (toDeduct[name]||0) + qty;
     });
   } else {
-    // 폴백: WORKS 기본 수량
+    // 폴백: 현재 매핑 기본 수량 (기종 필터)
     (works||[]).forEach(k => {
-      (WORKS[k]?.parts||[]).forEach(p => {
-        if(p.modelOnly && p.modelOnly !== (model||'')) return;
+      getWorkParts(k, model||'').forEach(p => {
         toDeduct[p.name] = (toDeduct[p.name]||0) + p.qty;
       });
     });
@@ -14727,8 +14724,7 @@ async function restoreStockForEntry(e) {
     Object.entries(partsData).forEach(([name, qty]) => { if(qty > 0) toRestore[name] = (toRestore[name]||0) + Number(qty); });
   } else {
     (e.works||[]).forEach(k => {
-      (WORKS[k]?.parts||[]).forEach(p => {
-        if(p.modelOnly && p.modelOnly !== (e.model||'')) return;
+      getWorkParts(k, e.model||'').forEach(p => {
         toRestore[p.name] = (toRestore[p.name]||0) + p.qty;
       });
     });
@@ -14760,9 +14756,7 @@ function entryPartsCount(e) {
   const pd = (e.parts && typeof e.parts === 'object') ? e.parts : {};
   if(Object.keys(pd).length > 0) return Object.values(pd).reduce((s,q)=>s+(Number(q)||0),0);
   let c = 0;
-  (e.works||[]).forEach(k => (WORKS[k]?.parts||[]).forEach(p => {
-    if(p.modelOnly && p.modelOnly !== (e.model||'')) return; c += p.qty;
-  }));
+  (e.works||[]).forEach(k => getWorkParts(k, e.model||'').forEach(p => { c += p.qty; }));
   return c;
 }
 
