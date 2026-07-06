@@ -4771,17 +4771,19 @@ async function submitAddParts(entryId) {
       let sidx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')===curModel);
       if(sidx < 0) sidx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
       if(sidx < 0) sidx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
+      const _pvAg = sidx >= 0 ? Number(stock[sidx].qty) : 0;   // ⭐ 차감 전 수량
       const deduct = sidx >= 0 ? Math.min(b.qty, stock[sidx].qty) : 0;
       if(sidx >= 0 && deduct > 0) { stock[sidx].qty -= deduct; stockChanged = true; }
-      await gasCall({
-        action:'addStockLog',
+      const _agLog = {
         logId: 'L' + Date.now() + Math.random().toString(36).slice(2,6),
         partId: sidx>=0 ? stock[sidx].id : '', partName: b.name,
         type: 'out', qty: b.qty,
-        note: `에이징 중 부품 추가 (${e.serial})${note?' - '+note:''}`,
+        note: `에이징 중 부품 추가 (${e.serial})${note?' - '+note:''}${deduct>0?` · 재고 ${_pvAg} → ${_pvAg - deduct}`:''}`,
         date: new Date().toISOString(),
         worker: currentUser || ''
-      });
+      };
+      stockLog.push(_agLog);   // ⭐ 이력 탭에 즉시 반영
+      await gasCall({ action:'addStockLog', ..._agLog });
     }
     // ⭐ v2.57r: 차감을 재고 시트에 실제 저장 (안 하면 다음 로드때 원복→제거만 남아 재고 뻥튀기)
     if(stockChanged) { try { await saveStockToServer(); } catch {} }
@@ -14564,9 +14566,10 @@ async function applyStockAudit() {
   if(!changes.length) { notify('변경된 항목이 없습니다.'); return; }
   if(!confirm(`${changes.length}개 부품의 재고를 실사 수량으로 조정합니다. 진행할까요?`)) return;
   for(const c of changes) {
+    const _pvS = c.real - c.diff;   // ⭐ 실사 전 장부 수량
     c.p.qty = c.real;
     const logId = 'l'+Date.now()+(Math.random()*1000|0);
-    const log = { logId, partId:c.p.id, partName:c.p.name, type: c.diff>0?'in':'out', qty:Math.abs(c.diff), note:'재고 실사 조정', date:new Date().toISOString(), worker:currentUser||'' };
+    const log = { logId, partId:c.p.id, partName:c.p.name, type: c.diff>0?'in':'out', qty:Math.abs(c.diff), note:`재고 실사 조정 · 재고 ${_pvS} → ${c.real}`, date:new Date().toISOString(), worker:currentUser||'' };
     stockLog.push(log);
     try { await gasCall({action:'addStockLog', ...log}); } catch(e){}
   }
@@ -14676,7 +14679,7 @@ async function savePart() {
   } else {
     const newId = 'p'+Date.now();
     stock.push({id:newId, name, category, qty, minQty, model});
-    _logs.push({logId:'l'+Date.now()+'n', partId:newId, partName:name, type:'in', qty:qty, note:'신규 부품 등록', date:_now(), worker:currentUser||''});
+    _logs.push({logId:'l'+Date.now()+'n', partId:newId, partName:name, type:'in', qty:qty, note:`신규 부품 등록 · 재고 0 → ${qty}`, date:_now(), worker:currentUser||''});
   }
   await saveStockToServer();
   for(const log of _logs) {
@@ -14693,7 +14696,7 @@ function deletePart(id) {
   openModal('부품 삭제', `"${p.name}" 부품을 삭제할까요?`, async()=>{
     stock = stock.filter(x=>x.id!==id);
     await saveStockToServer();
-    const log = {logId:'l'+Date.now()+'d', partId:id, partName:p.name, type:'adjust', qty:Number(p.qty||0), note:`부품 삭제 (잔여 ${p.qty||0}개 정리)`, date:new Date().toISOString(), worker:currentUser||''};
+    const log = {logId:'l'+Date.now()+'d', partId:id, partName:p.name, type:'adjust', qty:Number(p.qty||0), note:`부품 삭제 · 재고 ${p.qty||0} → 0`, date:new Date().toISOString(), worker:currentUser||''};
     stockLog.push(log);
     try { await gasCall({action:'addStockLog', ...log}); } catch(e) {}
     renderStock();
@@ -14784,11 +14787,12 @@ async function deductStock(works, partsData, model) {
     if(idx < 0) continue; // 재고에 없는 부품은 스킵
     const deductQty = Math.min(qty, stock[idx].qty); // 재고보다 많이 차감 방지
     if(deductQty <= 0) continue;
+    const _pvDed = Number(stock[idx].qty);            // ⭐ 차감 전 수량 (이력에 기존→변경 표기)
     stock[idx].qty -= deductQty;
     changed = true;
     const logId = 'l'+Date.now()+(Math.random()*1000|0);
     const logDate = new Date().toISOString();
-    const log = {logId, partId:stock[idx].id, partName:stock[idx].name, type:'out', qty:deductQty, note:'수리 자동 차감', date:logDate, worker:currentUser||''};
+    const log = {logId, partId:stock[idx].id, partName:stock[idx].name, type:'out', qty:deductQty, note:`수리 자동 차감 · 재고 ${_pvDed} → ${_pvDed - deductQty}`, date:logDate, worker:currentUser||''};
     stockLog.push(log);
     try { await gasCall({action:'addStockLog', ...log}); } catch {}
   }
@@ -14822,14 +14826,16 @@ async function applyStockDelta(oldParts, newParts, model) {
     if(diff > 0) {
       const deduct = Math.min(diff, stock[idx].qty); // 재고보다 많이 차감 방지
       if(deduct <= 0) continue;
+      const _pvA = Number(stock[idx].qty);           // ⭐ 차감 전 수량
       stock[idx].qty -= deduct;
-      const log = {logId:'l'+Date.now()+(Math.random()*1000|0), partId:stock[idx].id, partName:stock[idx].name, type:'out', qty:deduct, note:'수리 수정 추가차감', date:new Date().toISOString(), worker:currentUser||''};
+      const log = {logId:'l'+Date.now()+(Math.random()*1000|0), partId:stock[idx].id, partName:stock[idx].name, type:'out', qty:deduct, note:`수리 수정 추가차감 · 재고 ${_pvA} → ${_pvA - deduct}`, date:new Date().toISOString(), worker:currentUser||''};
       stockLog.push(log); try { await gasCall({action:'addStockLog', ...log}); } catch {}
       changed = true;
     } else {
       const restore = -diff;
+      const _pvB = Number(stock[idx].qty);           // ⭐ 복구 전 수량
       stock[idx].qty += restore;
-      const log = {logId:'l'+Date.now()+(Math.random()*1000|0), partId:stock[idx].id, partName:stock[idx].name, type:'in', qty:restore, note:'수리 수정 복구', date:new Date().toISOString(), worker:currentUser||''};
+      const log = {logId:'l'+Date.now()+(Math.random()*1000|0), partId:stock[idx].id, partName:stock[idx].name, type:'in', qty:restore, note:`수리 수정 복구 · 재고 ${_pvB} → ${_pvB + restore}`, date:new Date().toISOString(), worker:currentUser||''};
       stockLog.push(log); try { await gasCall({action:'addStockLog', ...log}); } catch {}
       changed = true;
     }
@@ -14862,10 +14868,11 @@ async function restoreStockForEntry(e) {
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
     if(idx < 0) continue;
+    const _pvR = Number(stock[idx].qty);   // ⭐ 복구 전 수량
     stock[idx].qty += qty;
     restored += qty;
     const logId = 'l'+Date.now()+(Math.random()*1000|0);
-    const log = {logId, partId:stock[idx].id, partName:stock[idx].name, type:'in', qty, note:'수리 삭제 복구', date:new Date().toISOString(), worker:currentUser||''};
+    const log = {logId, partId:stock[idx].id, partName:stock[idx].name, type:'in', qty, note:`수리 삭제 복구 · 재고 ${_pvR} → ${_pvR + qty}`, date:new Date().toISOString(), worker:currentUser||''};
     stockLog.push(log);
     try { await gasCall({action:'addStockLog', ...log}); } catch {}
   }
