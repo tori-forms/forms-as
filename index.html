@@ -14557,16 +14557,33 @@ async function savePart() {
   const minQty = Number(document.getElementById('part-min-qty').value) || 0;
   const model = (document.getElementById('part-model')||{}).value || '공용';
   if(!name){ notify('부품명을 입력하세요.','error'); return; }
+  // ⭐ 재고 변경 이력 기록용 로그 수집 (수정·신규가 휘발되지 않도록 재고이력에 남김)
+  const _logs = [];
+  const _now = () => new Date().toISOString();
   if(editPartId) {
     const idx = stock.findIndex(x=>x.id===editPartId);
-    if(idx>-1) stock[idx] = {...stock[idx], name, category, qty, minQty, model};
+    if(idx>-1) {
+      const old = {...stock[idx]};
+      stock[idx] = {...stock[idx], name, category, qty, minQty, model};
+      const d = qty - Number(old.qty||0);
+      if(d > 0) _logs.push({logId:'l'+Date.now()+'a', partId:editPartId, partName:name, type:'in', qty:d, note:`재고 수정 (+${d})`, date:_now(), worker:currentUser||''});
+      if(d < 0) _logs.push({logId:'l'+Date.now()+'a', partId:editPartId, partName:name, type:'adjust', qty:Math.abs(d), note:`재고 수정 (-${Math.abs(d)})`, date:_now(), worker:currentUser||''});
+      if(String(old.name) !== String(name)) _logs.push({logId:'l'+Date.now()+'b', partId:editPartId, partName:name, type:'adjust', qty:0, note:`부품명 변경: ${old.name} → ${name}`, date:_now(), worker:currentUser||''});
+      if(String(old.model||'공용') !== String(model)) _logs.push({logId:'l'+Date.now()+'c', partId:editPartId, partName:name, type:'adjust', qty:0, note:`기종 변경: ${old.model||'공용'} → ${model}`, date:_now(), worker:currentUser||''});
+    }
   } else {
-    stock.push({id:'p'+Date.now(), name, category, qty, minQty, model});
+    const newId = 'p'+Date.now();
+    stock.push({id:newId, name, category, qty, minQty, model});
+    _logs.push({logId:'l'+Date.now()+'n', partId:newId, partName:name, type:'in', qty:qty, note:'신규 부품 등록', date:_now(), worker:currentUser||''});
   }
   await saveStockToServer();
+  for(const log of _logs) {
+    stockLog.push(log);
+    try { await gasCall({action:'addStockLog', ...log}); } catch(e) {}
+  }
   closePartModal();
   renderStock();
-  notify(editPartId ? '수정되었습니다.' : '부품이 추가되었습니다.');
+  notify(editPartId ? '수정되었습니다. (이력 기록됨)' : '부품이 추가되었습니다. (이력 기록됨)');
 }
 
 function deletePart(id) {
@@ -14574,8 +14591,11 @@ function deletePart(id) {
   openModal('부품 삭제', `"${p.name}" 부품을 삭제할까요?`, async()=>{
     stock = stock.filter(x=>x.id!==id);
     await saveStockToServer();
+    const log = {logId:'l'+Date.now()+'d', partId:id, partName:p.name, type:'adjust', qty:Number(p.qty||0), note:`부품 삭제 (잔여 ${p.qty||0}개 정리)`, date:new Date().toISOString(), worker:currentUser||''};
+    stockLog.push(log);
+    try { await gasCall({action:'addStockLog', ...log}); } catch(e) {}
     renderStock();
-    notify('삭제되었습니다.');
+    notify('삭제되었습니다. (이력 기록됨)');
   });
 }
 
@@ -14592,7 +14612,7 @@ async function saveStockToServer() {
     notify('재고 목록이 비어 있어 저장을 건너뛰었습니다. (데이터 보호)', 'error');
     return;
   }
-  const stockData = stock.map(p=>`${p.id}::${p.name}::${p.qty}::${p.category||''}::${p.minQty||0}::${p.model||'공용'}`).join('||');
+  const stockData = stock.map(p=>`${p.id}::${p.name}::${p.qty}::${p.category||''}::${p.minQty||0}::${p.model||'공용'}::${p.consumable?1:0}`).join('||');  // ⭐ 소모성 플래그 보존
   await gasCall({action:'saveStock', stockData});
 }
 
