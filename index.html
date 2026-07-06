@@ -1516,6 +1516,7 @@ window.addEventListener('DOMContentLoaded', function(){
     </div>
     <div id="stock-audit-panel" style="display:none;">
       <div id="audit-content"></div>
+    </div>
     <div id="stock-history-panel" style="display:none;">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
         <button id="sh-f-all" onclick="setStockHistFilter('all')" class="btn btn-sm">전체</button>
@@ -1525,8 +1526,7 @@ window.addEventListener('DOMContentLoaded', function(){
         <input type="text" id="sh-search" placeholder="부품명·사유 검색" oninput="renderStockHistory()" style="height:32px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;width:200px;">
         <span id="sh-count" style="font-size:12px;color:var(--text2);margin-left:auto;"></span>
       </div>
-      <div id="history-content"></div>
-    </div>
+      <div id="stock-history-content"></div>
     </div>
   </div>
 
@@ -13732,7 +13732,7 @@ const STOCK_STATS_START = '2026-06-30';
 let _shFilter = 'all';
 function setStockHistFilter(f) { _shFilter = f; renderStockHistory(); }
 function renderStockHistory() {
-  const el = document.getElementById('history-content');
+  const el = document.getElementById('stock-history-content');
   if(!el) return;
   ['all','in','out','adj'].forEach(f => {
     const b = document.getElementById('sh-f-' + f);
