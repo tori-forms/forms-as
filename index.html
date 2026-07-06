@@ -2883,10 +2883,12 @@ function renderAll() {
     const activeStockTab = document.querySelector('#stocktab-inventory[style*="var(--accent)"]') ? 'inventory'
                         : document.querySelector('#stocktab-ppm[style*="var(--accent)"]') ? 'ppm'
                         : document.querySelector('#stocktab-usage[style*="var(--accent)"]') ? 'usage'
+                        : document.querySelector('#stocktab-history[style*="var(--accent)"]') ? 'history'
                         : 'inventory';
     if(activeStockTab === 'inventory') renderStock();
     else if(activeStockTab === 'ppm') { try { renderPPM(); } catch {} }
     else if(activeStockTab === 'usage') { try { renderPartsUsage(); } catch {} }
+    else if(activeStockTab === 'history') { try { renderStockHistory(); } catch {} }  // ⭐ 데이터 도착/동기화 시 이력도 갱신
   }
   // 출고 관리/현황 탭
   // ⭐ v2.22: 체크박스 선택 중이면 재렌더 스킵 (선택 초기화 방지)
