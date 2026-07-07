@@ -9916,6 +9916,7 @@ function _renderWorkCheckHTML(k, v, model) {
         </button>
       </div>` : ''}
       <div id="parts-${k}" style="display:none;margin-top:10px;border-top:1px dashed var(--border2);padding-top:10px;">
+        <div style="font-size:10.5px;color:var(--text3);margin-bottom:6px;">수량 0 = 미사용 (재고 차감 안 함)</div>
         ${visibleParts.map(p=>`
           <div class="part-qty-row">
             <span style="color:var(--text2);">${p.name}${p.modelOnly?` <span style="font-size:10px;color:var(--accent);">(${p.modelOnly})</span>`:''}</span>
@@ -10003,11 +10004,13 @@ function changeQty(workKey, partName, delta) {
   const model = getModel();
   const defQty = getWorkParts(workKey, model).find(p=>p.name===partName)?.qty ?? 1;
   const cur = partQtys[workKey][partName] ?? defQty;
-  const newVal = Math.max(1, cur + delta);   // ⭐ 작업 기본부품은 최소 1 (0 방지)
+  const newVal = Math.max(0, cur + delta);   // ⭐ 0 허용 — 0이면 부품 미사용 처리(재고 차감·부품 기록에서 제외)
   partQtys[workKey][partName] = newVal;
   const safeKey = partSafeKey(partName);
-  const el = document.getElementById('qty-'+workKey+'-'+safeKey);
-  if(el) el.textContent = newVal;
+  // 등록 화면(qty-) / 수정 모달(eqty-) 스팬 모두 갱신 + 0이면 흐리게 표시
+  [document.getElementById('qty-'+workKey+'-'+safeKey), document.getElementById('eqty-'+workKey+'-'+safeKey)].forEach(el => {
+    if(el) { el.textContent = newVal; el.style.opacity = newVal===0 ? '.45' : ''; }
+  });
   updatePP();
 }
 
@@ -11350,11 +11353,15 @@ function renderEditParts(ws) {
   // ⭐ v2.57j: 작업+기종 기준 "현재 재고 부품"으로 세팅 (옛이름 부활 차단).
   //   저장된 옛부품은 무시하고, 각 작업의 현재 매핑 부품을 그대로 표시.
   //   수량은 저장값이 있으면 참고, 없으면 기본 1.
+  // ⭐ 0수량 지원: 부품 스냅샷이 있는 기록(신체계 저장분)에서 목록에 없는 부품 = 그때 안 쓴 것(0).
+  //   기본 1로 되살리면 재수정 저장만 눌러도 몰래 1개 재차감되므로 0으로 표시.
+  //   스냅샷이 아예 없는 구형 기록은 기존대로 기본 수량 유지.
+  const _hasSnapshot = Object.keys(savedParts).length > 0;
   const assign = {};               // { workKey: [ {name, qty} ] }
   ws.forEach(k => {
     assign[k] = getWorkParts(k, model).map(p => ({
       name: p.name,
-      qty: (savedParts[p.name] && Number(savedParts[p.name]) > 0) ? Number(savedParts[p.name]) : (Number(p.qty) || 1)
+      qty: (savedParts[p.name] && Number(savedParts[p.name]) > 0) ? Number(savedParts[p.name]) : (_hasSnapshot ? 0 : (Number(p.qty) || 1))
     }));
   });
 
@@ -11381,9 +11388,9 @@ function renderEditParts(ws) {
       html += `<div class="part-qty-row">
         <span style="color:var(--text2);font-size:12px;">${escapeHtml(name)}</span>
         <div style="display:flex;align-items:center;gap:6px;">
-          <button class="qty-btn" type="button" onclick="changeQty('${k}','${escapeJs(name)}',-1);document.getElementById('eqty-${safeKey}').textContent=partQtys['${k}']['${escapeJs(name)}']">−</button>
-          <span class="qty-num" id="eqty-${safeKey}">${Number(qty)}</span>
-          <button class="qty-btn" type="button" onclick="changeQty('${k}','${escapeJs(name)}',1);document.getElementById('eqty-${safeKey}').textContent=partQtys['${k}']['${escapeJs(name)}']">+</button>
+          <button class="qty-btn" type="button" onclick="changeQty('${k}','${escapeJs(name)}',-1)">−</button>
+          <span class="qty-num" id="eqty-${safeKey}" style="${Number(qty)===0?'opacity:.45;':''}">${Number(qty)}</span>
+          <button class="qty-btn" type="button" onclick="changeQty('${k}','${escapeJs(name)}',1)">+</button>
         </div>
       </div>`;
     });
@@ -11395,6 +11402,7 @@ function renderEditParts(ws) {
   });
   const section = document.getElementById('edit-parts-section');
   const container = document.getElementById('edit-parts-container');
+  if(html) html = `<div style="font-size:11px;color:var(--text3);margin-bottom:8px;">💡 수량을 <b>0</b>으로 두면 그 부품은 미사용 처리되어 재고에서 차감되지 않아요.</div>` + html;
   if(html) { container.innerHTML = html; section.style.display = 'block'; }
   else { section.style.display = 'none'; }
 
