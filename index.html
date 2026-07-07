@@ -2250,9 +2250,10 @@ function getPartsData() {
     // 화면에 표시되는 부품 = getWorkParts (매핑 우선, WORKS 폴백)
     getWorkParts(k, model).forEach(p => {
       const qty = partQtys[k]?.[p.name] ?? p.qty;   // 사용자가 −/+로 조정한 값 우선
-      if(qty > 0) result[p.name] = (result[p.name]||0) + qty;
+      // ⭐ 0도 명시 저장 — "안 씀(0)"과 "기록 없음(부품 추적 이전)"을 구분해 재수정 시 0이 유지되게 함
+      if(qty >= 0) result[p.name] = (result[p.name]||0) + qty;
     });
-    // + 부품 추가로 넣은 항목
+    // + 부품 추가로 넣은 항목 (추가 부품은 0이면 제거 의도로 보고 미저장)
     Object.entries(partQtys[k]||{}).forEach(([key, val]) => {
       if(!key.startsWith('__extra_')) return;
       const name = typeof val==='object' ? val.name : '';
@@ -11359,10 +11360,15 @@ function renderEditParts(ws) {
   const _hasSnapshot = Object.keys(savedParts).length > 0;
   const assign = {};               // { workKey: [ {name, qty} ] }
   ws.forEach(k => {
-    assign[k] = getWorkParts(k, model).map(p => ({
-      name: p.name,
-      qty: (savedParts[p.name] && Number(savedParts[p.name]) > 0) ? Number(savedParts[p.name]) : (_hasSnapshot ? 0 : (Number(p.qty) || 1))
-    }));
+    assign[k] = getWorkParts(k, model).map(p => {
+      const sv = savedParts[p.name];
+      const svNum = Number(sv);
+      // ⭐ 명시적 0 저장 지원: 저장값이 있으면(0 포함) 그대로, 없으면 스냅샷 유무로 0/기본값 결정
+      const qty = (sv !== undefined && sv !== null && sv !== '' && Number.isFinite(svNum))
+        ? svNum
+        : (_hasSnapshot ? 0 : (Number(p.qty) || 1));
+      return { name: p.name, qty };
+    });
   });
 
   // ⭐ v2.57m: 저장된 부품 중 어느 작업 기본목록에도 없는 것 = "추가 부품" → 복원 대상
@@ -11536,7 +11542,8 @@ async function saveEdit() {
     works.forEach(k => {
       getWorkParts(k, model).forEach(p => {
         const qty = partQtys[k]?.[p.name] ?? p.qty;
-        if(qty > 0) editPartsResult[p.name] = (editPartsResult[p.name]||0) + qty;
+        // ⭐ 0도 명시 저장 — 재수정 시 기본 1로 부활해 몰래 재차감되는 것 방지
+        if(qty >= 0) editPartsResult[p.name] = (editPartsResult[p.name]||0) + qty;
       });
       Object.entries(partQtys[k]||{}).forEach(([key, val]) => {
         if(!key.startsWith('__extra_')) return;
@@ -13687,7 +13694,7 @@ function exportCSV(mode) {
   const hd = '번호,날짜,엔지니어,기종,시리얼번호,수리항목,사용부품,공임비(원),특이사항,등록시각';
   const ls = rows.map((e,i)=>{
     const ws = parseWorks(e.works);
-    const partsStr = e.parts&&Object.keys(e.parts).length ? Object.entries(e.parts).map(([n,q])=>`${n}×${q}`).join(' / ') : '-';
+    const partsStr = e.parts&&Object.keys(e.parts).length ? Object.entries(e.parts).filter(([n,q])=>Number(q)>0).map(([n,q])=>`${n}×${q}`).join(' / ') : '-';
     return `${i+1},${String(e.date).slice(0,10)},${e.worker},${e.model||'-'},${e.serial},"${ws.map(k=>WORKS[k]?.label||k).join(' / ')}","${partsStr}",${e.total},"${e.note||''}",${fmtDT(e.date)}`;
   });
   const totalRev = rows.reduce((s,e)=>s+Number(e.total),0);
@@ -13909,6 +13916,7 @@ function renderPPM() {
     const partUsageStats = {};
     entriesWithParts.forEach(e => {
       Object.entries(e.parts).forEach(([partName, qty]) => {
+        if(!(Number(qty) > 0)) return;   // ⭐ 0 = 미사용 명시 저장분 — 사용 통계에서 제외
         if(!partUsageStats[partName]) partUsageStats[partName] = { total: 0, count: 0, max: 0 };
         partUsageStats[partName].total += Number(qty);
         partUsageStats[partName].count += 1;
