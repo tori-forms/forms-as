@@ -2635,7 +2635,15 @@ function gasCall(params) {
   //   서버 캐시 재빌드를 사용자 로드가 아닌 이 핑이 전담. 결과는 기다리지 않음.
   const _pMut = _gasCallJsonp(params);
   const _act = (params && params.action) || 'load';
-  if(!_WARM_READ_ACTIONS[_act]) _pMut.then(()=>_pingWarm()).catch(()=>{});
+  if(!_WARM_READ_ACTIONS[_act]) {
+    _pMut.then(()=>_pingWarm()).catch(()=>{
+      // ⭐ v2.61b: 변경 '응답'만 유실된 경우(echo 불안정) 서버는 이미 실행했을 수 있음.
+      //   2초 뒤 서버 신선본을 강제로 받아 화면을 실제 상태로 재조정 —
+      //   "성공했는데 실패로 표시 → 사용자가 재시도 → 진짜 중복 생성" 연쇄를 차단.
+      window._forceFreshLoad = true;
+      setTimeout(()=>{ try { syncData(true, true); } catch(e){} }, 2000);
+    });
+  }
   return _pMut;
 }
 
@@ -2747,6 +2755,11 @@ async function syncData(silent=false, force=false, _snapData=null) {
     let data;
     if(_isSnap) {
       data = _snapData;   // ⭐ v2.59f: 마지막 성공 응답으로 즉시 렌더 (네트워크는 곧이어 별도 실행)
+    } else if(window._forceFreshLoad) {
+      // ⭐ v2.61b: 변경 응답 유실 후 재조정 모드 — GitHub(낡을 수 있음) 건너뛰고 서버 신선본 강제.
+      //   서버가 버전 검증 후 필요 시 재빌드하므로 '실제 시트 상태'가 보장됨 (read-your-writes)
+      window._forceFreshLoad = false;
+      data = await gasCall({action:'load', noShip:1, fresh:1});
     } else {
       // ⭐ v2.61: 읽기 1순위 = GitHub CDN (echo 구간 없음, 통상 수백 ms). 실패/낡음 시 GAS 폴백
       try {
