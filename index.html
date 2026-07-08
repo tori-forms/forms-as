@@ -2613,7 +2613,22 @@ function gasCall(params) {
       .catch(() => _gasCallJsonp(reqParams, 30000))
       .catch(() => _tryFetch(20000));
   }
-  return _gasCallJsonp(params);
+  // ⭐ v2.60: mutation(읽기 외 모든 액션) 성공 시 백그라운드 warm 핑 —
+  //   서버 캐시 재빌드를 사용자 로드가 아닌 이 핑이 전담. 결과는 기다리지 않음.
+  const _pMut = _gasCallJsonp(params);
+  const _act = (params && params.action) || 'load';
+  if(!_WARM_READ_ACTIONS[_act]) _pMut.then(()=>_pingWarm()).catch(()=>{});
+  return _pMut;
+}
+
+const _WARM_READ_ACTIONS = { load:1, loadShipLog:1, getMissReason:1, getMissReasons:1, getEntryDetail:1, warm:1 };
+function _pingWarm() {
+  const now = Date.now();
+  if(_pingWarm._last && now - _pingWarm._last < 5000) { _pingWarm._again = true; return; }  // 5초 디바운스
+  _pingWarm._last = now; _pingWarm._again = false;
+  try { new Image().src = GAS + '?action=warm&_=' + now; } catch(e) {}   // fire-and-forget (응답 무시)
+  // 재빌드(수 초) 도는 동안 추가 변경이 있었으면 끝나고 한 번 더
+  setTimeout(()=>{ if(_pingWarm._again) { _pingWarm._last = 0; _pingWarm(); } }, 12000);
 }
 
 function _gasCallJsonp(params, timeoutMs) {
@@ -9669,6 +9684,8 @@ window._pendingChanges = window._pendingChanges || {
  */
 function markPendingChange(kind, id, change, durationMs = 3000) {
   if(!window._pendingChanges[kind]) window._pendingChanges[kind] = {};
+  // ⭐ v2.60: 최소 보호 30초 — 서버가 낡은 캐시를 서빙하는 창(warm 완료까지 ~15초)을 확실히 덮음
+  durationMs = Math.max(durationMs || 3000, 30000);
   window._pendingChanges[kind][String(id)] = {
     ...change,
     expire: Date.now() + durationMs
@@ -9697,7 +9714,7 @@ function applyPendingChanges(arr, kind, idKey) {
 
   if(Object.keys(pending).length === 0) return arr;
 
-  return arr
+  const result = arr
     .filter(item => {
       const change = pending[String(item[idKey])];
       // delete 보호 → 결과에서 제외
@@ -9710,6 +9727,13 @@ function applyPendingChanges(arr, kind, idKey) {
       }
       return item;
     });
+  // ⭐ v2.60: add 보호 — 서버 응답(낡은 캐시일 수 있음)에 없는 신규 항목을 로컬에서 되살림
+  Object.entries(pending).forEach(([id, change]) => {
+    if(change.type === 'add' && change.data && !result.some(item => String(item[idKey]) === id)) {
+      result.push(change.data);
+    }
+  });
+  return result;
 }
 
 /* ⭐ v2.20: 두 시리얼이 같은지 비교 (_ 무시) */
@@ -10213,7 +10237,10 @@ async function addEntry() {
     const partsSnapshot = getPartsData();
 
     // ⭐ v2.36: 로컬 즉시 추가
-    entries.push({id, worker, serial, works, total, date, note, model, parts:partsSnapshot, status: 'aging', agingStart: date});
+    const _newEntry = {id, worker, serial, works, total, date, note, model, parts:partsSnapshot, status: 'aging', agingStart: date};
+    entries.push(_newEntry);
+    // ⭐ v2.60: add 보호 — 서버 캐시가 아직 낡아(warm 진행 중) 이 건이 빠진 응답이 와도 60초간 로컬 유지
+    markPendingChange('entries', id, { type:'add', data:_newEntry }, 60000);
 
     // 폼 초기화
     document.getElementById('inp-serial').value = '';
