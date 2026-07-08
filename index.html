@@ -2636,7 +2636,7 @@ function gasCall(params) {
   const _pMut = _gasCallJsonp(params);
   const _act = (params && params.action) || 'load';
   if(!_WARM_READ_ACTIONS[_act]) {
-    _pMut.then(()=>_pingWarm()).catch(()=>{
+    _pMut.then(()=>_pingWarm(!!_WARM_SHIP_ACTIONS[_act])).catch(()=>{
       // ⭐ v2.61b: 변경 '응답'만 유실된 경우(echo 불안정) 서버는 이미 실행했을 수 있음.
       //   2초 뒤 서버 신선본을 강제로 받아 화면을 실제 상태로 재조정 —
       //   "성공했는데 실패로 표시 → 사용자가 재시도 → 진짜 중복 생성" 연쇄를 차단.
@@ -2648,11 +2648,14 @@ function gasCall(params) {
 }
 
 const _WARM_READ_ACTIONS = { load:1, loadShipLog:1, getMissReason:1, getMissReasons:1, getMissReasonsRange:1, getEntryDetail:1, warm:1 };
-function _pingWarm() {
+const _WARM_SHIP_ACTIONS = { addShipLog:1, addShipLogBulk:1, deleteShipLog:1, bulkDeleteShipLog:1, updateShipSerial:1 };
+function _pingWarm(ship) {
+  if(ship) _pingWarm._ship = true;   // ⭐ v2.61d: 출고 관련 변경 누적 표시 — 디바운스로 미뤄져도 반영
   const now = Date.now();
-  if(_pingWarm._last && now - _pingWarm._last < 20000) { _pingWarm._again = true; return; }  // ⭐ v2.61c: 20초 디바운스 — 연속 작업 시 warm 실행(각 10초+) 적체 방지
+  if(_pingWarm._last && now - _pingWarm._last < 20000) { _pingWarm._again = true; return; }  // ⭐ v2.61c: 20초 디바운스 — 연속 작업 시 warm 실행 적체 방지
   _pingWarm._last = now; _pingWarm._again = false;
-  try { new Image().src = GAS + '?action=warm&_=' + now; } catch(e) {}   // fire-and-forget (응답 무시)
+  const shipQ = _pingWarm._ship ? '&ship=1' : ''; _pingWarm._ship = false;
+  try { new Image().src = GAS + '?action=warm' + shipQ + '&_=' + now; } catch(e) {}   // fire-and-forget (응답 무시)
   // 재빌드(수 초) 도는 동안 추가 변경이 있었으면 끝나고 한 번 더
   setTimeout(()=>{ if(_pingWarm._again) { _pingWarm._last = 0; _pingWarm(); } }, 25000);
 }
