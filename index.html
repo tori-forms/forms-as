@@ -2579,36 +2579,35 @@ function gasCall(params) {
     const qs0 = Object.entries(reqParams).filter(([k])=>k!=='callback')
       .map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
     const url = GAS + (qs0 ? ('?'+qs0) : '');
-    // ⭐ v2.59e: fetch에 15초 타임아웃 — echo(googleusercontent) 구간이 404/행에 걸려
-    //   20~30초씩 물고 있다가 실패하던 것을 조기 차단하고 즉시 폴백으로 전환
-    const _ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
-    const _tmr = _ctrl ? setTimeout(()=>{ try{_ctrl.abort();}catch{} }, 15000) : null;
-    return fetch(url, { method:'GET', redirect:'follow', signal: _ctrl ? _ctrl.signal : undefined })
-      .then(r => {
-        if(_tmr) clearTimeout(_tmr);
-        if(!r.ok) throw new Error('http '+r.status);   // ⭐ echo 404 등을 즉시 실패 처리
-        return r.text();
-      })
-      .then(txt => {
-        // GAS가 callback 없이 호출되면 순수 JSON 반환
-        let obj;
-        try { obj = JSON.parse(txt); }
-        catch(e) {
-          // 혹시 콜백으로 감싸져 오면 벗겨내기
-          const m = txt.match(/^[^(]*\((.*)\)\s*;?\s*$/s);
-          if(m) { try { obj = JSON.parse(m[1]); } catch(e2){} }
-          if(!obj) throw new Error('parse');
-        }
-        // ⭐ v2.57c: 압축 봉투면 해제 후 반환. 아니면(구형식) 그대로.
-        if(obj && typeof obj._z === 'string') return _decodeZEnvelope(obj);
-        return obj;
-      })
-      .catch(() => {
-        if(_tmr) clearTimeout(_tmr);
-        // ⭐ v2.59e: 폴백도 압축(fmt=2) 유지 — 구형식(수백KB 원본 JSON)은 스크립트 태그가
-        //   못 버텨 19초+ 실패를 반복하던 검증된 약점. 압축본(~140KB)은 JSONP로도 안정적.
-        return _gasCallJsonp(reqParams);
-      });
+    // ⭐ v2.59e: fetch에 타임아웃 — echo(googleusercontent) 구간이 404/행에 걸려
+    //   20~30초씩 물고 있다가 실패하던 것을 조기 차단
+    const _tryFetch = (ms) => {
+      const _ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+      const _tmr = _ctrl ? setTimeout(()=>{ try{_ctrl.abort();}catch{} }, ms) : null;
+      return fetch(url, { method:'GET', redirect:'follow', signal: _ctrl ? _ctrl.signal : undefined })
+        .then(r => {
+          if(_tmr) clearTimeout(_tmr);
+          if(!r.ok) throw new Error('http '+r.status);   // ⭐ echo 404 등을 즉시 실패 처리
+          return r.text();
+        })
+        .then(txt => {
+          let obj;
+          try { obj = JSON.parse(txt); }
+          catch(e) {
+            const m = txt.match(/^[^(]*\((.*)\)\s*;?\s*$/s);
+            if(m) { try { obj = JSON.parse(m[1]); } catch(e2){} }
+            if(!obj) throw new Error('parse');
+          }
+          if(obj && typeof obj._z === 'string') return _decodeZEnvelope(obj);
+          return obj;
+        })
+        .catch(err => { if(_tmr) clearTimeout(_tmr); throw err; });
+    };
+    // ⭐ v2.59f: 실패 시 fetch '재시도'가 1순위 — 관측상 구글 echo 플레이크는 같은 세션의
+    //   2차 fetch에서 거의 항상 빠르게 성공. JSONP(script 태그)는 큰 응답에 약해 최후 수단으로만.
+    return _tryFetch(12000)
+      .catch(() => _tryFetch(12000))
+      .catch(() => _gasCallJsonp(reqParams));
   }
   return _gasCallJsonp(params);
 }
@@ -2691,7 +2690,8 @@ function buildLoginFromCache() {
   } catch(e) {}
 }
 
-async function syncData(silent=false, force=false) {
+async function syncData(silent=false, force=false, _snapData=null) {
+  const _isSnap = !!_snapData;   // ⭐ v2.59f: localStorage 스냅샷으로 즉시 부팅하는 모드
   // ⭐ v2.12: 중복 실행 방지 — 이전 syncData가 진행 중이면 스킵
   if(_syncInProgress) {
     if(!silent) notify('이미 동기화 중입니다. 잠시만 기다려주세요.');
@@ -2708,12 +2708,16 @@ async function syncData(silent=false, force=false) {
   if(!silent) notifyPersist('데이터 불러오는 중...');
   try {
     let data;
-    try {
-      data = await gasCall({action:'load', noShip:1});
-    } catch(e1) {
-      // ⭐ timeout 등 1차 실패 시 1회 재시도 (데이터가 많아 가끔 느림)
-      console.warn('[syncData] 1차 실패, 재시도:', e1 && e1.message);
-      data = await gasCall({action:'load', noShip:1});
+    if(_isSnap) {
+      data = _snapData;   // ⭐ v2.59f: 마지막 성공 응답으로 즉시 렌더 (네트워크는 곧이어 별도 실행)
+    } else {
+      try {
+        data = await gasCall({action:'load', noShip:1});
+      } catch(e1) {
+        // ⭐ timeout 등 1차 실패 시 1회 재시도 (데이터가 많아 가끔 느림)
+        console.warn('[syncData] 1차 실패, 재시도:', e1 && e1.message);
+        data = await gasCall({action:'load', noShip:1});
+      }
     }
     window._dataLoaded = true;  // ⭐ 데이터 1회 이상 로드 완료 (로그인 가드용)
     entries = (data.entries || []).map(e => {
@@ -2812,7 +2816,8 @@ async function syncData(silent=false, force=false) {
       shipHistory = data.shipLog;
     } else {
       // ⭐ v2.56: 출고이력 분리 로드 — 기본 로딩을 막지 않게 백그라운드로
-      loadShipHistory();
+      // ⭐ v2.59f: 스냅샷 부팅 시엔 생략 — 곧이어 오는 네트워크 동기화가 처리
+      if(!_isSnap) loadShipHistory();
     }
     // 현재 열린 탭에 따라 자동 렌더
     const activeTab = document.querySelector('.nav-btn.active')?.getAttribute('onclick');
@@ -2857,9 +2862,13 @@ async function syncData(silent=false, force=false) {
     } catch(e) { console.warn('[불량알림]', e); }
 
     if(data.agingDurationMs) agingDurationMs = Number(data.agingDurationMs);
-    if(data.serverTime) {
+    if(data.serverTime && !_isSnap) {   // ⭐ v2.59f: 스냅샷의 옛 서버시각으로 오프셋 오염 방지
       const serverMs = new Date(data.serverTime).getTime();
       if(!isNaN(serverMs)) serverTimeOffset = serverMs - Date.now();
+    }
+    // ⭐ v2.59f: 성공한 네트워크 응답을 스냅샷으로 저장 — 다음 접속 즉시 부팅용 (출고이력은 용량상 제외)
+    if(!_isSnap) {
+      try { localStorage.setItem('fa_load_snapshot_v1', JSON.stringify({ t: Date.now(), data: { ...data, shipLog: [] } })); } catch(e) {}
     }
     setSyncStatus('ok');
     renderAll();
@@ -9828,6 +9837,12 @@ function init() {
   loadPriceSettings();
   buildChecks();
   buildLoginFromCache(); // ⭐ 캐시된 명단으로 로그인 이름 즉시 표시 (그 사이 syncData가 최신 로드)
+  // ⭐ v2.59f: 마지막 성공 스냅샷으로 즉시 부팅 — 로그인·화면이 GAS 응답을 기다리지 않음.
+  //   스냅샷 적용은 동기 완료되므로 바로 아래 네트워크 동기화가 정상 실행되어 최신본으로 교체됨.
+  try {
+    const _snap = JSON.parse(localStorage.getItem('fa_load_snapshot_v1') || 'null');
+    if(_snap && _snap.data && (Date.now() - _snap.t) < 86400000) syncData(true, false, _snap.data);
+  } catch(e) {}
   syncData();
   initClientMode();
   // 출고 날짜 기본값: 오늘
