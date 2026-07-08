@@ -2633,8 +2633,24 @@ function gasCall(params) {
   }
   // ⭐ v2.60: mutation(읽기 외 모든 액션) 성공 시 백그라운드 warm 핑 —
   //   서버 캐시 재빌드를 사용자 로드가 아닌 이 핑이 전담. 결과는 기다리지 않음.
-  const _pMut = _gasCallJsonp(params);
   const _act = (params && params.action) || 'load';
+  // ⭐ v2.62b: 응답 유실 시 자동 1회 재전송 — 서버가 멱등(같은 id 재전송 시 중복 적재 없음)을
+  //   보장하는 액션만. "서버는 성공했는데 화면엔 '반영 실패'"로 뜨던 신뢰 문제의 직접 처방.
+  //   (append형: addStockLog/addShipLog/addExchange/addInspection/completeRework/addDoc 은
+  //    재전송 시 중복 행이 생기므로 제외 — 기존대로 실패 표시 + 2초 뒤 신선본 재조정)
+  const _IDEMPOTENT_ACTIONS = {
+    add:1, edit:1, 'delete':1, updateRepairStatus:1, restartAging:1,
+    saveKPI:1, saveStock:1, savePriceSettings:1, savePassword:1, saveWorkers:1,
+    deleteExchange:1, deleteShipLog:1, bulkDeleteShipLog:1, deleteDoc:1,
+    deleteInspection:1, updateInspection:1, updateShipSerial:1
+  };
+  let _pMut = _gasCallJsonp(params);
+  if(_IDEMPOTENT_ACTIONS[_act]) {
+    _pMut = _pMut.catch(() => {
+      console.warn('[gasCall] ' + _act + ' 응답 유실 → 재전송 (서버 멱등 보장)');
+      return _gasCallJsonp(params, 45000);
+    });
+  }
   if(!_WARM_READ_ACTIONS[_act]) {
     _pMut.then(()=>_pingWarm(!!_WARM_SHIP_ACTIONS[_act])).catch(()=>{
       // ⭐ v2.61b: 변경 '응답'만 유실된 경우(echo 불안정) 서버는 이미 실행했을 수 있음.
