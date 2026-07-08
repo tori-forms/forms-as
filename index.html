@@ -2582,7 +2582,9 @@ function gasCall(params) {
   // ⭐ v2.37: 호출 즉시 자동 동기화 정지 (응답 받기 전부터)
   // → await 동안 자동 동기화가 entries/inspections 갈아끼우는 경쟁 상태 방지
   if(params && params.action && _DATA_MUTATION_ACTIONS.has(params.action)) {
-    pauseSync(8000); // 8초간 정지 (변경 보호 5초 + 여유)
+    // ⭐ v2.61a: 8초→25초 — 변경 후 서버 캐시가 신선해지는 창(warm 재빌드+발행+CDN ≈ 15~25초)을
+    //   자동 동기화가 침범해 보호 없는 데이터(kpiMap·docs 등)를 낡은 값으로 되돌리던 문제 방지
+    pauseSync(25000);
   }
 
   // ⭐ v2.54: load(큰 응답)는 fetch 우선 — JSONP(script태그)는 646KB+ 큰 응답/302에 약해 timeout 빈발.
@@ -13265,7 +13267,7 @@ function deleteKPI(key) {
     try {
       await gasCall({action:'saveKPI', kpiData});
       // 삭제 후 서버에서 다시 확인
-      const verify = await gasCall({action:'load', noShip:1});
+      const verify = await gasCall({action:'load', noShip:1, fresh:1});   // ⭐ v2.61a: 검증은 신선본 강제
       const raw = verify.kpiMap || {};
       kpiMap = {};
       Object.entries(raw).forEach(([k,v])=>{
@@ -13349,11 +13351,12 @@ function delSearch(id) {
   const e = entries.find(x=>String(x.id)===String(id)); if(!e) return;
   openModal('수리 내역 삭제',`${e.serial} (${e.worker}) 수리 내역을 삭제할까요?`, async()=>{
     try {
-      await gasCall({action:'delete', id});
       entries = entries.filter(x=>String(x.id)!==String(id));
+      markPendingChange('entries', id, { type: 'delete' });   // ⭐ v2.61a: 낡은 동기화가 이 건을 되살리지 못하게 보호
       renderToday(); doSearch();
+      await gasCall({action:'delete', id});
       notify('삭제되었습니다.');
-    } catch { notify('삭제 실패. 다시 시도해주세요.','error'); }
+    } catch { notify('서버 반영 실패 — 새로고침으로 확인하세요.','error'); }
   });
 }
 
