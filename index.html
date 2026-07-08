@@ -2605,8 +2605,11 @@ function gasCall(params) {
     };
     // ⭐ v2.59f: 실패 시 fetch '재시도'가 1순위 — 관측상 구글 echo 플레이크는 같은 세션의
     //   2차 fetch에서 거의 항상 빠르게 성공. JSONP(script 태그)는 큰 응답에 약해 최후 수단으로만.
-    return _tryFetch(12000)
-      .catch(() => _tryFetch(12000))
+    // ⭐ v2.59g: 타임아웃 12→20초 — exec(락 대기 수초) + echo(정상도 4~8초) 합이 12초를
+    //   넘겨 '성공 직전 요청'을 자르고 재시도 폭주를 만들던 문제. 스냅샷 부팅으로 화면은
+    //   이미 즉시 뜨므로 백그라운드 로드는 여유 있게 기다리는 게 총비용이 싸다.
+    return _tryFetch(20000)
+      .catch(() => _tryFetch(20000))
       .catch(() => _gasCallJsonp(reqParams));
   }
   return _gasCallJsonp(params);
@@ -9843,7 +9846,9 @@ function init() {
     const _snap = JSON.parse(localStorage.getItem('fa_load_snapshot_v1') || 'null');
     if(_snap && _snap.data && (Date.now() - _snap.t) < 86400000) syncData(true, false, _snap.data);
   } catch(e) {}
-  syncData();
+  // ⭐ v2.59g: 창 여러 개 동시 오픈 시 로드가 서버에 한꺼번에 몰려 락에 줄서는 것 방지 —
+  //   0~2초 랜덤 지터로 분산. 화면은 스냅샷으로 이미 떠 있어 체감 지연 없음.
+  setTimeout(()=>syncData(), 100 + Math.random()*1900);
   initClientMode();
   // 출고 날짜 기본값: 오늘
   const shipDateEl = document.getElementById('ship-date');
