@@ -10273,7 +10273,17 @@ async function addEntry() {
     const id = Date.now(), date = new Date().toISOString();
     const total = works.reduce((s,k)=>s+WORKS[k].price, 0);
     const parts = JSON.stringify(getPartsData());
-    await gasCall({action:'add', id, worker, serial, works:JSON.stringify(works), total, date, note, model, parts});
+    const _addRes = await gasCall({action:'add', id, worker, serial, works:JSON.stringify(works), total, date, note, model, parts});
+    // ⭐ v2.62a: 서버측 중복 가드 응답 처리 — 시트가 최종 방어선 (프론트 상태가 낡아도 중복 불가)
+    if(_addRes && _addRes.ok === false) {
+      if(_addRes.error === 'dup') {
+        notify(`⚠ 이미 등록된 시리얼 번호입니다! (서버 확인${_addRes.dupWorker ? ' · ' + _addRes.dupWorker : ''})`, 'error');
+      } else {
+        notify('저장 실패. 다시 시도해주세요.','error');
+      }
+      busy = false; btn.disabled = false; btn.textContent = '수리 등록';
+      return;
+    }
 
     // ⭐ 부품 데이터는 폼 비우기 전에 미리 계산 (clearChecks 후엔 빈 값!)
     const partsSnapshot = getPartsData();
