@@ -2177,6 +2177,22 @@ window.addEventListener('DOMContentLoaded', function(){
 
 <script>
 const GAS = 'https://script.google.com/macros/s/AKfycby4q1TNBU87K2LBDJAGrpBNlwBn4wsBIxDZKCUq_wdTnheLULUuQXipq8QNyDV2e7xyZw/exec';
+
+// ⭐ v2.61: GitHub 데이터 채널 — 읽기(load/shipLog)는 GitHub CDN에서, GAS는 저장·발행 전담.
+//   GAS echo(일회용 URL)의 불안정·스로틀 구간을 읽기 경로에서 '구조적으로' 제거.
+//   저장소/브랜치가 다르면 아래 한 줄만 수정. GAS에 GITHUB_TOKEN 미설정이면 파일이 없어
+//   자동으로 GAS 폴백 경로를 타므로 배포 순서와 무관하게 안전.
+const GH_DATA_BASE = 'https://raw.githubusercontent.com/tori-forms/forms-as/data/data';
+const GH_DATA_MAX_AGE_MS = 20 * 60 * 1000;  // 발행이 이보다 오래 멈춰 있으면 GAS 폴백 (발행 고장 감지)
+async function _loadFromGitHub(file) {
+  const bucket = Math.floor(Date.now() / 10000);   // 10초 버킷 — 팀 단위 CDN 재사용 + 신선도 상한 10초
+  const res = await fetch(GH_DATA_BASE + '/' + file + '?t=' + bucket, { cache: 'no-store' });
+  if(!res.ok) throw new Error('gh http ' + res.status);
+  const obj = await res.json();
+  if(!obj || typeof obj._z !== 'string') throw new Error('gh format');
+  if(obj.t && (Date.now() - obj.t) > GH_DATA_MAX_AGE_MS) throw new Error('gh stale');
+  return _decodeZEnvelope(obj);
+}
 const HOLIDAY_KEY = 'f52c0659526679a86d04083efd86dff68943cae2fa05a623ff8606b79f3f6814';
 const ADMINS = []; // ⭐ v2.20: 빈 배열로 변경 — 이제 순수하게 티어(T3/T4)로만 관리자 판단
 const MASTER_NAME = '최민규'; // legacy 호환용 (서서히 제거)
@@ -2730,12 +2746,17 @@ async function syncData(silent=false, force=false, _snapData=null) {
     if(_isSnap) {
       data = _snapData;   // ⭐ v2.59f: 마지막 성공 응답으로 즉시 렌더 (네트워크는 곧이어 별도 실행)
     } else {
+      // ⭐ v2.61: 읽기 1순위 = GitHub CDN (echo 구간 없음, 통상 수백 ms). 실패/낡음 시 GAS 폴백
       try {
-        data = await gasCall({action:'load', noShip:1});
-      } catch(e1) {
-        // ⭐ timeout 등 1차 실패 시 1회 재시도 (데이터가 많아 가끔 느림)
-        console.warn('[syncData] 1차 실패, 재시도:', e1 && e1.message);
-        data = await gasCall({action:'load', noShip:1});
+        data = await _loadFromGitHub('load.json');
+      } catch(eGh) {
+        try {
+          data = await gasCall({action:'load', noShip:1});
+        } catch(e1) {
+          // ⭐ timeout 등 1차 실패 시 1회 재시도 (데이터가 많아 가끔 느림)
+          console.warn('[syncData] 1차 실패, 재시도:', e1 && e1.message);
+          data = await gasCall({action:'load', noShip:1});
+        }
       }
     }
     window._dataLoaded = true;  // ⭐ 데이터 1회 이상 로드 완료 (로그인 가드용)
@@ -9168,7 +9189,10 @@ async function loadShipHistory(force) {
   if(_shipHistoryLoaded && !force) return;
   _shipHistoryLoading = true;
   try {
-    const r = await gasCall({action:'loadShipLog'});
+    // ⭐ v2.61: 출고이력도 GitHub CDN 우선, 실패 시 GAS 폴백
+    let r;
+    try { r = await _loadFromGitHub('shiplog.json'); }
+    catch(eGh) { r = await gasCall({action:'loadShipLog'}); }
     if(r && Array.isArray(r.shipLog)) {
       shipHistory = r.shipLog;
       _shipHistoryLoaded = true;
