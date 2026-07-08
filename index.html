@@ -2647,14 +2647,14 @@ function gasCall(params) {
   return _pMut;
 }
 
-const _WARM_READ_ACTIONS = { load:1, loadShipLog:1, getMissReason:1, getMissReasons:1, getEntryDetail:1, warm:1 };
+const _WARM_READ_ACTIONS = { load:1, loadShipLog:1, getMissReason:1, getMissReasons:1, getMissReasonsRange:1, getEntryDetail:1, warm:1 };
 function _pingWarm() {
   const now = Date.now();
-  if(_pingWarm._last && now - _pingWarm._last < 5000) { _pingWarm._again = true; return; }  // 5초 디바운스
+  if(_pingWarm._last && now - _pingWarm._last < 20000) { _pingWarm._again = true; return; }  // ⭐ v2.61c: 20초 디바운스 — 연속 작업 시 warm 실행(각 10초+) 적체 방지
   _pingWarm._last = now; _pingWarm._again = false;
   try { new Image().src = GAS + '?action=warm&_=' + now; } catch(e) {}   // fire-and-forget (응답 무시)
   // 재빌드(수 초) 도는 동안 추가 변경이 있었으면 끝나고 한 번 더
-  setTimeout(()=>{ if(_pingWarm._again) { _pingWarm._last = 0; _pingWarm(); } }, 12000);
+  setTimeout(()=>{ if(_pingWarm._again) { _pingWarm._last = 0; _pingWarm(); } }, 25000);
 }
 
 function _gasCallJsonp(params, timeoutMs) {
@@ -10949,16 +10949,18 @@ async function buildMissSummaryHtml() {
     return html;
   }
 
-  // 각 날짜별 사유 조회 (병렬)
+  // ⭐ v2.61c: 날짜별 병렬 다발 호출(N일 = GAS 실행 슬롯 N개 점유 → 30초 줄서기 주범)을
+  //   단일 배치 호출로 대체 — 서버가 시트 1회 읽기로 기간 전체 반환
   const reasonsByDay = {};
-  await Promise.all(days.map(async (dayStr) => {
-    try {
-      const res = await gasCall({ action: 'getMissReasons', date: dayStr });
+  try {
+    const res = await gasCall({ action: 'getMissReasonsRange', dates: days.join(',') });
+    const byDate = (res && res.byDate) || {};
+    days.forEach(dayStr => {
       const map = {};
-      if(res && Array.isArray(res.items)) res.items.forEach(it => { map[it.name] = it.reason; });
+      (byDate[dayStr] || []).forEach(it => { map[it.name] = it.reason; });
       reasonsByDay[dayStr] = map;
-    } catch(e) { reasonsByDay[dayStr] = {}; }
-  }));
+    });
+  } catch(e) { days.forEach(d => { reasonsByDay[d] = {}; }); }
 
   const repairEngs = workers.filter(isRepairEngineer);
 
