@@ -2644,7 +2644,8 @@ function gasCall(params) {
     deleteExchange:1, deleteShipLog:1, bulkDeleteShipLog:1, deleteDoc:1,
     deleteInspection:1, updateInspection:1, updateShipSerial:1
   };
-  let _pMut = _gasCallJsonp(params);
+  // ⭐ v2.62b: 멱등 액션은 첫 전송 25초로 짧게 — 응답 유실 시 재전송이 빨리 개입 (총 대기 최대 ~70초→~30초)
+  let _pMut = _gasCallJsonp(params, _IDEMPOTENT_ACTIONS[_act] ? 25000 : undefined);
   if(_IDEMPOTENT_ACTIONS[_act]) {
     _pMut = _pMut.catch(() => {
       console.warn('[gasCall] ' + _act + ' 응답 유실 → 재전송 (서버 멱등 보장)');
@@ -10330,7 +10331,7 @@ async function addEntry() {
         await syncData(true, true);
       } catch(e) { console.warn(e); }
     }, 1500);
-  } catch { notify('저장 실패. 다시 시도해주세요.','error'); }
+  } catch { notify('응답 지연 — 잠시 후 목록에서 자동 확인됩니다. 목록에 없으면 다시 등록해주세요. (중복은 서버가 차단합니다)','error'); }
   busy = false; btn.disabled = false; btn.textContent = '수리 등록';
 }
 
@@ -11711,7 +11712,7 @@ async function saveEdit() {
         return;
       }
     } catch(e) {
-      notify('서버 저장 실패 — 다시 시도해주세요.','error');
+      notify('응답 지연 — 수정은 접수되었을 가능성이 높습니다. 잠시 후 자동 확인됩니다.','error');
       btn.disabled=false; btn.textContent='저장';
       return;
     }
@@ -11754,7 +11755,7 @@ function delEntry(id) {
       } else {
         notify('삭제되었습니다.');
       }
-    } catch { notify('서버 반영 실패 — 새로고침으로 확인하세요.','error'); }
+    } catch { notify('응답 지연 — 삭제는 접수되었을 가능성이 높습니다. 잠시 후 자동 확인됩니다.','error'); }
   };
   if(pc > 0 && stock.length) {
     openModal('수리 내역 삭제',
@@ -11785,7 +11786,7 @@ function delEntryH(id) {
       } else {
         notify('삭제되었습니다.');
       }
-    } catch { notify('서버 반영 실패 — 새로고침으로 확인하세요.','error'); }
+    } catch { notify('응답 지연 — 삭제는 접수되었을 가능성이 높습니다. 잠시 후 자동 확인됩니다.','error'); }
   };
   if(pc > 0 && stock.length) {
     openModal('수리 내역 삭제',
@@ -13398,9 +13399,10 @@ function delSearch(id) {
       entries = entries.filter(x=>String(x.id)!==String(id));
       markPendingChange('entries', id, { type: 'delete' });   // ⭐ v2.61a: 낡은 동기화가 이 건을 되살리지 못하게 보호
       renderToday(); doSearch();
+      notifyPersist('삭제 중...');   // ⭐ v2.62b: 진행 표시 — 서버 반영이 끝나면 아래에서 완료로 교체
       await gasCall({action:'delete', id});
       notify('삭제되었습니다.');
-    } catch { notify('서버 반영 실패 — 새로고침으로 확인하세요.','error'); }
+    } catch { notify('응답 지연 — 삭제는 접수되었을 가능성이 높습니다. 잠시 후 자동 확인됩니다.','error'); }
   });
 }
 
