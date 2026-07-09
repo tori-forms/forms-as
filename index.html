@@ -9247,6 +9247,18 @@ async function loadShipHistory(force) {
         if(typeof renderShipHistory==='function') renderShipHistory();
         if(typeof renderAll==='function') renderAll();
       } catch(e){}
+      // ⭐ v2.63a: T4 대시보드 임베드 리포트는 '출고 기준' 집계 — 출고이력이 늦게 도착하므로
+      //   도착 시점에 무효화 후 다시 그린다. (기존: 출고 0건 상태로 렌더된 게 '완료'로 고정돼
+      //   관리자탭에선 잡히는데 대시보드에선 0으로 보이던 문제)
+      try {
+        const _rs = document.getElementById('t4-report-slot');
+        if(_rs) {
+          delete _rs.dataset.reportFilled;
+          delete _rs.dataset.renderedMonth;
+          const _mv = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+          renderReportInto('t4-report-slot', _mv).catch(()=>{});
+        }
+      } catch(e){}
     }
   } catch(e) {
     console.warn('[출고이력 로드 실패]', e && e.message);
@@ -11135,6 +11147,7 @@ async function renderMyDash() {
       </details>`;
 
     // ⭐ 실적 리포트 임베드 (관리자탭의 실적 리포트를 대시보드에 표시)
+    try { if(!_shipHistoryLoaded) loadShipHistory(); } catch(e) {}   // ⭐ v2.63a: 출고 집계 재료 선로딩 — 도착 시 위 훅이 리포트 재렌더
     try { renderReportInto('t4-report-slot', t4ReportMonth).catch(e => console.warn('[실적리포트]', e)); } catch(e) { console.warn(e); }
 
     const det = document.getElementById('t4-board-details');
@@ -13854,7 +13867,7 @@ async function saveMentoring(name, on) {
   try {
     await gasCall({action:'saveWorkers', workers: serializeWorkers()});
     renderWorkers();
-    notify(on ? `${name} 교육 중 ON (목표 면제, 실적은 집계)` : `${name} 교육 중 해제`);
+    notify(on ? `${name} 교육 중 ON (목표 면제, 실적은 집계)` : `${name} 교육 중 해제 — 해제일 ${mentoringEndMap[name]} 기록 (이전 날짜는 미달 집계 제외)`);
   } catch {
     if(old) { mentoringMap[name] = true; delete mentoringEndMap[name]; }
     else { delete mentoringMap[name]; delete mentoringEndMap[name]; }   // ⭐ 저장 실패 롤백 — 기록한 해제일도 취소
