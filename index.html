@@ -2292,6 +2292,7 @@ let statusMap = {}; // { 이름: 'active'|'training'|'inactive' } - 기본값 ac
 let roleMap = {}; // { 이름: 'engineer'|'inspector'|'both' } - 검수 역할 (Phase2 추가)
 let hireDateMap = {}; // { 이름: 'YYYY-MM-DD' } - 입사일 (주차별 KPI 램프업용)
 let mentoringMap = {}; // { 이름: true } - 교육 중(신입 멘토) → 목표 면제
+let mentoringEndMap = {}; // ⭐ v2.63: { 이름: 'YYYY-MM-DD' } — 교육 해제일. 이전 날짜는 미달 집계 제외 (해제 시 과거 교육기간이 소급 미달로 잡히는 문제 방지)
 let inspections = []; // 검수 이력 (Phase2 추가)
 let agingDurationMs = 24*60*60*1000; // 에이징 24h (서버에서 받아 덮어씀)
 let serverTimeOffset = 0; // 서버-클라이언트 시간 차이 (ms)
@@ -2728,7 +2729,7 @@ let _syncInProgress = false;
 // ⭐ rawWorkers(::구분 문자열 배열) → 전역 맵 파싱 (syncData/캐시부팅 공용)
 function __applyRawWorkers(rawWorkers) {
   workers = rawWorkers.map(w => String(w).split('::')[0]);
-  tierMap = {}; partMap = {}; statusMap = {}; roleMap = {}; hireDateMap = {}; workerDailyTargets = {}; mentoringMap = {};
+  tierMap = {}; partMap = {}; statusMap = {}; roleMap = {}; hireDateMap = {}; workerDailyTargets = {}; mentoringMap = {}; mentoringEndMap = {};
   rawWorkers.forEach(w => {
     const parts = String(w).split('::');
     const name = parts[0];
@@ -2739,6 +2740,7 @@ function __applyRawWorkers(rawWorkers) {
     roleMap[name] = (parts[5] || 'engineer');
     if(parts[6] !== undefined && parts[6] !== '') hireDateMap[name] = parts[6];
     if(parts[7] === '1') mentoringMap[name] = true;
+    if(parts[8]) mentoringEndMap[name] = String(parts[8]);   // ⭐ v2.63: 교육 해제일
   });
 }
 
@@ -9028,24 +9030,27 @@ function saveKPI2() {
     .catch(()=>notify('저장 실패','error'));
 }
 
-function renderReportInto(targetId, monthVal) {
+async function renderReportInto(targetId, monthVal) {
   // 기존 renderReport 로직을 targetId에 렌더
   const el = document.getElementById(targetId);
   if(!el || !monthVal) return;
-  // ⭐ v2.57z: 같은 대상+월이 이미 렌더돼 있으면 재렌더 스킵 (깜빡임 방지)
-  if(el.dataset.renderedMonth === String(monthVal) && el.innerHTML.trim()) return;
-  el.dataset.renderedMonth = String(monthVal);
-  // 기존 report 렌더 함수 활용 - report-month 값 동기화 후 renderReport 호출
+  // ⭐ v2.63: '진짜 채워졌을 때만' 렌더 완료로 인정 — 기존엔 "불러오는 중…" 플레이스홀더를
+  //   이미 렌더된 것으로 오판해 영구 스킵 + renderReport(async, 공휴일 조회 대기)를
+  //   100ms 뒤 복사해서 빈 내용을 집어오는 이중 버그로 T4 대시보드에 리포트가 안 떴음.
+  if(el.dataset.renderedMonth === String(monthVal) && el.dataset.reportFilled === '1') return;
   const rm = document.getElementById('report-month');
   const origVal = rm?.value;
   if(rm) rm.value = monthVal;
-  renderReport();
-  // report-content를 복사
-  setTimeout(()=>{
+  try {
+    await renderReport();                       // 렌더 '완료'를 기다린 뒤 복사 (타이머 레이스 제거)
     const src = document.getElementById('report-content');
-    if(src && el) el.innerHTML = src.innerHTML;
-    if(rm && origVal) rm.value = origVal;
-  }, 100);
+    if(src && src.innerHTML.trim() && el) {
+      el.innerHTML = src.innerHTML;
+      el.dataset.renderedMonth = String(monthVal);
+      el.dataset.reportFilled = '1';
+    }
+  } catch(e) { console.warn('[실적리포트 임베드]', e); }
+  finally { if(rm && origVal !== undefined && origVal !== null) rm.value = origVal; }
 }
 
 function renderReport2() {
@@ -11005,30 +11010,48 @@ async function buildMissSummaryHtml() {
     return html;
   }
 
-  // ⭐ v2.61c: 날짜별 병렬 다발 호출(N일 = GAS 실행 슬롯 N개 점유 → 30초 줄서기 주범)을
-  //   단일 배치 호출로 대체 — 서버가 시트 1회 읽기로 기간 전체 반환
-  const reasonsByDay = {};
-  try {
-    const res = await gasCall({ action: 'getMissReasonsRange', dates: days.join(',') });
-    const byDate = (res && res.byDate) || {};
-    days.forEach(dayStr => {
-      const map = {};
-      (byDate[dayStr] || []).forEach(it => { map[it.name] = it.reason; });
-      reasonsByDay[dayStr] = map;
-    });
-  } catch(e) { days.forEach(d => { reasonsByDay[d] = {}; }); }
-
+  // ⭐ v2.63: 1차 로컬 계산으로 '미달 있는 날'만 추림 — 없는 날은 서버 조회도, 표시도 하지 않음.
+  //   (기존: 7일 전부 사유 조회 + 전원 달성 날까지 렌더 → 조회·표시 모두 낭비)
   const repairEngs = workers.filter(isRepairEngineer);
-
-  // 전체 집계 (상단 요약 배지용)
-  let totalMissPersonDays = 0, totalPending = 0;
-
-  const dayBlocks = days.map(dayStr => {
+  const missByDay = [];
+  days.forEach(dayStr => {
     const missList = [];
     repairEngs.forEach(w => {
       const m = calcMissForDay(w, dayStr);
       if(m) missList.push({ name: w, ...m });
     });
+    if(missList.length) missByDay.push({ dayStr, missList });
+  });
+
+  // 미달이 하루도 없으면 — 서버 호출 없이 즉시 요약 카드
+  if(!missByDay.length) {
+    const html = `<div class="card" style="padding:16px 18px;margin-bottom:16px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:15px;font-weight:800;color:var(--text);">📉 목표 미달 · 지연 사유</span>
+        <span style="font-size:12px;font-weight:700;color:var(--green);background:#10b9811a;padding:3px 10px;border-radius:99px;">🎉 최근 ${days.length}영업일 전원 달성</span>
+      </div>
+    </div>`;
+    _missSummaryCache = html;
+    return html;
+  }
+
+  // ⭐ v2.61c: 단일 배치 호출 (미달 있는 날짜만)
+  const reasonsByDay = {};
+  try {
+    const missDates = missByDay.map(x => x.dayStr);
+    const res = await gasCall({ action: 'getMissReasonsRange', dates: missDates.join(',') });
+    const byDate = (res && res.byDate) || {};
+    missDates.forEach(dayStr => {
+      const map = {};
+      (byDate[dayStr] || []).forEach(it => { map[it.name] = it.reason; });
+      reasonsByDay[dayStr] = map;
+    });
+  } catch(e) { missByDay.forEach(x => { reasonsByDay[x.dayStr] = {}; }); }
+
+  // 전체 집계 (상단 요약 배지용)
+  let totalMissPersonDays = 0, totalPending = 0;
+
+  const dayBlocks = missByDay.map(({ dayStr, missList }) => {
     const reasonMap = reasonsByDay[dayStr] || {};
     const dow = ['일','월','화','수','목','금','토'][new Date(dayStr+'T00:00:00').getDay()];
     const isYesterday = (dayStr === days[0]);
@@ -11037,14 +11060,6 @@ async function buildMissSummaryHtml() {
     totalMissPersonDays += missList.length;
     const pending = missList.filter(m => !reasonMap[m.name]).length;
     totalPending += pending;
-
-    // 달성한 날은 한 줄로 압축
-    if(!missList.length) {
-      return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);">
-        <span style="font-size:12px;font-weight:600;color:var(--text2);min-width:78px;">${mmdd} (${dow})</span>
-        <span style="font-size:12px;color:var(--green);">✅ 전원 달성</span>
-      </div>`;
-    }
 
     const rows = missList.map(m => {
       const reason = reasonMap[m.name];
@@ -11120,7 +11135,7 @@ async function renderMyDash() {
       </details>`;
 
     // ⭐ 실적 리포트 임베드 (관리자탭의 실적 리포트를 대시보드에 표시)
-    try { renderReportInto('t4-report-slot', t4ReportMonth); } catch(e) { console.warn(e); }
+    try { renderReportInto('t4-report-slot', t4ReportMonth).catch(e => console.warn('[실적리포트]', e)); } catch(e) { console.warn(e); }
 
     const det = document.getElementById('t4-board-details');
     const boardSlot = document.getElementById('t4-board-slot');
@@ -11989,6 +12004,9 @@ function calcMissForDay(name, dayStr) {
   // ⭐ v2.57v: 입사일 이전 날짜는 미달 대상 아님 (입사 전엔 근무일 아님)
   const _hd = (typeof hireDateMap !== 'undefined') ? hireDateMap[name] : null;
   if(_hd && dayStr < String(_hd).slice(0,10)) return null;
+  // ⭐ v2.63: 교육 해제일 이전은 미달 대상 아님 — 교육 기간(수리 0건 가능)이 해제 후 소급 미달로 잡히는 문제 차단
+  const _me = (typeof mentoringEndMap !== 'undefined') ? mentoringEndMap[name] : null;
+  if(_me && dayStr < String(_me).slice(0,10)) return null;
   const refD = new Date(dayStr + 'T00:00:00');
   const target = getPersonalDailyTarget(name, refD);
   if(!target || target <= 0) return null;          // 목표 없는 사람(관리자·교육중·QC) 제외
@@ -13498,8 +13516,9 @@ function serializeWorkers() {
     const hasRole = (r && r !== 'engineer'); // engineer는 기본값이라 생략
     const hasHire = !!hire;
     const dtStr = hasDt ? String(dt) : '';
-    // ⭐ 교육중이 있으면 8필드 전부 명시
-    if(mentoring) return `${w}::${t}::${p}::${s}::${dtStr}::${r}::${hire}::${mentoring}`;
+    const mEnd = mentoringEndMap[w] || '';   // ⭐ v2.63: 교육 해제일
+    // ⭐ 교육중/해제일이 있으면 9필드 전부 명시
+    if(mentoring || mEnd) return `${w}::${t}::${p}::${s}::${dtStr}::${r}::${hire}::${mentoring}::${mEnd}`;
     // ⭐ 입사일이 있으면 7필드 전부 명시 (뒤 필드가 있으면 앞 필드도 채워야 파싱 정합)
     if(hasHire) return `${w}::${t}::${p}::${s}::${dtStr}::${r}::${hire}`;
     if(!t && !p && s === 'active' && !hasDt && !hasRole) return w;
@@ -13830,13 +13849,15 @@ async function saveMentoring(name, on) {
     return;
   }
   const old = !!mentoringMap[name];
-  if(on) mentoringMap[name] = true; else delete mentoringMap[name];
+  if(on) { mentoringMap[name] = true; delete mentoringEndMap[name]; }   // ⭐ v2.63: 재교육 시작 → 해제일 초기화
+  else { delete mentoringMap[name]; mentoringEndMap[name] = todayStr(); }  // ⭐ 해제일 기록 → 이전 날짜 미달 집계 제외
   try {
     await gasCall({action:'saveWorkers', workers: serializeWorkers()});
     renderWorkers();
     notify(on ? `${name} 교육 중 ON (목표 면제, 실적은 집계)` : `${name} 교육 중 해제`);
   } catch {
-    if(old) mentoringMap[name] = true; else delete mentoringMap[name];
+    if(old) { mentoringMap[name] = true; delete mentoringEndMap[name]; }
+    else { delete mentoringMap[name]; delete mentoringEndMap[name]; }   // ⭐ 저장 실패 롤백 — 기록한 해제일도 취소
     notify('교육 중 저장 실패.','error');
     renderWorkers();
   }
