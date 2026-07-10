@@ -3252,10 +3252,13 @@ function openPromptModal(title, msg, placeholder, cb, okText='확인') {
 function detectModel(serial) {
   if(!serial) return '';
   const s = serial.toUpperCase();
-  if(!s.startsWith('TO')) return '';
+  // ⭐ v2.63b: 'TO'(영문 O)와 'T0'(숫자 0) 모두 허용 — 화면상 구분이 안 돼 입력이 섞여 들어옴
+  if(!s.startsWith('TO') && !s.startsWith('T0')) return '';
   const num = parseInt(s.slice(2,6));
   if(num >= 2208 && num <= 2309) return 'S2_N';
-  if(num >= 2310 && num <= 2505) return 'S2PRO_N';
+  // ⭐ v2.63b: 상한 개방 — 25년6월 이후 생산분도 S2PRO_N 지속 확인(토리 2026-07-10).
+  //   신기종이 나오면 이 줄 '위에' 구간을 추가할 것 (예: if(num >= 2611) return 'S3';)
+  if(num >= 2310) return 'S2PRO_N';
   return '';
 }
 function autoDetectModel() {
