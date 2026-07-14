@@ -10305,9 +10305,11 @@ async function addEntry() {
     document.getElementById('inp-serial').value = serial;
   }
   const model = getModel() || detectedModel;
-  // 시리얼 중복 체크
+  // 시리얼 중복 체크 — ⭐ v2.64: 출고 완료된 건이면 '재인입(재전달)' 플로우로 전환
+  const _reOk = window._reentryInfo && String(window._reentryInfo.serial) === String(serial);
   const dup = entries.find(e => String(e.serial) === String(serial));
-  if(dup) {
+  if(dup && !_reOk) {
+    if(String(dup.status) === 'shipped') { openReentryModal(serial, dup); return; }
     notify(`⚠ 이미 등록된 시리얼 번호입니다! (${dup.worker} / ${fmtDT(dup.date)})`, 'error');
     document.getElementById('inp-serial').focus();
     return;
@@ -10327,11 +10329,21 @@ async function addEntry() {
   const total = works.reduce((s,k)=>s+WORKS[k].price, 0);
   const partsSnapshot0 = getPartsData();
   const parts = JSON.stringify(partsSnapshot0);
+  // ⭐ v2.64: 재인입 정보 캡처 후 즉시 소진 (모든 종료 경로에서 잔존 방지)
+  const _re = (window._reentryInfo && String(window._reentryInfo.serial) === String(serial)) ? window._reentryInfo : null;
+  window._reentryInfo = null;
+  const _reJson = _re ? JSON.stringify({ v:_re.visit, rs:_re.reason, prev:_re.prevId||'', memo:_re.memo||'' }) : '';
   try {
-    const _addRes = await gasCall({action:'add', id, worker, serial, works:JSON.stringify(works), total, date, note, model, parts});
+    const _addRes = await gasCall({action:'add', id, worker, serial, works:JSON.stringify(works), total, date, note, model, parts,
+      ...(_re ? { reentry:'1', visit:_re.visit, reentryReason:_re.reason, prevId:_re.prevId||'', reentryMemo:_re.memo||'' } : {})});
     // ⭐ v2.62a: 서버측 중복 가드 응답 처리 — 시트가 최종 방어선 (프론트 상태가 낡아도 중복 불가)
     if(_addRes && _addRes.ok === false) {
       if(_addRes.error === 'dup') {
+        if(_addRes.dupShipped) {   // ⭐ v2.64: 출고 완료 건 → 재인입 플로우 제안 (서버 dupCount로 회차 정확)
+          busy = false; btn.disabled = false; btn.textContent = '수리 등록';
+          openReentryModal(serial, { id:_addRes.dupId, worker:_addRes.dupWorker, date:_addRes.dupDate, count:_addRes.dupCount });
+          return;
+        }
         notify(`⚠ 이미 등록된 시리얼 번호입니다! (서버 확인${_addRes.dupWorker ? ' · ' + _addRes.dupWorker : ''})`, 'error');
       } else {
         notify('저장 실패. 다시 시도해주세요.','error');
@@ -10344,7 +10356,7 @@ async function addEntry() {
     const partsSnapshot = partsSnapshot0;
 
     // ⭐ v2.36: 로컬 즉시 추가
-    const _newEntry = {id, worker, serial, works, total, date, note, model, parts:partsSnapshot, status: 'aging', agingStart: date};
+    const _newEntry = {id, worker, serial, works, total, date, note, model, parts:partsSnapshot, status: 'aging', agingStart: date, reentry:_reJson};
     entries.push(_newEntry);
     // ⭐ v2.62c: add 보호 3분 — 서버 데이터가 이 건을 확인하는 즉시 조기 해제됨
     markPendingChange('entries', id, { type:'add', data:_newEntry }, 180000);
@@ -10372,7 +10384,7 @@ async function addEntry() {
   } catch {
     // ⭐ v2.62c: 응답 유실 = 서버는 대부분 이미 처리(멱등 재전송 2회 발신됨) → 낙관 반영.
     //   목록에 즉시 표시하고 3분 보호 — 서버 데이터가 확인하면 보호 해제, 정말 미등록이면 3분 뒤 사라짐.
-    const _optEntry = {id, worker, serial, works, total, date, note, model, parts:partsSnapshot0, status: 'aging', agingStart: date};
+    const _optEntry = {id, worker, serial, works, total, date, note, model, parts:partsSnapshot0, status: 'aging', agingStart: date, reentry:_reJson};
     entries.push(_optEntry);
     markPendingChange('entries', id, { type:'add', data:_optEntry }, 180000);
     renderToday(); renderAll();
@@ -11469,7 +11481,7 @@ function renderToday() {
     const ws = parseWorks(e.works);
     h += `<tr>
       <td style="color:var(--text3);width:36px;">${i+1}</td>
-      <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${e.serial}</span></td><td>${e.worker}</td>
+      <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${e.serial}</span>${reentryBadge(e)}</td><td>${e.worker}</td>
       <td>${workTags(e.works)}</td>
       <td>${e.note ? `<span class="note-badge" title="${e.note}">${e.note}</span>` : '<span style="color:var(--text3);font-size:11px;">-</span>'}</td>
       <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px;">${fmt(e.total)}원</td>
@@ -12836,6 +12848,59 @@ async function renderHistory() {
 }
 
 /* 시리얼 조회 */
+// ═══ ⭐ v2.64: 재인입(재전달) 플로우 — 출고 완료된 시리얼의 재등록을 회차·사유와 함께 정식 지원 ═══
+const REENTRY_REASONS = {
+  defect: { label: '증상 재발 (볼타레스 수리 이슈)', color: '#ef4444' },
+  store:  { label: '매장/고객 과실 (파손 등)',        color: '#f59e0b' },
+  task:   { label: '단순 작업 요청 (펌웨어/점검 등)', color: '#3b82f6' },
+  etc:    { label: '기타 (메모에 상세 기재)', color: '#94a3b8' }   // 3분류에 안 맞는 케이스의 배출구
+};
+function parseReentry(e) {
+  try { const r = JSON.parse(e && e.reentry || ''); return (r && r.v >= 2) ? r : null; } catch(_) { return null; }
+}
+function reentryBadge(e) {
+  const r = parseReentry(e);
+  if(!r) return '';
+  const rs = REENTRY_REASONS[r.rs] || REENTRY_REASONS.etc;
+  return `<span style="display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:99px;background:${rs.color}22;color:${rs.color};border:1px solid ${rs.color}55;margin-left:6px;white-space:nowrap;">🔁 ${r.v}차 · ${rs.label.split(' (')[0]}</span>`;
+}
+function openReentryModal(serial, dupInfo) {
+  const localCnt = entries.filter(e => String(e.serial) === String(serial)).length;
+  const visit = Math.max(Number(dupInfo && dupInfo.count) || 0, localCnt) + 1;
+  const old = document.getElementById('reentry-modal'); if(old) old.remove();
+  const wrap = document.createElement('div');
+  wrap.id = 'reentry-modal';
+  wrap.className = 'modal-overlay';
+  wrap.style.display = 'flex';
+  const opts = Object.entries(REENTRY_REASONS).filter(([, v]) => !v.hidden).map(([k, v], i) => `
+    <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;cursor:pointer;margin-bottom:8px;">
+      <input type="radio" name="reentry-reason" value="${k}" ${i===0?'checked':''} style="accent-color:${v.color};">
+      <span style="font-size:13.5px;font-weight:600;">${v.label}</span>
+    </label>`).join('');
+  wrap.innerHTML = `
+    <div class="modal" style="max-width:430px;width:92%;">
+      <h3 style="margin:0 0 6px;">🔁 재인입(재전달) 등록 — ${visit}차</h3>
+      <div style="font-size:12.5px;color:var(--text2);line-height:1.55;margin-bottom:12px;">
+        <b>${serial}</b> 은(는) 출고 완료된 시리얼입니다${dupInfo && dupInfo.worker ? ` (직전: ${dupInfo.worker})` : ''}.<br>
+        재전달 사유를 선택하면 <b>${visit}차 수리</b>로 등록됩니다.
+      </div>
+      ${opts}
+      <textarea id="reentry-memo" placeholder="상세 메모 (선택)" style="width:100%;min-height:52px;margin-top:4px;font-size:12.5px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);box-sizing:border-box;"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+        <button class="btn" onclick="document.getElementById('reentry-modal').remove()">취소</button>
+        <button class="btn btn-primary" onclick="confirmReentry('${String(serial).replace(/'/g,'')}', ${visit}, '${String(dupInfo && dupInfo.id || '').replace(/'/g,'')}')">재인입 등록</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+}
+function confirmReentry(serial, visit, prevId) {
+  const reason = document.querySelector('input[name="reentry-reason"]:checked')?.value || 'defect';
+  const memo = document.getElementById('reentry-memo')?.value.trim() || '';
+  document.getElementById('reentry-modal')?.remove();
+  window._reentryInfo = { serial, visit, reason, memo, prevId };
+  addEntry();   // 재진입 — 중복 체크가 _reentryInfo를 보고 통과시킴
+}
+
 function doSearch() {
   // ⭐ v2.21: 입력에서 _ 제거 + 저장된 시리얼도 정규화하여 비교
   const raw = document.getElementById('inp-search').value.trim().toUpperCase();
@@ -12888,7 +12953,7 @@ function doSearch() {
   html += found.map(e=>`
     <div class="search-result-item">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
-        <div><div class="search-serial"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${e.serial}</span></div>
+        <div><div class="search-serial"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${e.serial}</span>${reentryBadge(e)}</div>
           <div style="font-size:11px;color:var(--text3);margin-top:2px;font-family:'JetBrains Mono',monospace;">${fmtDT(e.date)}</div>
         </div>
         <div style="text-align:right;"><div class="search-worker">${e.worker}</div>
