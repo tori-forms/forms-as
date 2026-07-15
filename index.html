@@ -3713,7 +3713,8 @@ function loginAs(name) {
     renderMyDash();
   }
   // ⭐ 목표 미달 사유 검사 (수리 엔지니어만, 직전 영업일 미달 시 강제 입력)
-  setTimeout(() => { try { checkMissOnLogin(); } catch(e){ console.error(e); } }, 1200);
+  // ⭐ v2.64c: 지연 사유 수집 중단 (대시보드에서 미달 명단만 노출하기로 결정) — 필요 시 이 줄 복원
+  // setTimeout(() => { try { checkMissOnLogin(); } catch(e){ console.error(e); } }, 1200);
 }
 async function loginMaster() {
   if(!_selectedAdminName) {
@@ -11062,7 +11063,7 @@ async function buildMissSummaryHtml() {
   if(!missByDay.length) {
     const html = `<div class="card" style="padding:16px 18px;margin-bottom:16px;">
       <div style="display:flex;align-items:center;gap:10px;">
-        <span style="font-size:15px;font-weight:800;color:var(--text);">📉 목표 미달 · 지연 사유</span>
+        <span style="font-size:15px;font-weight:800;color:var(--text);">📉 목표 미달</span>
         <span style="font-size:12px;font-weight:700;color:var(--green);background:#10b9811a;padding:3px 10px;border-radius:99px;">🎉 최근 ${days.length}영업일 전원 달성</span>
       </div>
     </div>`;
@@ -11070,42 +11071,21 @@ async function buildMissSummaryHtml() {
     return html;
   }
 
-  // ⭐ v2.61c: 단일 배치 호출 (미달 있는 날짜만)
-  const reasonsByDay = {};
-  try {
-    const missDates = missByDay.map(x => x.dayStr);
-    const res = await gasCall({ action: 'getMissReasonsRange', dates: missDates.join(',') });
-    const byDate = (res && res.byDate) || {};
-    missDates.forEach(dayStr => {
-      const map = {};
-      (byDate[dayStr] || []).forEach(it => { map[it.name] = it.reason; });
-      reasonsByDay[dayStr] = map;
-    });
-  } catch(e) { missByDay.forEach(x => { reasonsByDay[x.dayStr] = {}; }); }
-
-  // 전체 집계 (상단 요약 배지용)
-  let totalMissPersonDays = 0, totalPending = 0;
+  // ⭐ v2.64c: 사유 수집·표시 전면 제거 — 미달 명단만 로컬 계산으로 즉시 렌더.
+  //   getMissReasonsRange 서버 왕복(대시보드 진입 시 유일한 GAS 호출)이 사라져 로딩 단축.
+  let totalMissPersonDays = 0;
 
   const dayBlocks = missByDay.map(({ dayStr, missList }) => {
-    const reasonMap = reasonsByDay[dayStr] || {};
     const dow = ['일','월','화','수','목','금','토'][new Date(dayStr+'T00:00:00').getDay()];
     const isYesterday = (dayStr === days[0]);
     const mmdd = dayStr.slice(5);  // MM-DD
-
     totalMissPersonDays += missList.length;
-    const pending = missList.filter(m => !reasonMap[m.name]).length;
-    totalPending += pending;
 
     const rows = missList.map(m => {
-      const reason = reasonMap[m.name];
-      const reasonHtml = reason
-        ? `<span style="font-size:12px;color:var(--text2);">${escapeHtml(reason)}</span>`
-        : `<span style="font-size:11.5px;color:#f59e0b;font-weight:700;background:#f59e0b1a;padding:2px 8px;border-radius:99px;">사유 미작성</span>`;
       return `<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;background:var(--surface2);margin-bottom:4px;">
         <span style="font-weight:700;font-size:12.5px;color:var(--text);min-width:54px;">${escapeHtml(m.name)}</span>
         <span style="font-size:11px;font-weight:700;color:#ef4444;white-space:nowrap;">${m.short}건 부족</span>
         <span style="font-size:11px;color:var(--text3);white-space:nowrap;">${m.done}/${m.target}</span>
-        <span style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${reasonHtml}</span>
       </div>`;
     }).join('');
 
@@ -11114,23 +11094,15 @@ async function buildMissSummaryHtml() {
         <span style="font-size:12.5px;font-weight:700;color:var(--text);min-width:78px;">${mmdd} (${dow})</span>
         ${isYesterday?'<span style="font-size:10px;font-weight:700;color:#fff;background:var(--accent);padding:1px 7px;border-radius:99px;">어제</span>':''}
         <span style="font-size:11px;font-weight:700;color:#ef4444;">미달 ${missList.length}명</span>
-        ${pending?`<span style="font-size:11px;color:#f59e0b;font-weight:600;">· 사유 ${pending}건 대기</span>`:'<span style="font-size:11px;color:var(--green);">· 사유 완료</span>'}
       </div>
       ${rows}
     </div>`;
   }).join('');
 
-  // 상단 요약 헤더
-  const headBadge = totalPending > 0
-    ? `<span style="font-size:12px;font-weight:700;color:#f59e0b;background:#f59e0b1a;padding:3px 10px;border-radius:99px;">⏳ 사유 ${totalPending}건 대기</span>`
-    : (totalMissPersonDays > 0
-        ? `<span style="font-size:12px;font-weight:600;color:var(--green);">사유 모두 작성됨</span>`
-        : `<span style="font-size:12px;font-weight:600;color:var(--green);">미달 없음 👍</span>`);
-
   const html = `<div class="card" style="padding:16px 18px;margin-bottom:16px;">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
-      <span style="font-size:15px;font-weight:800;color:var(--text);">📉 목표 미달 · 지연 사유</span>
-      ${headBadge}
+      <span style="font-size:15px;font-weight:800;color:var(--text);">📉 목표 미달</span>
+      <span style="font-size:12px;font-weight:700;color:#ef4444;background:#ef44441a;padding:3px 10px;border-radius:99px;">미달 ${totalMissPersonDays}건</span>
     </div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">최근 7영업일 · ${MISS_START_DATE}~ 집계</div>
     ${dayBlocks}
@@ -13536,14 +13508,23 @@ let lastSearch = '';
 /* 시리얼 조회용 삭제 */
 function delSearch(id) {
   const e = entries.find(x=>String(x.id)===String(id)); if(!e) return;
-  openModal('수리 내역 삭제',`${e.serial} (${e.worker}) 수리 내역을 삭제할까요?`, async()=>{
+  // ⭐ v2.64b: 시리얼 조회 삭제도 부품 재고 원복 — 오늘 목록/전체 기록 삭제와 동일 패턴.
+  //   (미출고 건: parts 존재 → 복구 / 출고 완료 건: 부품 소비 확정이라 복구 없음 — 업무 논리와 일치)
+  const pc = entryPartsCount(e);
+  openModal('수리 내역 삭제',`${e.serial} (${e.worker}) 수리 내역을 삭제할까요?${pc > 0 ? ` (사용 부품 ${pc}개는 재고로 복구됩니다)` : ''}`, async()=>{
     try {
       entries = entries.filter(x=>String(x.id)!==String(id));
       markPendingChange('entries', id, { type: 'delete' });   // ⭐ v2.61a: 낡은 동기화가 이 건을 되살리지 못하게 보호
       renderToday(); doSearch();
       notifyPersist('삭제 중...');   // ⭐ v2.62b: 진행 표시 — 서버 반영이 끝나면 아래에서 완료로 교체
       await gasCall({action:'delete', id});
-      notify('삭제되었습니다.');
+      if(pc > 0 && stock.length) {
+        const restored = await restoreStockForEntry(e);
+        try { renderStock(); } catch(e2){}
+        notify(`삭제 완료 · 부품 ${restored}개 재고 복구됨.`);
+      } else {
+        notify('삭제되었습니다.');
+      }
     } catch { notify('응답 지연 — 삭제는 접수되었을 가능성이 높습니다. 잠시 후 자동 확인됩니다.','error'); }
   });
 }
