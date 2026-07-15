@@ -2863,8 +2863,15 @@ async function syncData(silent=false, force=false, _snapData=null) {
         }
       } catch {}
     });
-    stock = data.stock || [];
-    stockLog = data.stockLog || [];
+    // ⭐ v2.64b: 내가 방금 변경한 재고는 낡은 서버/GitHub 데이터가 덮지 않음 (2분 보호).
+    //   서버에는 saveStock·addStockLog 멱등 재전송으로 내 값이 확실히 반영되므로,
+    //   보호가 끝난 뒤의 동기화는 자연히 같은 값으로 수렴한다.
+    if(window._stockDirtyUntil && Date.now() < window._stockDirtyUntil) {
+      console.log('[재고보호] 최근 변경 보호 중 — 서버 재고/이력 적용 건너뜀');
+    } else {
+      stock = data.stock || [];
+      stockLog = data.stockLog || [];
+    }
     // ⭐ 작업별 부품 매핑 (관리자가 화면에서 설정) — 있으면 WORKS 대신 사용
     if(data.workPartsMap && Object.keys(data.workPartsMap).length) {
       window.WORK_PARTS_MAP = data.workPartsMap;
@@ -14076,7 +14083,13 @@ function renderStockHistory() {
     const color = sign === '+' ? '#10b981' : '#ef4444';
     return `<span style="color:${color};">${sign}${n.toLocaleString()}</span>`;
   };
-  const fmtD = d => { try { return String(d).slice(0,16).replace('T',' '); } catch(e) { return d || '-'; } };
+  const fmtD = d => {   // ⭐ v2.64b: ISO(UTC) 그대로 잘라 9시간 어긋나던 표시 → 로컬(한국) 시간 변환
+    try {
+      const dt = new Date(d);
+      if(isNaN(dt)) return String(d).slice(0,16).replace('T',' ');
+      return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+    } catch(e) { return d || '-'; }
+  };
   if(!rows.length) {
     el.innerHTML = '<div style="text-align:center;color:var(--text2);padding:40px 0;">기록이 없습니다.</div>';
     return;
@@ -14998,6 +15011,9 @@ function deletePart(id) {
 }
 
 async function saveStockToServer() {
+  // ⭐ v2.64b: 재고 변경 보호 — 지금부터 2분간 낡은 동기화 데이터가 로컬 재고/이력을 덮지 못함.
+  //   (등록 차감 직후 낡은 재고가 덮여, 삭제 복구가 잘못된 기준값에서 +1 되던 부풀림 버그 차단)
+  window._stockDirtyUntil = Date.now() + 120000;
   // ⭐ 안전 가드: 데이터가 제대로 로드되지 않았으면 저장 금지
   //   (load 실패/지연 상태에서 빈·불완전 stock으로 시트 전체를 덮어쓰면 기종 등 데이터 유실 → 참사 방지)
   if(!window._dataLoaded) {
