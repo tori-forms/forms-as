@@ -2346,6 +2346,7 @@ const STATUS_INSPECTED = 'inspected';
 const STATUS_DEFECT = 'defect';  // ⭐ 불량 발견 - 재작업 대기
 const STATUS_SHIPPED = 'shipped';
 const STATUS_HOLD = 'hold';  // ⭐ 출고 보류 (멀쩡하지만 이번 출고분 아님 — 사용자가 출고에서 제외)
+const STATUS_HOLD_AGING = 'hold_aging';  // ⭐ v2.65: 에이징 상태에서 출고 제외 — 복원 시 검수를 건너뛰지 않고 에이징으로 되돌리기 위해 출처를 상태에 보존
 
 // === 검수 시스템: 불량 유형 ===
 const DEFECT_TYPES = {
@@ -6738,8 +6739,8 @@ function renderShipping() {
     }).forEach(e => {
       const repairDT = new Date(e.date);
       const s = String(e.status || '');
-      if(s === STATUS_HOLD) {
-        // 출고 보류 (사용자가 출고에서 제외 — 서버에 저장됨)
+      if(s === STATUS_HOLD || s === STATUS_HOLD_AGING) {
+        // 출고 보류 (사용자가 출고에서 제외 — 서버에 저장됨. hold_aging = 에이징에서 제외)
         holdExcluded.push({ entry: e, repairDT, status: s, excluded: true });
       } else if(s === STATUS_INSPECTED || s === '') {
         // 검수완료 또는 (마이그레이션 이전 빈 상태) → 출고 가능
@@ -6838,7 +6839,7 @@ function renderShipping() {
           <td>${workTags(x.entry.works)}</td>
           <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
           <td style="font-size:12px;color:${x.entry.note?'var(--amber-text)':'var(--text3)'};">${x.entry.note||'-'}</td>
-          <td><button class="btn btn-sm btn-primary" onclick="moveExcludedToOk(${i})" style="background:#10b981;">↩️ 출고 가능으로</button></td>
+          <td><button class="btn btn-sm btn-primary" onclick="moveExcludedToOk(${i})" style="background:#10b981;">${String(x.entry.status)==='hold_aging' ? '↩️ 에이징으로' : '↩️ 출고 가능으로'}</button></td>
         </tr>`).join('')}</tbody>
       </table></div>
     </div>`;
@@ -7063,18 +7064,39 @@ function moveToOk(i) {
 }
 
 // ⭐ 출고 보류 → 출고 가능으로 (서버에 status=inspected 저장)
+// ⭐ v2.65: 에이징/검수대기 상태에서 출고 제외 — 출처를 hold_aging으로 보존해
+//   복원 시 검수를 건너뛰지 않고 원래 단계(에이징)로 되돌아가게 한다.
+async function excludeFromHold(serial) {
+  const e = entries.find(x => String(x.serial) === String(serial));
+  if(!e) return;
+  openModal('출고 제외', `${e.serial} (현재 ${e.status === 'aging' ? '에이징 중' : '검수대기'}) 을(를) 출고 제외로 옮길까요?\n복원하면 에이징 단계로 되돌아갑니다.`, async () => {
+    try {
+      notifyPersist('처리 중...');
+      await gasCall({ action: 'updateRepairStatus', id: e.id, newStatus: STATUS_HOLD_AGING });
+      const idx = entries.findIndex(x => String(x.id) === String(e.id));
+      if(idx >= 0) entries[idx].status = STATUS_HOLD_AGING;
+      window._shipOk = null;
+      renderShipping();
+      notify(`${e.serial} 출고 제외로 옮겼습니다.`);
+      setTimeout(() => syncData(true), 300);
+    } catch(err) { notify('실패: ' + (err.message||err), 'error'); }
+  });
+}
 async function moveExcludedToOk(i) {
   const item = (window._shipHoldExcluded || [])[i];
   if(!item || !item.entry) return;
   const e = item.entry;
+  // ⭐ v2.65: 에이징에서 제외됐던 건은 에이징으로 복원 (검수 건너뛰기 방지) — agingStart 보존이라 타이머 이어짐
+  const fromAging = String(e.status) === STATUS_HOLD_AGING;
+  const backTo = fromAging ? STATUS.AGING : STATUS_INSPECTED;
   try {
     notifyPersist('처리 중...');
-    await gasCall({ action: 'updateRepairStatus', id: e.id, newStatus: STATUS_INSPECTED });
+    await gasCall({ action: 'updateRepairStatus', id: e.id, newStatus: backTo });
     const idx = entries.findIndex(x => String(x.id) === String(e.id));
-    if(idx >= 0) entries[idx].status = STATUS_INSPECTED;
+    if(idx >= 0) entries[idx].status = backTo;
     window._shipOk = null;
     renderShipping();
-    notify('출고 가능으로 되돌렸습니다.');
+    notify(fromAging ? '에이징 단계로 되돌렸습니다. (검수 후 출고 가능)' : '출고 가능으로 되돌렸습니다.');
     setTimeout(() => syncData(true), 300);
   } catch(err) {
     notify('실패: ' + (err.message||err), 'error');
@@ -7311,7 +7333,7 @@ function renderShipHistory() {
             <td style="white-space:nowrap;">${mfg?mfg.label:'-'}</td>
             <td style="text-align:center;">${wCount}</td>
             <td><span style="font-size:11px;padding:2px 8px;border-radius:99px;background:${wType==='복합수리'?'#fef9c3':'#f0fdf4'};color:${wType==='복합수리'?'#854d0e':'#166534'};">${wType}</span></td>
-          </tr>`;
+          <td>${(x.status === 'aging' || x.status === 'aging_pass') ? `<button class="btn btn-sm" onclick="excludeFromHold('${escapeJs(x.entry.serial)}')" style="color:#ef4444;border-color:#ef444455;">🚩 출고 제외</button>` : ''}</td></tr>`;
         }).join('')}</tbody>
       </table></div>
     </div>`;
@@ -10793,7 +10815,7 @@ function buildAdminControlBoard() {
   // 1) 에이징 완료됐는데 검수대기로 안 넘긴 것 — 2영업일 이상 방치만 (1영업일까진 정상, 주말·공휴일 제외)
   const agingStuck = all.filter(e => String(e.status||'') === STATUS_AGING && bizDaysElapsed(new Date(e.agingStart).getTime(), nowMs()) >= 2);
   // 2) 출고 제외(미처리)
-  const excluded = all.filter(e => String(e.status||'') === STATUS_HOLD);
+  const excluded = all.filter(e => String(e.status||'') === STATUS_HOLD || String(e.status||'') === STATUS_HOLD_AGING);
   // 3) 재작업 대기(불량)
   const defects = all.filter(e => String(e.status||'') === STATUS_DEFECT);
 
