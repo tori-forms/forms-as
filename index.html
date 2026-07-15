@@ -4530,6 +4530,7 @@ function renderAging() {
         <td style="text-align:center;white-space:nowrap;">
           <button class="btn btn-secondary" onclick="openAddPartsModal('${e.id}')" style="height:30px;padding:0 10px;font-size:12px;">🔧 부품 추가</button>
           <button data-move-inspect-btn class="btn btn-primary" onclick="moveToInspect('${e.id}')" style="height:30px;padding:0 10px;font-size:12px;margin-left:4px;" ${passed?'':'disabled'}>→ 검수대기</button>
+          <button class="btn btn-sm" onclick="excludeFromHold('${escapeJs(e.serial)}')" style="height:30px;padding:0 10px;font-size:12px;margin-left:4px;color:#ef4444;border-color:#ef444455;" title="이번 출고분에서 제외 — 출고 관리의 제외함으로 이동, 복원 시 에이징으로 복귀">🚩 출고 제외</button>
         </td>
       </tr>`;
     });
