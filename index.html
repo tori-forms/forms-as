@@ -2591,7 +2591,7 @@ function gasCall(params) {
   // ⭐ v2.54: load(큰 응답)는 fetch 우선 — JSONP(script태그)는 646KB+ 큰 응답/302에 약해 timeout 빈발.
   //   fetch는 302(echo) 자동 추적 + 큰 응답에 강함. 실패 시 아래 JSONP로 폴백.
   // ⭐ v2.57d: loadShipLog도 큰 읽기 → fetch+압축 경로로. (JSONP로 나가면 echo 302→404로 큐 막힘→저장 실패)
-  const isLoad = !params || !params.action || params.action === 'load' || params.action === 'loadShipLog';
+  const isLoad = !params || !params.action || params.action === 'load' || params.action === 'loadShipLog' || params.action === 'getEntryDetail';   // ⭐ v2.64a: 상세 조회도 재시도+폴백 경로 — 조용한 실패가 부품 오염 사고로 이어졌음
   // ⭐ v2.57c: load류는 압축(fmt=2) 요청 (DecompressionStream 지원 시). 미지원/폴백 시 구형식 그대로.
   const reqParams = (isLoad && _ZSUPPORTED) ? {...params, fmt:2} : {...params};
   if(isLoad && typeof fetch === 'function') {
@@ -2643,7 +2643,8 @@ function gasCall(params) {
     add:1, edit:1, 'delete':1, updateRepairStatus:1, restartAging:1,
     saveKPI:1, saveStock:1, savePriceSettings:1, savePassword:1, saveWorkers:1,
     deleteExchange:1, deleteShipLog:1, bulkDeleteShipLog:1, deleteDoc:1,
-    deleteInspection:1, updateInspection:1, updateShipSerial:1
+    deleteInspection:1, updateInspection:1, updateShipSerial:1,
+    addStockLog:1   // ⭐ v2.64a: 서버 logId 멱등 확보 → 재전송 안전. 재고 이력 유실(수량만 줄고 이력 증발) 차단
   };
   // ⭐ v2.62b: 멱등 액션은 첫 전송 25초로 짧게 — 응답 유실 시 재전송이 빨리 개입 (총 대기 최대 ~70초→~30초)
   let _pMut = _gasCallJsonp(params, _IDEMPOTENT_ACTIONS[_act] ? 25000 : undefined);
@@ -11507,9 +11508,11 @@ async function openEditModal(id) {
   if(!canDelete(e)){ notify('수정 권한이 없습니다.','error'); return; }
   // ⭐ load 경량화로 출고완료 건은 parts가 비어있음 → 수정 시 상세를 따로 불러옴
   if((!e.parts || (typeof e.parts==='object' && !Object.keys(e.parts).length) || e.parts==='') && e.status==='shipped') {
+    let _detailOk = false;
     try {
       const res = await gasCall({ action:'getEntryDetail', id });
       if(res && res.detail) {
+        _detailOk = true;
         e.note = res.detail.note || e.note || '';
         // parts 문자열 → 객체 파싱 (load 때와 동일 방식)
         let pj = res.detail.parts;
@@ -11523,6 +11526,13 @@ async function openEditModal(id) {
         }
       }
     } catch(err) { console.warn('상세 로드 실패', err); }
+    // ⭐ v2.64a: 상세 로드 실패 시 수정 진행 차단 (fail-closed).
+    //   기존엔 조용히 진행 → 스냅샷 없음으로 오판 → 기본 부품 구성 전체가 수량과 함께
+    //   채워지고, 저장 시 유령 부품 기록 + 재고 무단 차감되는 사고 경로였음.
+    if(!_detailOk) {
+      notify('부품 상세를 불러오지 못했습니다 — 잠시 후 수정을 다시 열어주세요. (부품 오염 방지를 위해 수정을 중단합니다)', 'error');
+      return;
+    }
   }
   editTargetId = id;
   // 부품 수량 초기화 (renderEditParts가 e.parts를 직접 읽어 표시)
