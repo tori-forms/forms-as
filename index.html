@@ -9799,7 +9799,9 @@ function markPendingChange(kind, id, change, durationMs = 3000) {
   // ⭐ v2.60: 최소 보호 30초 — 서버가 낡은 캐시를 서빙하는 창(warm 완료까지 ~15초)을 확실히 덮음
   // ⭐ v2.62c: add/delete는 최소 3분 — 파이프라인이 밀리는 밤에도 "등록했는데 사라졌다
   //   새로고침하면 재등장" 현상 차단. 서버 데이터가 변경을 확인하는 즉시 조기 해제됨(아래).
-  const _minMs = (change && (change.type === 'add' || change.type === 'delete')) ? 180000 : 30000;
+  // ⭐ v2.65c: update(상태 변경 등)도 3분 — 30초 보호가 GitHub 파이프라인 최악 지연(~35초+)보다
+  //   짧아 검수완료가 검수대기로 되살아나던 문제 차단. update에도 서버 확인 해제 추가(applyPendingChanges).
+  const _minMs = (change && (change.type === 'add' || change.type === 'delete' || change.type === 'update')) ? 180000 : 30000;
   durationMs = Math.max(durationMs || 3000, _minMs);
   window._pendingChanges[kind][String(id)] = {
     ...change,
@@ -9833,10 +9835,21 @@ function applyPendingChanges(arr, kind, idKey) {
   //   (add: 이 건이 데이터에 등장 / delete: 데이터에서 소멸 → TTL 남았어도 해제)
   Object.keys(pending).forEach(id => {
     const ch = pending[id];
-    const inData = arr.some(item => String(item[idKey]) === id);
+    const found = arr.find(item => String(item[idKey]) === id);
+    const inData = !!found;
     if((ch.type === 'add' && inData) || (ch.type === 'delete' && !inData)) {
       delete pending[id];
       console.log(`[변경보호] ${kind}/${id} 보호 해제 (서버 확인: ${ch.type})`);
+    }
+    // ⭐ v2.65c: update도 서버 확인 해제 — 보호 중인 필드들이 서버 데이터에 전부 반영됐으면 종료
+    else if(ch.type === 'update' && found && ch.data) {
+      const confirmed = Object.keys(ch.data).every(k => {
+        try { return JSON.stringify(found[k]) === JSON.stringify(ch.data[k]); } catch(e) { return false; }
+      });
+      if(confirmed) {
+        delete pending[id];
+        console.log(`[변경보호] ${kind}/${id} 보호 해제 (서버 확인: update)`);
+      }
     }
   });
   if(Object.keys(pending).length === 0) return arr;
