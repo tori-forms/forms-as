@@ -2304,26 +2304,36 @@ const KPI_STD_DAILY = 12;   // 표준 1일 목표 (3개월차 도달 후 유지 
 //     1개월(4주) 6개 · 6주차 10개 · 8주차(≈2개월) 12 안착 · 이후 평가까지 ~한달 12 유지
 let KPI_RAMP_SCHEDULE = [1, 3, 4, 6, 8, 10, 11, 12, 12, 12, 12, 12];
 // 입사일(YYYY-MM-DD) + 기준일 → 그 시점의 권장 1일 목표
-function tenureDailyTarget(name, asOf) {
-  const hd = (typeof hireDateMap !== 'undefined') ? hireDateMap[name] : null;
-  if(!hd) return null; // 입사일 미설정
-  const start = new Date(String(hd) + 'T00:00:00');
-  if(isNaN(start.getTime())) return null;
-  const ref = (asOf instanceof Date && !isNaN(asOf.getTime())) ? asOf : new Date();
-  const days = Math.floor((ref.getTime() - start.getTime()) / 86400000);
-  const week = Math.floor(Math.max(0, days) / 7); // 0-index: 0 = 1주차
-  if(week < KPI_RAMP_SCHEDULE.length) return KPI_RAMP_SCHEDULE[week];
-  return KPI_STD_DAILY;
-}
-// 입사 후 경과 주차(1-index, 표시용). 입사일 없으면 null.
-function tenureWeek(name, asOf) {
+// ⭐ v2.66: 주차 진행을 '실제 근무일' 기준으로 — 영업일 5일 = 1주차 진행.
+//   공휴일·주말로 하루 쉬면 그만큼 주차 진행이 늦춰져, 쉬었는데 목표만 오르는 문제 해소.
+//   (공휴일 달력이 아직 미로드면 주말만 제외 — 첫 호출이 백그라운드 로드를 시동, 다음 렌더에 보정)
+function _tenureBizWeek(name, asOf) {
   const hd = (typeof hireDateMap !== 'undefined') ? hireDateMap[name] : null;
   if(!hd) return null;
   const start = new Date(String(hd) + 'T00:00:00');
   if(isNaN(start.getTime())) return null;
   const ref = (asOf instanceof Date && !isNaN(asOf.getTime())) ? asOf : new Date();
-  const days = Math.floor((ref.getTime() - start.getTime()) / 86400000);
-  return Math.floor(Math.max(0, days) / 7) + 1;
+  if(!window._tenureHolKick) {   // 입사일~오늘 공휴일 달력 1회 프리로드 (비동기)
+    window._tenureHolKick = 1;
+    try {
+      let minHd = start.getTime();
+      Object.values(hireDateMap || {}).forEach(v => { const t = new Date(String(v)+'T00:00:00').getTime(); if(t && t < minHd) minHd = t; });
+      ensureHolidaysLoaded(minHd, Date.now());
+    } catch(e) {}
+  }
+  const bd = bizDaysElapsed(start.getTime(), ref.getTime());   // 주말·공휴일 제외 경과 근무일
+  return Math.floor(Math.max(0, bd) / 5);   // 0-index: 근무일 5일 = 1주 진행
+}
+function tenureDailyTarget(name, asOf) {
+  const week = _tenureBizWeek(name, asOf);
+  if(week === null) return null; // 입사일 미설정
+  if(week < KPI_RAMP_SCHEDULE.length) return KPI_RAMP_SCHEDULE[week];
+  return KPI_STD_DAILY;
+}
+// 입사 후 경과 주차(1-index, 표시용). 입사일 없으면 null.
+function tenureWeek(name, asOf) {
+  const week = _tenureBizWeek(name, asOf);   // ⭐ v2.66: 근무일 기반
+  return week === null ? null : week + 1;
 }
 // 최근 N개월 "수리 등록" 기준 실제 일평균(건/일). 작업일 = 등록일이 서로 다른 날의 수. (참고 지표)
 function getWorkerDailyPace(name, months = 3) {
@@ -2349,13 +2359,13 @@ const STATUS_HOLD = 'hold';  // ⭐ 출고 보류 (멀쩡하지만 이번 출고
 const STATUS_HOLD_AGING = 'hold_aging';  // ⭐ v2.65: 에이징 상태에서 출고 제외 — 복원 시 검수를 건너뛰지 않고 에이징으로 되돌리기 위해 출처를 상태에 보존
 
 // === 검수 시스템: 불량 유형 ===
+// ⭐ v2.66: 불량 분류 4종 체계 (기능/외관/조립/부품누락) — 구분류(강화유리·보호필름·디스플레이)는
+//   과거 데이터 표시 호환용으로만 유지, 신규 등록 선택지에서는 제외
 const DEFECT_TYPES = {
+  'function':  '기능 불량',
   appearance:  '외관 불량',
-  function:    '기능 불량',
-  glass:       '강화유리 불량',
-  film:        '보호필름 불량',
-  missing:     '부품 누락',
-  display:     '디스플레이 불량'
+  assembly:    '조립 불량',
+  missing:     '부품 누락'
 };
 
 // === 검수 권한 체크 함수 ===
@@ -5305,7 +5315,7 @@ function renderQualityDashboard() {
   }
 
   // === 3. 불량 유형 분포 ===
-  const DEFECT_TYPES = ['외관', '기능', '강화유리', '보호필름', '부품누락', '디스플레이'];
+  const DEFECT_TYPES = ['기능', '외관', '조립', '부품누락', '강화유리', '보호필름', '디스플레이'];   // ⭐ v2.66: 분석 축 — 신4종 + 구분류(과거 기록 표시)
   const typeCount = {};
   DEFECT_TYPES.forEach(t => typeCount[t] = 0);
   let typeTotal = 0;
@@ -5523,7 +5533,7 @@ function renderQualityDashboard() {
     });
 
     // ⭐ 불량 유형 6개 항상 고정 표시 (외관/기능/강화유리/보호필름/부품누락/디스플레이) + 미분류는 있을 때만
-    const FIXED_DEFECT_TYPES = ['외관', '기능', '강화유리', '보호필름', '부품누락', '디스플레이'];
+    const FIXED_DEFECT_TYPES = ['기능', '외관', '조립', '부품누락', '강화유리', '보호필름', '디스플레이'];   // ⭐ v2.66: 신4종 우선 + 구분류(과거 기록)
     const hasMisc = Object.values(heatmap).some(r => (r['미분류']||0) > 0);
     const heatmapTypes = hasMisc ? [...FIXED_DEFECT_TYPES, '미분류'] : FIXED_DEFECT_TYPES.slice();
     let maxHeatVal = 0;
@@ -6021,7 +6031,7 @@ async function editQualityNote(qualityId) {
   const types = (() => {
     return parseDefectTypes(insp.defectTypes);
   })();
-  const DEFECT_TYPES = ['외관', '기능', '강화유리', '보호필름', '부품누락', '디스플레이'];
+  const DEFECT_TYPES = ['기능', '외관', '조립', '부품누락'];   // ⭐ v2.66: 신규 등록 4종
 
   // 모달 생성
   const modalHtml = `
@@ -12425,17 +12435,85 @@ async function revertExchange(id) {
   }, '원복 확인', 'btn-danger');
 }
 
+// ⭐ v2.66: 교품 처리 필터·요약 — 기간(오늘/7일/이번달/전체) + 엔지니어 + 검색, 상단 한눈 요약
+window._excFilter = window._excFilter || { period: 'all', worker: 'all', q: '' };
+function setExcFilter(k, v) { window._excFilter[k] = v; renderExchangeList(); }
+function excSearchGo() {
+  const inp = document.getElementById('exc-search-inp');
+  window._excFilter.q = (inp ? inp.value : '').trim();
+  renderExchangeList();
+}
 function renderExchangeList() {
   const el = document.getElementById('exchange-content');
   const countEl = document.getElementById('exchange-count');
   if(!el) return;
-  if(countEl) countEl.textContent = exchangeList.length ? `총 ${exchangeList.length}건` : '';
   if(!exchangeList.length) {
+    if(countEl) countEl.textContent = '';
     el.innerHTML = '<div class="empty"><div class="empty-icon">📋</div>교품 처리 내역이 없습니다.</div>';
     return;
   }
-  const sorted = [...exchangeList].sort((a,b) => new Date(b.date)-new Date(a.date));
-  el.innerHTML = `<div class="card" style="padding:0;"><div class="table-wrap"><table>
+  const F = window._excFilter;
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  const monthStr = todayStr.slice(0, 7);
+  const weekMs = now.getTime() - 7 * 86400000;
+  const _localDay = (v) => { const d = new Date(v); return isNaN(d) ? '' : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+
+  // 요약 (필터 무관, 전체 기준)
+  const cToday = exchangeList.filter(x => _localDay(x.date) === todayStr).length;
+  const cWeek  = exchangeList.filter(x => new Date(x.date).getTime() >= weekMs).length;
+  const cMonth = exchangeList.filter(x => _localDay(x.date).slice(0,7) === monthStr).length;
+
+  // 필터 적용
+  let filtered = exchangeList.filter(x => {
+    if(F.period === 'today' && _localDay(x.date) !== todayStr) return false;
+    if(F.period === 'week'  && new Date(x.date).getTime() < weekMs) return false;
+    if(F.period === 'month' && _localDay(x.date).slice(0,7) !== monthStr) return false;
+    if(F.worker !== 'all' && String(x.worker) !== F.worker) return false;
+    if(F.q) {
+      const q = F.q.toUpperCase();
+      const hay = `${x.serial||''} ${x.note||''} ${x.reason||''} ${x.model||''}`.toUpperCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  if(countEl) countEl.textContent = `${filtered.length}건 표시 / 전체 ${exchangeList.length}건`;
+
+  const workers2 = [...new Set(exchangeList.map(x => String(x.worker||'')).filter(Boolean))].sort();
+  const pBtn = (key, label, cnt) => {
+    const on = F.period === key;
+    return `<button class="btn btn-sm" onclick="setExcFilter('period','${key}')" style="font-weight:700;${on ? 'background:var(--accent);color:#fff;border-color:var(--accent);' : ''}">${label}${cnt !== undefined ? ` <b>${cnt}</b>` : ''}</button>`;
+  };
+  const sumCard = (label, val, color) => `<div style="flex:1;min-width:110px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;text-align:center;">
+      <div style="font-size:11px;color:var(--text3);font-weight:600;">${label}</div>
+      <div style="font-size:20px;font-weight:800;color:${color};">${val}<span style="font-size:12px;font-weight:600;color:var(--text3);"> 건</span></div>
+    </div>`;
+  const barHtml = `
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+      ${sumCard('금일 교품', cToday, cToday ? '#ef4444' : 'var(--text2)')}
+      ${sumCard('최근 7일', cWeek, 'var(--text)')}
+      ${sumCard('이번 달', cMonth, 'var(--text)')}
+      ${sumCard('누적 전체', exchangeList.length, 'var(--text)')}
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+      ${pBtn('today','오늘',cToday)}${pBtn('week','7일',cWeek)}${pBtn('month','이번 달',cMonth)}${pBtn('all','전체',exchangeList.length)}
+      <select onchange="setExcFilter('worker', this.value)" style="height:30px;font-size:12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 8px;">
+        <option value="all" ${F.worker==='all'?'selected':''}>엔지니어 전체</option>
+        ${workers2.map(w => `<option value="${escapeHtml(w)}" ${F.worker===w?'selected':''}>${escapeHtml(w)}</option>`).join('')}
+      </select>
+      <input id="exc-search-inp" value="${escapeHtml(F.q)}" placeholder="시리얼·사유·메모 검색"
+        onkeydown="if(event.key==='Enter') excSearchGo()"
+        style="height:30px;font-size:12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 10px;min-width:170px;">
+      <button class="btn btn-sm" onclick="excSearchGo()">🔍 검색</button>
+      ${(F.period!=='all'||F.worker!=='all'||F.q) ? `<button class="btn btn-sm" onclick="window._excFilter={period:'all',worker:'all',q:''};renderExchangeList();" style="color:var(--text3);">✕ 초기화</button>` : ''}
+    </div>`;
+
+  if(!filtered.length) {
+    el.innerHTML = barHtml + '<div class="empty"><div class="empty-icon">🔍</div>조건에 맞는 교품 내역이 없습니다.</div>';
+    return;
+  }
+  const sorted = filtered.sort((a,b) => new Date(b.date)-new Date(a.date));
+  el.innerHTML = barHtml + `<div class="card" style="padding:0;"><div class="table-wrap"><table>
     <thead><tr>
       <th style="white-space:nowrap;">날짜</th>
       <th>시리얼</th>
