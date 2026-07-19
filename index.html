@@ -1565,6 +1565,18 @@ window.addEventListener('DOMContentLoaded', function(){
         </div>
       </div>
     <div id="admin-kpi" style="display:none;">
+      <!-- ⭐ v2.66b: 회사 지정 휴무일 -->
+      <div class="card" style="padding:16px 18px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+          <span style="font-size:14.5px;font-weight:800;color:var(--text);">🏖 회사 지정 휴무일</span>
+          <button class="btn btn-primary btn-sm" onclick="saveCompanyHolidays()">💾 저장</button>
+        </div>
+        <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:8px;">
+          법정 공휴일이 <b>아닌</b> 자체 휴무일을 등록하세요 (예: 제헌절 2026-07-17, 창립기념일, 단체 휴가).<br>
+          등록된 날짜는 <b>목표 미달 판정 · 신입 목표 주차 · 영업일 계산</b>에서 근무일로 세지 않습니다. 법정 공휴일은 자동 반영되므로 등록 불필요.
+        </div>
+        <textarea id="company-holidays-input" placeholder="YYYY-MM-DD 형식, 줄바꿈 또는 콤마 구분&#10;예)&#10;2026-07-17&#10;2026-12-24" style="width:100%;min-height:72px;font-size:12.5px;font-family:monospace;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);box-sizing:border-box;"></textarea>
+      </div>
         <div class="card">
           <div class="card-title">월별 KPI 입력</div>
           <div class="form-row" style="align-items:flex-end;gap:12px;">
@@ -2655,7 +2667,7 @@ function gasCall(params) {
     saveKPI:1, saveStock:1, savePriceSettings:1, savePassword:1, saveWorkers:1,
     deleteExchange:1, deleteShipLog:1, bulkDeleteShipLog:1, deleteDoc:1,
     deleteInspection:1, updateInspection:1, updateShipSerial:1,
-    addStockLog:1   // ⭐ v2.64a: 서버 logId 멱등 확보 → 재전송 안전. 재고 이력 유실(수량만 줄고 이력 증발) 차단
+    addStockLog:1, saveCompanyHolidays:1   // ⭐ v2.64a: 서버 logId 멱등 확보 → 재전송 안전. 재고 이력 유실(수량만 줄고 이력 증발) 차단
   };
   // ⭐ v2.62b: 멱등 액션은 첫 전송 25초로 짧게 — 응답 유실 시 재전송이 빨리 개입 (총 대기 최대 ~70초→~30초)
   let _pMut = _gasCallJsonp(params, _IDEMPOTENT_ACTIONS[_act] ? 25000 : undefined);
@@ -2889,6 +2901,11 @@ async function syncData(silent=false, force=false, _snapData=null) {
     }
     // exchange: Code.gs 미업데이트 시 로컬 데이터 유지 (덮어쓰기 방지)
     if(data.exchange !== undefined) exchangeList = data.exchange;
+    // ⭐ v2.66b: 회사 지정 휴무일 (법정 공휴일 아닌 자체 휴무 — 예: 제헌절)
+    if(Array.isArray(data.companyHolidays)) {
+      window.COMPANY_HOLIDAYS = data.companyHolidays;
+      _mergeCompanyHolidays();
+    }
     // 서버 단가 설정 적용 (로컬스토리지 없어도 부품비 표시)
     if(data.priceSettings && Object.keys(data.priceSettings).length) {
       const ps = data.priceSettings;
@@ -9115,7 +9132,11 @@ function renderStockInto(targetId) {
 }
 
 function renderWorkerAdmin() { renderWorkers(); }
-function renderKPIAdmin() { renderKPI(); loadPriceSettings(); }
+function renderKPIAdmin() {
+  renderKPI(); loadPriceSettings();
+  const ta = document.getElementById('company-holidays-input');   // ⭐ v2.66b: 저장된 휴무일 표시
+  if(ta && !ta.dataset.filled) { ta.value = (window.COMPANY_HOLIDAYS || []).join('\n'); ta.dataset.filled = '1'; }
+}
 function renderReportAdmin() { renderReport(); }
 function renderStockAdmin() { renderStock(); }
 
@@ -11919,7 +11940,33 @@ function delEntryH(id) {
 }
 
 /* 일일 마감 */
+async function saveCompanyHolidays() {
+  const ta = document.getElementById('company-holidays-input');
+  const raw = (ta ? ta.value : '') || '';
+  const dates = [...new Set(raw.split(/[\n,]/).map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s)))].sort();
+  const bad = raw.split(/[\n,]/).map(s => s.trim()).filter(s => s && !/^\d{4}-\d{2}-\d{2}$/.test(s));
+  if(bad.length) { notify(`형식 오류 ${bad.length}건 (YYYY-MM-DD): ${bad.slice(0,3).join(', ')}${bad.length>3?'…':''}`, 'error'); return; }
+  try {
+    notifyPersist('저장 중...');
+    await gasCall({ action: 'saveCompanyHolidays', datesJson: JSON.stringify(dates) });
+    window.COMPANY_HOLIDAYS = dates;
+    _mergeCompanyHolidays();
+    if(ta) ta.value = dates.join('\n');
+    notify(`회사 휴무일 ${dates.length}건 저장됨 — 미달 판정·신입 목표에서 제외됩니다.`);
+    try { if(typeof renderMyDashboard === 'function') renderMyDashboard(); } catch(e) {}
+  } catch { notify('응답 지연 — 잠시 후 자동 확인됩니다.', 'error'); }
+}
+
 /* ===== 공휴일 API ===== */
+// ⭐ v2.66b: 회사 지정 휴무일을 공휴일 캐시에 병합 — 이 한 지점으로
+//   미달 판정·최근 7영업일 산출·신입 주차(근무일) 계산이 전부 자동 반영된다.
+function _mergeCompanyHolidays() {
+  (window.COMPANY_HOLIDAYS || []).forEach(ds => {
+    const key = String(ds).slice(0, 7);
+    if(!holidayCache[key]) holidayCache[key] = [];
+    if(!holidayCache[key].includes(ds)) holidayCache[key].push(ds);
+  });
+}
 async function fetchHolidays(year, month) {
   const key = `${year}-${String(month).padStart(2,'0')}`;
   if(holidayCache[key] !== undefined) return holidayCache[key];
@@ -11927,7 +11974,7 @@ async function fetchHolidays(year, month) {
     const cb = '__holi_' + Date.now();
     const url = `https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getHoliDeInfo?serviceKey=${HOLIDAY_KEY}&solYear=${year}&solMonth=${String(month).padStart(2,'0')}&_type=json&numOfRows=50&callback=${cb}`;
     const s = document.createElement('script');
-    const timer = setTimeout(()=>{ cleanup(); holidayCache[key]=[]; resolve([]); }, 5000);
+    const timer = setTimeout(()=>{ cleanup(); holidayCache[key]=[]; _mergeCompanyHolidays(); resolve([]); }, 5000);
     window[cb] = (json) => {
       cleanup();
       try {
@@ -11941,10 +11988,11 @@ async function fetchHolidays(year, month) {
           });
         }
         holidayCache[key] = dates;
+        _mergeCompanyHolidays();
         resolve(dates);
-      } catch { holidayCache[key]=[]; resolve([]); }
+      } catch { holidayCache[key]=[]; _mergeCompanyHolidays(); resolve([]); }
     };
-    s.onerror = ()=>{ cleanup(); holidayCache[key]=[]; resolve([]); };
+    s.onerror = ()=>{ cleanup(); holidayCache[key]=[]; _mergeCompanyHolidays(); resolve([]); };
     s.src = url;
     document.head.appendChild(s);
     function cleanup(){ clearTimeout(timer); delete window[cb]; s.remove(); }
