@@ -5418,7 +5418,7 @@ function renderQualityDashboard() {
       '미분류': '#6b7280'
     };
     // ⭐ 6개 유형 항상 표시 (+ 미분류 있을 때) — 빈도순 정렬
-    const FIXED_T = ['외관', '기능', '강화유리', '보호필름', '부품누락', '디스플레이'];
+    const FIXED_T = ['기능', '외관', '조립', '부품누락', '강화유리', '보호필름', '디스플레이'];   // ⭐ v2.66a: 신4종 + 구분류(과거 기록)
     const allT = [...FIXED_T];
     if((typeCount['미분류']||0) > 0) allT.push('미분류');
     const sortedTypes = allT
@@ -6528,7 +6528,7 @@ function openInspectModal(entryId, initResult) {
   const isFail = initResult === 'fail';
 
   // ⭐ v2.31: 체크박스 value를 한글로 통일 (수정 모달과 동일하게)
-  const DEFECT_TYPE_LABELS = ['외관', '기능', '강화유리', '보호필름', '부품누락', '디스플레이'];
+  const DEFECT_TYPE_LABELS = ['기능', '외관', '조립', '부품누락'];   // ⭐ v2.66a: 4종 분류 (검수 처리 모달)
   const defectCheckboxes = DEFECT_TYPE_LABELS.map(label =>
     `<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--border2,#d1d5db);border-radius:8px;cursor:pointer;font-size:13px;transition:all .15s;background:var(--bg,#fff);" onmouseover="this.style.borderColor='#dc2626'" onmouseout="this.style.borderColor='var(--border2,#d1d5db)'">
       <input type="checkbox" class="defect-cb" value="${label}" style="accent-color:#dc2626;width:16px;height:16px;cursor:pointer;">
@@ -9197,6 +9197,12 @@ function removeModelFromPrice(model) {
 }
 
 function savePriceSettings() {
+  // ⭐ v2.66a: 데이터 미로드 상태 저장 차단 — 부품비가 로드 전(전부 0 표시)일 때 저장하면
+  //   0이 서버를 통째로 덮어 기존 부품비가 소실됨 (실제 발생한 사고의 재발 방지)
+  if(!window._dataLoaded) {
+    notify('데이터 로딩이 완료되지 않아 저장을 건너뛰었습니다. 잠시 후 다시 시도하세요.', 'error');
+    return;
+  }
   const pcb    = Number(document.getElementById('price-pcb')?.value)    || WORKS.pcb.price;
   const panel  = Number(document.getElementById('price-panel')?.value)  || WORKS.panel.price;
   const board  = Number(document.getElementById('price-board')?.value)  || WORKS.board.price;
@@ -9219,6 +9225,15 @@ function savePriceSettings() {
       modelParts[m][k] = val;
     });
   });
+
+  // ⭐ v2.66a: 전멸 덮어쓰기 2차 가드 — 입력이 전부 0인데 기존(서버 로드)에 값이 있으면 확인 요구
+  const _allZero = Object.values(modelParts).every(mp => Object.values(mp).every(v => !v));
+  const _prevMP = (window.PARTS_PRICE && window.PARTS_PRICE.modelParts) || {};
+  const _prevHad = Object.values(_prevMP).some(mp => Object.values(mp || {}).some(v => v > 0));
+  if(_allZero && _prevHad) {
+    notify('⚠ 부품비 입력이 전부 0입니다 — 기존 부품비가 지워질 수 있어 저장을 중단했습니다. 값 확인 후 다시 저장하세요.', 'error');
+    return;
+  }
 
   window.PARTS_PRICE = { modelParts };
 
@@ -12436,7 +12451,7 @@ async function revertExchange(id) {
 }
 
 // ⭐ v2.66: 교품 처리 필터·요약 — 기간(오늘/7일/이번달/전체) + 엔지니어 + 검색, 상단 한눈 요약
-window._excFilter = window._excFilter || { period: 'all', worker: 'all', q: '' };
+window._excFilter = window._excFilter || { period: 'today', worker: 'all', q: '' };   // ⭐ v2.66a: 기본 = 금일 등록건만 (전체는 버튼으로)
 function setExcFilter(k, v) { window._excFilter[k] = v; renderExchangeList(); }
 function excSearchGo() {
   const inp = document.getElementById('exc-search-inp');
