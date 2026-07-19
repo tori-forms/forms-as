@@ -2907,10 +2907,15 @@ async function syncData(silent=false, force=false, _snapData=null) {
     // exchange: Code.gs 미업데이트 시 로컬 데이터 유지 (덮어쓰기 방지)
     if(data.exchange !== undefined) exchangeList = data.exchange;
     // ⭐ v2.66b: 회사 지정 휴무일 (법정 공휴일 아닌 자체 휴무 — 예: 제헌절)
+    // ⭐ v2.66d: 서버 응답(캐시 파이프라인)이 아직 낡아 필드가 없으면 localStorage 백업으로 복원 —
+    //   재빌드·발행이 따라잡기 전에도 새로고침 직후부터 미달 판정·주차 계산에 반영되도록.
     if(Array.isArray(data.companyHolidays)) {
       window.COMPANY_HOLIDAYS = data.companyHolidays;
-      _mergeCompanyHolidays();
+      try { localStorage.setItem('fa_company_holidays', JSON.stringify(data.companyHolidays)); } catch(e) {}
+    } else if(!window.COMPANY_HOLIDAYS) {
+      try { window.COMPANY_HOLIDAYS = JSON.parse(localStorage.getItem('fa_company_holidays') || '[]'); } catch(e) { window.COMPANY_HOLIDAYS = []; }
     }
+    _mergeCompanyHolidays();
     // 서버 단가 설정 적용 (로컬스토리지 없어도 부품비 표시)
     if(data.priceSettings && Object.keys(data.priceSettings).length) {
       const ps = data.priceSettings;
@@ -11987,8 +11992,10 @@ async function saveCompanyHolidays() {
     }
     window.COMPANY_HOLIDAYS = dates;
     window._chDraft = [...dates];
+    try { localStorage.setItem('fa_company_holidays', JSON.stringify(dates)); } catch(e) {}   // ⭐ v2.66d: 새로고침 즉시 복원용 백업
     _mergeCompanyHolidays();
     renderCompanyHolidayChips();
+    _missSummaryCache = '';   // ⭐ v2.66d: 미달 섹션 캐시 무효화 — 같은 세션에서도 즉시 재계산
     notify(`회사 휴무일 ${dates.length}건 저장됨 — 미달 판정·신입 목표에서 제외됩니다.`);
     try { if(typeof renderMyDashboard === 'function') renderMyDashboard(); } catch(e) {}
   } catch { notify('응답 지연 — 잠시 후 자동 확인됩니다.', 'error'); }
