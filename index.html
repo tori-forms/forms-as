@@ -2163,6 +2163,7 @@ window.addEventListener('DOMContentLoaded', function(){
       <div id="edit-price-preview" style="font-size:13px;color:var(--text2);margin-bottom:16px;"></div>
       <div id="edit-parts-section" style="margin-bottom:8px;display:none;">
         <label class="form-label">부품 수량 조정</label>
+        <div id="edit-quality-flags" style="margin:2px 0 8px;"></div>
         <div id="edit-parts-container" style="margin-top:6px;padding:10px;background:var(--surface);border:1px solid var(--border2);border-radius:8px;"></div>
       </div>
     </div>
@@ -2393,6 +2394,14 @@ const STATUS_HOLD = 'hold';  // ⭐ 출고 보류 (멀쩡하지만 이번 출고
 const STATUS_HOLD_AGING = 'hold_aging';  // ⭐ v2.65: 에이징 상태에서 출고 제외 — 복원 시 검수를 건너뛰지 않고 에이징으로 되돌리기 위해 출처를 상태에 보존
 
 // === 검수 시스템: 불량 유형 ===
+// ⭐ v2.67b: 품질 특이 태그 — 실물 부품이 아닌 '고객사 합의된 품질 특이사항' 체크.
+//   parts 데이터에 ⚑ 접두 키로 편승 → 서버·재고·단가 무변경, 클라 대시보드까지 자동 전달.
+//   재고 차감 없음(부품 매칭 실패로 자연 스킵), 부품 수 집계 제외.
+const QUALITY_FLAGS = [
+  { key: '⚑잭 압흔 빛번짐', label: '헤드셋잭 압흔 빛번짐 (품질 결격 아님 · 고객사 합의)' }
+];
+const isQualityFlagKey = (n) => String(n).charAt(0) === '⚑';
+
 // ⭐ v2.66: 불량 분류 4종 체계 (기능/외관/조립/부품누락) — 구분류(강화유리·보호필름·디스플레이)는
 //   과거 데이터 표시 호환용으로만 유지, 신규 등록 선택지에서는 제외
 const DEFECT_TYPES = {
@@ -11723,7 +11732,8 @@ function renderEditParts(ws) {
   const container = document.getElementById('edit-parts-container');
   if(html) html = `<div style="font-size:11px;color:var(--text3);margin-bottom:8px;">💡 수량을 <b>0</b>으로 두면 그 부품은 미사용 처리되어 재고에서 차감되지 않아요.</div>` + html;
   if(html) { container.innerHTML = html; section.style.display = 'block'; }
-  else { section.style.display = 'none'; }
+  else { section.style.display = 'block'; container.innerHTML = ''; }   // ⭐ v2.67b: 부품 없어도 섹션 노출 (품질 특이 체크용)
+  try { renderQualityFlags(savedParts); } catch(e2) { try { renderQualityFlags({}); } catch(e3) {} }   // ⭐ v2.67b
 
   // ⭐ v2.57m: 저장된 추가부품(기본목록에 없는 것)을 첫 작업 밑에 고정행으로 복원
   if(html && firstWork && savedExtras.length) {
@@ -11852,6 +11862,8 @@ async function saveEdit() {
       });
     });
     const editPartsResult = {};
+    // ⭐ v2.67b: 품질 특이 체크 수집 (⚑ 키 — 재고·비용 무관, 표시·전달용)
+    document.querySelectorAll('.quality-flag-cb:checked').forEach(cb => { editPartsResult[cb.value] = 1; });
     works.forEach(k => {
       getWorkParts(k, model).forEach(p => {
         const qty = partQtys[k]?.[p.name] ?? p.qty;
@@ -12599,19 +12611,20 @@ function renderExchangeList() {
   const cWeek  = exchangeList.filter(x => new Date(x.date).getTime() >= weekMs).length;
   const cMonth = exchangeList.filter(x => _localDay(x.date).slice(0,7) === monthStr).length;
 
-  // 필터 적용
-  let filtered = exchangeList.filter(x => {
+  // 필터 적용 — 기간·검색을 먼저 적용한 base(엔지니어 무관)를 만들어 엔지니어별 그래프에 재사용
+  const _passPQ = (x) => {
     if(F.period === 'today' && _localDay(x.date) !== todayStr) return false;
     if(F.period === 'week'  && new Date(x.date).getTime() < weekMs) return false;
     if(F.period === 'month' && _localDay(x.date).slice(0,7) !== monthStr) return false;
-    if(F.worker !== 'all' && String(x.worker) !== F.worker) return false;
     if(F.q) {
       const q = F.q.toUpperCase();
       const hay = `${x.serial||''} ${x.note||''} ${x.reason||''} ${x.model||''}`.toUpperCase();
       if(!hay.includes(q)) return false;
     }
     return true;
-  });
+  };
+  const base = exchangeList.filter(_passPQ);
+  let filtered = base.filter(x => F.worker === 'all' || String(x.worker) === F.worker);
   if(countEl) countEl.textContent = `${filtered.length}건 표시 / 전체 ${exchangeList.length}건`;
 
   const workers2 = [...new Set(exchangeList.map(x => String(x.worker||'')).filter(Boolean))].sort();
@@ -12630,6 +12643,27 @@ function renderExchangeList() {
       ${sumCard('이번 달', cMonth, 'var(--text)')}
       ${sumCard('누적 전체', exchangeList.length, 'var(--text)')}
     </div>
+    ${(() => {   // ⭐ v2.67b: 엔지니어별 교품 건수 — 현재 기간·검색 기준, 클릭 = 해당 엔지니어 필터 토글
+      const byW = {};
+      base.forEach(x => { const w = String(x.worker || '?'); byW[w] = (byW[w] || 0) + 1; });
+      const ws = Object.entries(byW).sort((a, b) => b[1] - a[1]);
+      if(!ws.length) return '';
+      const maxC = ws[0][1] || 1;
+      return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">` + ws.map(([w, c]) => {
+        const on = F.worker === w;
+        const pct = Math.max(8, Math.round(c / maxC * 100));
+        return `<button onclick="setExcFilter('worker', '${on ? 'all' : escapeJs(w)}')"
+          style="min-width:96px;text-align:left;padding:8px 12px 7px;border-radius:10px;cursor:pointer;border:1px solid ${on ? 'var(--accent)' : 'var(--border)'};background:${on ? 'var(--accent)22' : 'var(--surface2)'};">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;">
+            <span style="font-size:12px;font-weight:700;color:var(--text);">${escapeHtml(w)}</span>
+            <span style="font-size:15px;font-weight:800;color:${on ? 'var(--accent)' : 'var(--text)'};">${c}</span>
+          </div>
+          <div style="height:4px;border-radius:99px;background:var(--border);margin-top:5px;overflow:hidden;">
+            <div style="height:100%;width:${pct}%;background:${on ? 'var(--accent)' : '#8b5cf6'};border-radius:99px;"></div>
+          </div>
+        </button>`;
+      }).join('') + `</div>`;
+    })()}
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
       ${pBtn('today','오늘',cToday)}${pBtn('week','7일',cWeek)}${pBtn('month','이번 달',cMonth)}${pBtn('all','전체',exchangeList.length)}
       <select onchange="setExcFilter('worker', this.value)" style="height:30px;font-size:12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 8px;">
@@ -14208,7 +14242,8 @@ function exportCSV(mode) {
   const hd = '번호,날짜,엔지니어,기종,시리얼번호,수리항목,사용부품,공임비(원),특이사항,등록시각';
   const ls = rows.map((e,i)=>{
     const ws = parseWorks(e.works);
-    const partsStr = e.parts&&Object.keys(e.parts).length ? Object.entries(e.parts).filter(([n,q])=>Number(q)>0).map(([n,q])=>`${n}×${q}`).join(' / ') : '-';
+    const _realParts = e.parts ? Object.entries(e.parts).filter(([n,q])=>Number(q)>0 && !isQualityFlagKey(n)) : [];
+    const partsStr = (_realParts.length ? _realParts.map(([n,q])=>`${n}×${q}`).join(' / ') : '-') + qualityFlagBadges(e.parts);
     return `${i+1},${String(e.date).slice(0,10)},${e.worker},${e.model||'-'},${e.serial},"${ws.map(k=>WORKS[k]?.label||k).join(' / ')}","${partsStr}",${e.total},"${e.note||''}",${fmtDT(e.date)}`;
   });
   const totalRev = rows.reduce((s,e)=>s+Number(e.total),0);
@@ -15488,10 +15523,29 @@ async function restoreStockForEntry(e) {
 }
 
 // 그 수리에 사용된 부품 개수 합 (복구 확인 메시지용)
+// ⭐ v2.67b: 수정 모달 품질 특이 체크박스 렌더 (저장된 ⚑ 키 반영)
+function renderQualityFlags(savedParts) {
+  const box = document.getElementById('edit-quality-flags');
+  if(!box) return;
+  const saved = savedParts || {};
+  box.innerHTML = QUALITY_FLAGS.map(f => `
+    <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px dashed #8b5cf6aa;border-radius:8px;cursor:pointer;background:#8b5cf60d;">
+      <input type="checkbox" class="quality-flag-cb" value="${f.key}" ${Number(saved[f.key]) > 0 ? 'checked' : ''} style="accent-color:#8b5cf6;width:15px;height:15px;">
+      <span style="font-size:12.5px;font-weight:600;color:#a78bfa;">⚑ ${f.label}</span>
+    </label>`).join('');
+}
+function qualityFlagBadges(parts) {
+  if(!parts || typeof parts !== 'object') return '';
+  return Object.keys(parts).filter(k => isQualityFlagKey(k) && Number(parts[k]) > 0).map(k =>
+    `<span style="display:inline-block;font-size:10.5px;font-weight:700;padding:1px 8px;border-radius:99px;background:#8b5cf61a;color:#a78bfa;border:1px solid #8b5cf655;margin-left:4px;white-space:nowrap;">${escapeHtml(k)}</span>`
+  ).join('');
+}
 function entryPartsCount(e) {
   if(!e) return 0;
   const pd = (e.parts && typeof e.parts === 'object') ? e.parts : {};
-  if(Object.keys(pd).length > 0) return Object.values(pd).reduce((s,q)=>s+(Number(q)||0),0);
+  const realKeys = Object.keys(pd).filter(k => !isQualityFlagKey(k));   // ⭐ v2.67b: 품질 특이 태그 제외
+  if(realKeys.length > 0) return realKeys.reduce((s,k)=>s+(Number(pd[k])||0),0);
+  if(Object.keys(pd).length > 0) return 0;   // ⚑만 있는 경우 — 실물 부품 0
   let c = 0;
   (e.works||[]).forEach(k => getWorkParts(k, e.model||'').forEach(p => { c += p.qty; }));
   return c;
