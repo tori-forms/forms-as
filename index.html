@@ -1524,8 +1524,10 @@ window.addEventListener('DOMContentLoaded', function(){
         <button id="sh-f-out" onclick="setStockHistFilter('out')" class="btn btn-sm">사용/차감</button>
         <button id="sh-f-adj" onclick="setStockHistFilter('adj')" class="btn btn-sm">조정/변경</button>
         <input type="text" id="sh-search" placeholder="부품명·사유 검색" oninput="_shLimit=300;renderStockHistory()" style="height:32px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;width:200px;">
+        <button class="btn btn-sm" onclick="runStockAudit()" style="color:var(--accent);border-color:var(--accent);font-weight:700;">🔍 정합성 검사</button>
         <span id="sh-count" style="font-size:12px;color:var(--text2);margin-left:auto;"></span>
       </div>
+      <div id="stock-audit-result" style="display:none;"></div>
       <div id="stock-history-content"></div>
     </div>
   </div>
@@ -14258,6 +14260,74 @@ function _shCat(l) {
   if(l.type === 'out') return 'out';
   if(/복구/.test(note)) return 'out';   // 수리 수정 복구·수리 삭제 복구 = 수리 흐름의 원복 → 사용/차감으로 묶음
   return 'in';
+}
+
+// ⭐ v2.67: 재고 정합성 검사 — 이력의 "재고 X → Y" 사슬 연속성으로 무기록 변동을 자동 탐지.
+//   원리: 부품별 이력을 시간순으로 놓으면 앞 이력의 Y와 다음 이력의 X가 이어져야 한다.
+//   사슬이 끊긴 지점 = 이력 없이 재고가 움직인 순간(차감 누락·이력 유실·유령 변경).
+//   마지막 Y ≠ 현재 재고 = 최근 변동이 이력 없이 발생.
+function runStockAudit() {
+  const box = document.getElementById('stock-audit-result');
+  if(!box) return;
+  const parseXY = (note) => {
+    const m = String(note || '').match(/재고\s*([\d,]+)\s*→\s*([\d,]+)/);
+    return m ? { from: Number(m[1].replace(/,/g, '')), to: Number(m[2].replace(/,/g, '')) } : null;
+  };
+  const byPart = {};
+  (stockLog || []).forEach(l => {
+    const key = String(l.partId || l.partName || '?');
+    (byPart[key] = byPart[key] || { name: l.partName || key, logs: [] }).logs.push(l);
+  });
+  const fmtT = (v) => { const d = new Date(v); return isNaN(d) ? String(v) : `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+  const results = Object.entries(byPart).map(([key, g]) => {
+    g.logs.sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+    let prevTo = null, prevLog = null, chained = 0;
+    const breaks = [];
+    g.logs.forEach(l => {
+      const p = parseXY(l.note);
+      if(!p) return;   // X→Y 표기가 없는 구형/수기 이력은 사슬 검사에서 제외
+      chained++;
+      if(prevTo !== null && p.from !== prevTo) {
+        breaks.push({ at: l.date, expected: prevTo, actual: p.from, gap: p.from - prevTo, note: l.note, worker: l.worker, prevNote: prevLog ? prevLog.note : '' });
+      }
+      prevTo = p.to; prevLog = l;
+    });
+    // 현재 재고 대조 (id 우선, 이름 폴백)
+    let cur;
+    const sById = (stock || []).find(s => String(s.id) === key);
+    const sByName = (stock || []).find(s => String(s.name) === String(g.name));
+    if(sById) cur = Number(sById.qty);
+    else if(sByName) cur = Number(sByName.qty);
+    const curMatch = (prevTo === null || cur === undefined) ? null : (cur === prevTo);
+    return { name: g.name, total: g.logs.length, chained, breaks, lastTo: prevTo, cur, curMatch };
+  }).sort((a, b) => (b.breaks.length - a.breaks.length) || ((a.curMatch === false ? 0 : 1) - (b.curMatch === false ? 0 : 1)));
+
+  const bad = results.filter(r => r.breaks.length || r.curMatch === false);
+  const okCnt = results.length - bad.length;
+  const head = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+      <span style="font-size:13.5px;font-weight:800;">🔍 정합성 검사 결과</span>
+      <span style="font-size:12px;font-weight:700;color:${bad.length ? '#ef4444' : 'var(--green)'};">${bad.length ? `⚠ 이상 ${bad.length}개 부품` : '✅ 전체 정상'}</span>
+      <span style="font-size:11.5px;color:var(--text3);">부품 ${results.length}종 · 정상 ${okCnt}종 · 사슬 검사 기준(X→Y 연속성 + 현재 재고 대조)</span>
+      <button class="btn btn-sm" style="margin-left:auto;" onclick="document.getElementById('stock-audit-result').style.display='none'">닫기</button>
+    </div>`;
+  const badHtml = bad.map(r => {
+    const rows = r.breaks.slice(0, 8).map(b => `
+      <div style="font-size:11.5px;padding:5px 8px;border-radius:6px;background:var(--surface2);margin-bottom:3px;line-height:1.5;">
+        <b style="color:#ef4444;">${fmtT(b.at)} 사슬 끊김</b> — 기대 <b>${b.expected}</b> → 실제 <b>${b.actual}</b> (<b style="color:${b.gap > 0 ? 'var(--green)' : '#ef4444'};">${b.gap > 0 ? '+' : ''}${b.gap}</b>개가 이력 없이 변동)<br>
+        <span style="color:var(--text3);">직전: ${escapeHtml(b.prevNote || '-')} → 해당: ${escapeHtml(b.note || '-')}${b.worker ? ' · ' + escapeHtml(b.worker) : ''}</span>
+      </div>`).join('');
+    const curLine = r.curMatch === false ? `<div style="font-size:11.5px;color:#ef4444;font-weight:700;padding:4px 8px;">⚠ 현재 재고 ${r.cur} ≠ 이력상 마지막 값 ${r.lastTo} (${r.cur - r.lastTo > 0 ? '+' : ''}${r.cur - r.lastTo}개 무기록 변동)</div>` : '';
+    return `<div style="border:1px solid #ef444455;border-radius:10px;padding:10px 12px;margin-bottom:8px;">
+      <div style="font-weight:800;font-size:13px;margin-bottom:5px;">${escapeHtml(r.name)} <span style="font-size:11px;color:var(--text3);font-weight:600;">이력 ${r.total}건 (사슬 ${r.chained}건)${r.breaks.length > 8 ? ` · 끊김 ${r.breaks.length}건 중 8건 표시` : ''}</span></div>
+      ${rows}${curLine}
+    </div>`;
+  }).join('');
+  box.innerHTML = `<div class="card" style="padding:14px 16px;margin-bottom:12px;border:1px solid ${bad.length ? '#ef444455' : 'var(--border)'};">
+    ${head}
+    ${bad.length ? badHtml : '<div style="font-size:12.5px;color:var(--green);padding:4px 2px;">모든 부품의 이력 사슬이 연속이고 현재 재고와 일치합니다 — 무기록 차감·유실 없음.</div>'}
+    <div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.55;">💡 "사슬 끊김"은 그 시각 직전에 <b>이력 없이 재고가 바뀐 흔적</b>입니다 (기록 유실·수동 시트 편집·과거 버그). 초기 재고 설정 이전 구간과 X→Y 표기가 없는 구형 이력은 검사 대상에서 제외됩니다.</div>
+  </div>`;
+  box.style.display = '';
 }
 
 function renderStockHistory() {
