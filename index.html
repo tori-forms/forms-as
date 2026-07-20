@@ -2340,8 +2340,23 @@ function _tenureBizWeek(name, asOf) {
       ensureHolidaysLoaded(minHd, Date.now());
     } catch(e) {}
   }
-  const bd = bizDaysElapsed(start.getTime(), ref.getTime());   // 주말·공휴일 제외 경과 근무일
-  return Math.floor(Math.max(0, bd) / 5);   // 0-index: 근무일 5일 = 1주 진행
+  // ⭐ v2.67a: 주차 = (달력 경과일 − 평일에 낀 공휴일·회사휴무 수) ÷ 7
+  //   주말은 근무일수에 포함(달력 주 단위로 진행), 법정 공휴일·회사 휴무만 진행을 늦춘다.
+  //   주말과 겹친 공휴일은 어차피 쉬는 날이므로 차감하지 않음(이중 지연 방지).
+  const s0 = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const r0 = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  const days = Math.max(0, Math.round((r0 - s0) / 86400000));
+  let holCnt = 0;
+  const cur = new Date(s0);
+  while(cur < r0) {
+    cur.setDate(cur.getDate() + 1);
+    const dow = cur.getDay();
+    if(dow === 0 || dow === 6) continue;   // 주말 공휴일은 미차감
+    const key = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`;
+    const ds = `${key}-${String(cur.getDate()).padStart(2,'0')}`;
+    if(holidayCache[key] && holidayCache[key].includes(ds)) holCnt++;
+  }
+  return Math.floor(Math.max(0, days - holCnt) / 7);
 }
 function tenureDailyTarget(name, asOf) {
   const week = _tenureBizWeek(name, asOf);
