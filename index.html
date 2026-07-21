@@ -2930,6 +2930,7 @@ async function syncData(silent=false, force=false, _snapData=null) {
       stock = data.stock || [];
       stockLog = data.stockLog || [];
       _applyInternalOverrides();   // ⭐ v2.69b: 10분 내 변경한 내부전용 체크가 낡은 페이로드에 덮이지 않게
+      _applyStockQtyOverrides();   // ⭐ v2.70b: 10분 내 바꾼 수량도 낡은 페이로드에 덮이지 않게 (새로고침 대응)
     }
     // ⭐ 작업별 부품 매핑 (관리자가 화면에서 설정) — 있으면 WORKS 대신 사용
     if(data.workPartsMap && Object.keys(data.workPartsMap).length) {
@@ -15560,6 +15561,31 @@ function _applyInternalOverrides() {
   } catch(e) {}
 }
 
+// ⭐ v2.70b: 재고 수량 로컬 기억 — 내가 방금(10분 내) 바꾼 수량은 새로고침 후 낡은
+//   캐시/GitHub 스냅샷이 와도 덮이지 않게 함. (_stockDirtyUntil은 메모리라 새로고침에 소멸 —
+//   수정 직후 새로고침하면 캐시 발행이 따라잡기 전까지 옛 수량(예: 129)이 보이던 문제 해소)
+//   서버 시트가 진실이므로 10분이 지나면 자동으로 서버 값으로 수렴한다.
+function _rememberStockQty(partId, qty) {
+  try {
+    const m = JSON.parse(localStorage.getItem('fa_stockqty_ov') || '{}');
+    m[String(partId)] = { q: Number(qty), t: Date.now() };
+    localStorage.setItem('fa_stockqty_ov', JSON.stringify(m));
+  } catch(e) {}
+}
+function _applyStockQtyOverrides() {
+  try {
+    const m = JSON.parse(localStorage.getItem('fa_stockqty_ov') || '{}');
+    const now = Date.now();
+    let dirty = false;
+    Object.keys(m).forEach(id => {
+      if(now - (m[id].t || 0) > 10 * 60 * 1000) { delete m[id]; dirty = true; return; }
+      const s = (stock || []).find(x => String(x.id) === id);
+      if(s && Number(s.qty) !== Number(m[id].q)) s.qty = Number(m[id].q);
+    });
+    if(dirty) localStorage.setItem('fa_stockqty_ov', JSON.stringify(m));
+  } catch(e) {}
+}
+
 // ⭐ v2.68: 부품 단위 원자 재고 연산 — 서버가 락 안에서 시트 현재값 기준으로 적용하고
 //   이력까지 기록(logId 멱등·재전송 안전). 반환된 수량으로 로컬을 맞춰 어떤 탭이 낡아도 정확.
 async function adjustStockOp(o) {   // o: { idx, delta? | set?, type, note }
@@ -15579,6 +15605,7 @@ async function adjustStockOp(o) {   // o: { idx, delta? | set?, type, note }
   if(res && res.ok) {
     const prev = Number(res.prev !== undefined ? res.prev : sp.qty);
     sp.qty = Number(res.qty);
+    _rememberStockQty(sp.id, sp.qty);   // ⭐ v2.70b: 새로고침해도 10분간 내 값 유지 (낡은 캐시 방어)
     if(prev === Number(res.qty)) { window._stockDirtyUntil = Date.now() + 120000; return res; }   // ⭐ v2.68e: 무변화 — 로그 소음 방지
     stockLog.push({ logId, partId: sp.id, partName: sp.name,
       type: o.type || (o.set !== undefined ? 'adjust' : (Number(o.delta) < 0 ? 'out' : 'in')),
