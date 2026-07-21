@@ -2698,7 +2698,7 @@ function gasCall(params) {
     saveKPI:1, saveStock:1, savePriceSettings:1, savePassword:1, saveWorkers:1,
     deleteExchange:1, deleteShipLog:1, bulkDeleteShipLog:1, deleteDoc:1,
     deleteInspection:1, updateInspection:1, updateShipSerial:1,
-    addStockLog:1, saveCompanyHolidays:1   // ⭐ v2.64a: 서버 logId 멱등 확보 → 재전송 안전. 재고 이력 유실(수량만 줄고 이력 증발) 차단
+    addStockLog:1, saveCompanyHolidays:1, saveWorkParts:1   // ⭐ v2.64a: 서버 logId 멱등 확보 → 재전송 안전. 재고 이력 유실(수량만 줄고 이력 증발) 차단
   };
   // ⭐ v2.62b: 멱등 액션은 첫 전송 25초로 짧게 — 응답 유실 시 재전송이 빨리 개입 (총 대기 최대 ~70초→~30초)
   let _pMut = _gasCallJsonp(params, _IDEMPOTENT_ACTIONS[_act] ? 25000 : undefined);
@@ -2928,7 +2928,14 @@ async function syncData(silent=false, force=false, _snapData=null) {
     }
     // ⭐ 작업별 부품 매핑 (관리자가 화면에서 설정) — 있으면 WORKS 대신 사용
     if(data.workPartsMap && Object.keys(data.workPartsMap).length) {
-      window.WORK_PARTS_MAP = data.workPartsMap;
+      // ⭐ v2.67d: 방금(10분 내) 저장한 구성이 있으면 낡은 파이프라인 응답이 덮지 못하게 우선 적용.
+      //   재빌드·발행이 수렴하면 서버 페이로드가 같은 값이 되어 자연 승계.
+      let _wpUse = data.workPartsMap;
+      try {
+        const _loc = JSON.parse(localStorage.getItem('fa_workparts_local') || 'null');
+        if(_loc && _loc.t && (Date.now() - _loc.t) < 10 * 60 * 1000 && _loc.map) _wpUse = _loc.map;
+      } catch(e) {}
+      window.WORK_PARTS_MAP = _wpUse;
     }
     // exchange: Code.gs 미업데이트 시 로컬 데이터 유지 (덮어쓰기 방지)
     if(data.exchange !== undefined) exchangeList = data.exchange;
@@ -9042,6 +9049,7 @@ async function saveWorkParts() {
     });
   });
   window.WORK_PARTS_MAP = map;
+  try { localStorage.setItem('fa_workparts_local', JSON.stringify({ map, t: Date.now() })); } catch(e) {}   // ⭐ v2.67d: 최근 저장분 우선용 백업
   try {
     await gasCall({ action:'saveWorkParts', mapJson: JSON.stringify(map) });
     notify('작업별 부품 설정이 저장되었습니다.');
