@@ -2929,6 +2929,7 @@ async function syncData(silent=false, force=false, _snapData=null) {
     } else {
       stock = data.stock || [];
       stockLog = data.stockLog || [];
+      _applyInternalOverrides();   // ⭐ v2.69b: 10분 내 변경한 내부전용 체크가 낡은 페이로드에 덮이지 않게
     }
     // ⭐ 작업별 부품 매핑 (관리자가 화면에서 설정) — 있으면 WORKS 대신 사용
     if(data.workPartsMap && Object.keys(data.workPartsMap).length) {
@@ -15411,7 +15412,7 @@ async function savePart() {
       const old = {...stock[idx]};
       const _intChanged = (!!old.internal) !== internal;   // ⭐ v2.69a
       stock[idx] = {...stock[idx], name, category, minQty, model, internal: internal?1:0};   // ⭐ v2.68: 수량은 아래 set 연산으로만
-      if(_intChanged) { try { await gasCall({ action:'setPartInternal', partId: stock[idx].id, internal: internal ? '1' : '0' }); window._stockDirtyUntil = Date.now()+120000; } catch(e) {} }
+      if(_intChanged) { try { await gasCall({ action:'setPartInternal', partId: stock[idx].id, internal: internal ? '1' : '0' }); window._stockDirtyUntil = Date.now()+120000; _rememberInternal(stock[idx].id, internal?1:0); } catch(e) {} }
       const d = qty - Number(old.qty||0);
       if(d !== 0) { try { await adjustStockOp({ idx, set: qty, type: 'adjust', note: '재고 수정' }); } catch(e) {} }
       if(String(old.name) !== String(name)) _logs.push({logId:'l'+Date.now()+'b', partId:editPartId, partName:name, type:'adjust', qty:0, note:`부품명 변경: ${old.name} → ${name}`, date:_now(), worker:currentUser||''});
@@ -15425,7 +15426,7 @@ async function savePart() {
   }
   await saveStockToServer();
   if(window._newPartInternalId) {   // ⭐ v2.69a: 신규 내부 전용 확정
-    try { await gasCall({ action:'setPartInternal', partId: window._newPartInternalId, internal:'1' }); } catch(e) {}
+    try { await gasCall({ action:'setPartInternal', partId: window._newPartInternalId, internal:'1' }); _rememberInternal(window._newPartInternalId, 1); } catch(e) {}
     window._newPartInternalId = null;
   }
   for(const log of _logs) {
@@ -15448,6 +15449,28 @@ function deletePart(id) {
     renderStock();
     notify('삭제되었습니다. (이력 기록됨)');
   });
+}
+
+// ⭐ v2.69b: 내부전용 체크의 표시 일관성 — 변경 직후 10분간 로컬 기억이 낡은 페이로드를 이김
+function _rememberInternal(partId, v) {
+  try {
+    const m = JSON.parse(localStorage.getItem('fa_internal_ov') || '{}');
+    m[String(partId)] = { v, t: Date.now() };
+    localStorage.setItem('fa_internal_ov', JSON.stringify(m));
+  } catch(e) {}
+}
+function _applyInternalOverrides() {
+  try {
+    const m = JSON.parse(localStorage.getItem('fa_internal_ov') || '{}');
+    const now = Date.now();
+    let dirty = false;
+    Object.keys(m).forEach(id => {
+      if(now - (m[id].t || 0) > 10 * 60 * 1000) { delete m[id]; dirty = true; return; }
+      const s = (stock || []).find(x => String(x.id) === id);
+      if(s) s.internal = m[id].v;
+    });
+    if(dirty) localStorage.setItem('fa_internal_ov', JSON.stringify(m));
+  } catch(e) {}
 }
 
 // ⭐ v2.68: 부품 단위 원자 재고 연산 — 서버가 락 안에서 시트 현재값 기준으로 적용하고
