@@ -11156,30 +11156,6 @@ function buildT4StatsHtml() {
   const s3M    = agg(e => dnorm(e) >= m3StartStr);
   const sTotal = agg(() => true);
 
-  // ⭐ v2.70b: 3중 작업(LCD 교체 + 논배터리 + 메인보드 부분수리 동시 진행) 별도 집계
-  // ⭐ v2.70c: 매칭 강화 — 키('panel' 등)뿐 아니라 구형/수기 데이터의 태그·라벨 표기도 인식
-  const isTriple = e => {
-    const ws = parseWorks(e.works).map(x => String(x));
-    const has = (key, pats) => ws.some(x => x === key || pats.some(t => x.includes(t)));
-    return has('panel', ['LCD', '패널'])
-        && has('nonbat', ['논배터리'])
-        && has('board', ['메인보드', 'MB']);
-  };
-  const tripleList = all.filter(isTriple);
-  const tAgg = (filterFn) => tripleList.filter(filterFn).length;
-  const tToday = tAgg(e => dnorm(e) === today);
-  const tWeek  = tAgg(e => dnorm(e) >= weekStartStr && dnorm(e) <= today);
-  const tMonth = tAgg(e => dnorm(e).startsWith(curMonth));
-  const tPrev  = tAgg(e => dnorm(e).startsWith(prevMonth));
-  const tTotal = tAgg(() => true);
-  // 이번 달 명단 (최신순) — 카드에서 펼쳐서 어떤 건이 집계됐는지 확인용
-  const tMonthRows = tripleList.filter(e => dnorm(e).startsWith(curMonth))
-    .sort((a, b) => new Date(b.date||0) - new Date(a.date||0))
-    .map(e => `<div style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:12px;border-bottom:1px dashed var(--border);">
-      <span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭 복사" style="font-weight:700;color:var(--text);">${escapeHtml(e.serial)}</span>
-      <span style="color:var(--text3);">${escapeHtml(dnorm(e))}</span>
-      <span style="color:var(--text2);margin-left:auto;">${escapeHtml(String(e.worker||'').split('::')[0])}</span>
-    </div>`).join('');
 
   // 행: 구간별 한 줄에 건수 + 공임비
   const row = (label, s, hi) => `
@@ -11214,8 +11190,56 @@ function buildT4StatsHtml() {
       <span style="color:var(--text2);">전월 대비</span>
       <span>건수 ${delta(sMonth.cnt, sPrev.cnt)} · 공임비 ${delta(sMonth.amt, sPrev.amt)}</span>
     </div>
-  </div>
-  <div class="card" style="padding:16px 18px;margin-bottom:16px;border-left:4px solid #8b5cf6;">
+  </div>`;
+}
+
+// ⭐ v2.70d: 3중 작업(LCD 교체 + 논배터리 + 메인보드 부분수리 동시 진행) 집계 카드
+//   T4 대시보드(운영 현황)에 단독 카드로 렌더 — 키('panel' 등)뿐 아니라 구형/수기 데이터의
+//   태그·라벨 표기("LCD 교체", "메인보드 부분 수리" 등)도 인식.
+function buildTripleWorkHtml() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const all = entries || [];
+  const dnorm = e => toLocalDay(e.date);
+  const today = ymd(now);
+  const dow = (now.getDay()+6)%7;
+  const weekStart = new Date(now); weekStart.setDate(now.getDate()-dow);
+  const weekStartStr = ymd(weekStart);
+  const curMonth = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
+  const prevD = new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const prevMonth = `${prevD.getFullYear()}-${pad(prevD.getMonth()+1)}`;
+
+  const isTriple = e => {
+    const ws = parseWorks(e.works).map(x => String(x));
+    const has = (key, pats) => ws.some(x => x === key || pats.some(t => x.includes(t)));
+    return has('panel', ['LCD', '패널'])
+        && has('nonbat', ['논배터리'])
+        && has('board', ['메인보드', 'MB']);
+  };
+  const tripleList = all.filter(isTriple);
+  const tAgg = (f) => tripleList.filter(f).length;
+  const tToday = tAgg(e => dnorm(e) === today);
+  const tWeek  = tAgg(e => dnorm(e) >= weekStartStr && dnorm(e) <= today);
+  const tMonth = tAgg(e => dnorm(e).startsWith(curMonth));
+  const tPrev  = tAgg(e => dnorm(e).startsWith(prevMonth));
+  const tTotal = tripleList.length;
+  const tDelta = (cur, prev) => {
+    if(!prev) return cur>0?'<span style="color:#10b981;font-weight:700;">신규</span>':'<span style="color:var(--text3);">-</span>';
+    const diff = cur-prev, pct = Math.round(diff/prev*100);
+    if(diff>0) return `<span style="color:#10b981;font-weight:700;">▲ +${pct}%</span>`;
+    if(diff<0) return `<span style="color:#ef4444;font-weight:700;">▼ ${pct}%</span>`;
+    return '<span style="color:var(--text3);">0%</span>';
+  };
+  const tMonthRows = tripleList.filter(e => dnorm(e).startsWith(curMonth))
+    .sort((a, b) => new Date(b.date||0) - new Date(a.date||0))
+    .map(e => `<div style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:12px;border-bottom:1px dashed var(--border);">
+      <span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭 복사" style="font-weight:700;color:var(--text);">${escapeHtml(e.serial)}</span>
+      <span style="color:var(--text3);">${escapeHtml(dnorm(e))}</span>
+      <span style="color:var(--text2);margin-left:auto;">${escapeHtml(String(e.worker||'').split('::')[0])}</span>
+    </div>`).join('');
+
+  return `<div class="card" style="padding:16px 18px;margin-bottom:16px;border-left:4px solid #8b5cf6;">
     <div style="font-size:15px;font-weight:800;color:var(--text);margin-bottom:4px;">🔩 3중 작업 현황</div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:12px;">LCD 교체 + 논배터리 + 메인보드 부분수리를 한 건에서 모두 진행한 수리 · 등록일 기준</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:10px;">
@@ -11227,7 +11251,7 @@ function buildT4StatsHtml() {
     </div>
     <div style="display:flex;justify-content:space-between;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;">
       <span style="color:var(--text2);">전월 대비</span>
-      <span>${delta(tMonth, tPrev)}</span>
+      <span>${tDelta(tMonth, tPrev)}</span>
     </div>
     <details style="margin-top:8px;">
       <summary style="cursor:pointer;font-size:11.5px;color:var(--text2);list-style:none;">▾ 이번 달 명단 보기 (${tMonth}건) — 빠진 건이 있으면 그 건의 수리 항목에 LCD·논배터리·MB수리 3개가 모두 체크됐는지 확인</summary>
@@ -11432,6 +11456,7 @@ async function renderMyDash() {
     const t4ReportMonth = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
     el.innerHTML =
       `<div id="t4-report-slot"><div style="color:var(--text3);font-size:13px;padding:10px 2px;">실적 리포트 불러오는 중…</div></div>` +
+      `<div id="t4-triple-slot"></div>` +   // ⭐ v2.70d: 3중 작업 현황 카드 자리
       `<div id="t4-miss-slot">${missInit}</div>
       <details id="t4-board-details" style="margin-top:4px;"${boardOpen?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
@@ -11444,6 +11469,8 @@ async function renderMyDash() {
     // ⭐ 실적 리포트 임베드 (관리자탭의 실적 리포트를 대시보드에 표시)
     try { if(!_shipHistoryLoaded) loadShipHistory(); } catch(e) {}   // ⭐ v2.63a: 출고 집계 재료 선로딩 — 도착 시 위 훅이 리포트 재렌더
     try { renderReportInto('t4-report-slot', t4ReportMonth).catch(e => console.warn('[실적리포트]', e)); } catch(e) { console.warn(e); }
+    // ⭐ v2.70d: 3중 작업 현황 카드 (실적 리포트 아래)
+    try { const ts = document.getElementById('t4-triple-slot'); if(ts) ts.innerHTML = buildTripleWorkHtml(); } catch(e) { console.warn('[3중작업]', e); }
 
     const det = document.getElementById('t4-board-details');
     const boardSlot = document.getElementById('t4-board-slot');
