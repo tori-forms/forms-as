@@ -5812,7 +5812,7 @@ function renderInspectWaitList() {
         <td>${workCell}</td>
         <td style="font-size:12px;white-space:nowrap;">${passFmt}</td>
         <td style="font-size:12px;color:${waitH>=24?'#ef4444':'var(--text2)'};">
-          ${waitH > 0 ? `${waitH}시간 대기` : '방금'}
+          ${waitH >= 24 ? `${Math.floor(waitH/24)}일째 대기` : (waitH > 0 ? `${waitH}시간 대기` : '방금')}
         </td>
         <td style="text-align:center;white-space:nowrap;">
           ${canInsp ? `
@@ -6736,13 +6736,12 @@ async function submitInspect(entryId) {
       result, defectTypes, defectReason
     });
 
-    // ⭐ 변경 보호 등록 (5초간)
+    // ⭐ v2.68a: 보호 데이터는 status만 — agingStart는 불량 처리 시 로컬·서버 타임스탬프가
+    //   몇 초 달라 영원히 불일치 → 서버 확인 해제가 못 붙고 항상 '만료'로만 풀리던 문제 수정.
+    //   (status만 일치 확인해도 되돌림 방지 목적은 완전 달성)
     markPendingChange('entries', entryId, {
       type: 'update',
-      data: {
-        status: entries[curIdx].status,
-        agingStart: entries[curIdx].agingStart
-      }
+      data: { status: entries[curIdx].status }
     }, 5000);
 
     closeInspectModal();
@@ -12304,6 +12303,20 @@ async function renderSummary() {
   const sq = summarySerialQuery.trim();
   const matchSq = e => !sq || normalizeSerial(e.serial).includes(sq);
 
+  // ⭐ v2.68b: 주간 교품 → 수리 환산 (티오더 합의: 주간 교품 8개 = 수리 1건) — 표시 계층.
+  const _selD = new Date(sel + 'T00:00:00');
+  const _dow = (_selD.getDay() + 6) % 7;   // 월=0
+  const _wkStart = new Date(_selD); _wkStart.setDate(_selD.getDate() - _dow);
+  const _wkEnd = new Date(_wkStart); _wkEnd.setDate(_wkStart.getDate() + 6);
+  const _fmtD2 = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const _wkSs = _fmtD2(_wkStart), _wkEs = _fmtD2(_wkEnd);
+  const _excByW = {};
+  (exchangeList || []).forEach(x => {
+    const d = toLocalDay(x.date);
+    if(d >= _wkSs && d <= _wkEs) { const w = String(x.worker || '?'); _excByW[w] = (_excByW[w] || 0) + 1; }
+  });
+  window._excWeekInfo = { range: `${_wkSs.slice(5)}~${_wkEs.slice(5)}`, byW: _excByW };
+
   const dailyTarget = await getDailyTarget(sel);
   // ⭐ v2.5: MASTER + T4 + QC 전용 제외한 실제 수리 엔지니어만 카운트
   const activeWorkers = workers.filter(isRepairEngineer);
@@ -12324,6 +12337,41 @@ async function renderSummary() {
   // 총 목표 = 모든 활동중 작업자의 개인 목표 합
   const totalTarget = activeWorkers.reduce((s, w) => s + personalTarget(w), 0);
   const progressColor = totalTarget > 0 ? (list.length >= totalTarget ? 'var(--green)' : 'var(--red)') : 'var(--text2)';
+  // ⭐ v2.68b: 주간 교품 환산 카드 (일일 현황 상단)
+  (function() {
+    let box = document.getElementById('summary-exc-conv');
+    if(!box) {
+      const stats = document.getElementById('summary-stats');
+      if(!stats) return;
+      box = document.createElement('div');
+      box.id = 'summary-exc-conv';
+      stats.parentNode.insertBefore(box, stats);
+    }
+    const info = window._excWeekInfo || { range: '', byW: {} };
+    const es = Object.entries(info.byW).sort((a, b) => b[1] - a[1]);
+    if(!es.length) { box.innerHTML = ''; return; }
+    const totalExc = es.reduce((s, [, c]) => s + c, 0);
+    const totalConv = Math.floor(totalExc / 8);
+    box.innerHTML = `<div class="card" style="padding:12px 16px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+        <span style="font-size:13.5px;font-weight:800;">🔄 주간 교품 → 수리 환산</span>
+        <span style="font-size:11.5px;color:var(--text3);">이번 주(${info.range}) 교품 8개 = 수리 1건 (티오더 합의) · 총 교품 ${totalExc}개 = <b style="color:var(--accent);">환산 ${totalConv}건</b></span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${es.map(([w, c]) => {
+          const conv = Math.floor(c / 8), rem = c % 8;
+          return `<div style="min-width:120px;padding:8px 12px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);">
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;">
+              <span style="font-size:12px;font-weight:700;">${escapeHtml(w)}</span>
+              <span style="font-size:11px;color:var(--text3);">교품 ${c}개</span>
+            </div>
+            <div style="font-size:13px;font-weight:800;color:${conv > 0 ? 'var(--accent)' : 'var(--text2)'};margin:2px 0;">환산 +${conv}건 <span style="font-size:10.5px;font-weight:600;color:var(--text3);">(다음까지 ${rem}/8)</span></div>
+            <div style="height:4px;border-radius:99px;background:var(--border);overflow:hidden;"><div style="height:100%;width:${Math.round(rem / 8 * 100)}%;background:var(--accent);"></div></div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  })();
   document.getElementById('summary-stats').innerHTML = `
     <div class="stat-card">
       <div class="stat-label">오늘 수리 현황</div>
