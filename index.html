@@ -12722,15 +12722,61 @@ function renderExchangeList() {
         onkeydown="if(event.key==='Enter') excSearchGo()"
         style="height:30px;font-size:12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 10px;min-width:170px;">
       <button class="btn btn-sm" onclick="excSearchGo()">🔍 검색</button>
+      <button class="btn btn-sm" onclick="window._excShowMonthly=!window._excShowMonthly;renderExchangeList();" style="font-weight:700;${window._excShowMonthly?'background:var(--accent);color:#fff;border-color:var(--accent);':''}">📅 월별 마감</button>
       ${(F.period!=='all'||F.worker!=='all'||F.q) ? `<button class="btn btn-sm" onclick="window._excFilter={period:'all',worker:'all',q:''};renderExchangeList();" style="color:var(--text3);">✕ 초기화</button>` : ''}
     </div>`;
 
+  // ⭐ v2.68d: 월별 마감 집계 — 월별 교품 총수·엔지니어별 분해·환산 합계(주 단위 8:1, 주의 월요일이 속한 달 귀속, 07-21 이후)
+  let monthlyHtml = '';
+  if(window._excShowMonthly) {
+    const CONV_START = '2026-07-21';
+    const byMonth = {};           // 'YYYY-MM' → { total, byW: {} }
+    const byWeek = {};            // 'YYYY-MM-DD(주 시작 월요일)' → { byW: {} }
+    const _ld = (v) => { const d = new Date(v); return isNaN(d) ? '' : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+    (exchangeList || []).forEach(x => {
+      const ds = _ld(x.date); if(!ds) return;
+      const w = String(x.worker || '?');
+      const mKey = ds.slice(0, 7);
+      (byMonth[mKey] = byMonth[mKey] || { total: 0, byW: {} }).total++;
+      byMonth[mKey].byW[w] = (byMonth[mKey].byW[w] || 0) + 1;
+      if(ds >= CONV_START) {
+        const d0 = new Date(ds + 'T00:00:00');
+        const off = (d0.getDay() + 6) % 7;
+        d0.setDate(d0.getDate() - off);
+        const wk = `${d0.getFullYear()}-${String(d0.getMonth()+1).padStart(2,'0')}-${String(d0.getDate()).padStart(2,'0')}`;
+        ((byWeek[wk] = byWeek[wk] || {})[w] = (byWeek[wk][w] || 0) + 1);
+      }
+    });
+    const convByMonth = {};
+    Object.entries(byWeek).forEach(([wk, m]) => {
+      const mKey = wk.slice(0, 7);   // 주 시작(월)의 달로 귀속
+      convByMonth[mKey] = (convByMonth[mKey] || 0) + Object.values(m).reduce((s, c) => s + Math.floor(c / 8), 0);
+    });
+    const months = Object.keys(byMonth).sort().reverse();
+    monthlyHtml = `<div class="card" style="padding:14px 16px;margin-bottom:12px;">
+      <div style="font-size:13.5px;font-weight:800;margin-bottom:4px;">📅 월별 마감 집계 <span style="font-size:11px;font-weight:600;color:var(--text3);">환산 = 주 단위(월~일) 교품 8개당 수리 1건 · 07-21 이후 집계 · 주의 월요일이 속한 달로 귀속</span></div>
+      ${months.map(mk => {
+        const m = byMonth[mk];
+        const ws = Object.entries(m.byW).sort((a, b) => b[1] - a[1]);
+        const conv = convByMonth[mk];
+        return `<div style="padding:9px 0;border-bottom:1px solid var(--border);">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <span style="font-size:13px;font-weight:800;min-width:74px;">${mk.replace('-', '년 ')}월</span>
+            <span style="font-size:12.5px;font-weight:700;">교품 ${m.total}개</span>
+            <span style="font-size:12px;color:${conv !== undefined ? 'var(--accent)' : 'var(--text3)'};font-weight:700;">${conv !== undefined ? `환산 ${conv}건` : '환산 — (집계 전)'}</span>
+            <span style="font-size:11.5px;color:var(--text3);">${ws.map(([w, c]) => `${escapeHtml(w)} ${c}`).join(' · ')}</span>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
   if(!filtered.length) {
-    el.innerHTML = barHtml + '<div class="empty"><div class="empty-icon">🔍</div>조건에 맞는 교품 내역이 없습니다.</div>';
+    el.innerHTML = barHtml + monthlyHtml + '<div class="empty"><div class="empty-icon">🔍</div>조건에 맞는 교품 내역이 없습니다.</div>';
     return;
   }
   const sorted = filtered.sort((a,b) => new Date(b.date)-new Date(a.date));
-  el.innerHTML = barHtml + `<div class="card" style="padding:0;"><div class="table-wrap"><table>
+  el.innerHTML = barHtml + monthlyHtml + `<div class="card" style="padding:0;"><div class="table-wrap"><table>
     <thead><tr>
       <th style="white-space:nowrap;">날짜</th>
       <th>시리얼</th>
@@ -14457,7 +14503,9 @@ function renderStockHistory() {
     const note = String(l.note||'');
     const m = note.match(/\(([+-])\d+\)/);
     let sign;
+    const xy = note.match(/재고\s*([\d,]+)\s*→\s*([\d,]+)/);   // ⭐ v2.68e: "재고 X → Y"에서 증감 방향 판독
     if(m) sign = m[1];
+    else if(xy) sign = (Number(xy[2].replace(/,/g,'')) >= Number(xy[1].replace(/,/g,''))) ? '+' : '-';
     else if(_shCat(l) === 'out') sign = /복구/.test(note) ? '+' : '-';
     else if(l.type === 'out') sign = '-';
     else sign = '+';
@@ -15399,6 +15447,7 @@ async function adjustStockOp(o) {   // o: { idx, delta? | set?, type, note }
   if(res && res.ok) {
     const prev = Number(res.prev !== undefined ? res.prev : sp.qty);
     sp.qty = Number(res.qty);
+    if(prev === Number(res.qty)) { window._stockDirtyUntil = Date.now() + 120000; return res; }   // ⭐ v2.68e: 무변화 — 로그 소음 방지
     stockLog.push({ logId, partId: sp.id, partName: sp.name,
       type: o.type || (o.set !== undefined ? 'adjust' : (Number(o.delta) < 0 ? 'out' : 'in')),
       qty: Math.abs(o.set !== undefined ? (Number(res.qty) - prev) : Number(o.delta || 0)),
