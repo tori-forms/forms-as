@@ -2702,7 +2702,7 @@ function gasCall(params) {
     saveKPI:1, saveStock:1, savePriceSettings:1, savePassword:1, saveWorkers:1,
     deleteExchange:1, deleteShipLog:1, bulkDeleteShipLog:1, deleteDoc:1,
     deleteInspection:1, updateInspection:1, updateShipSerial:1,
-    addStockLog:1, saveCompanyHolidays:1, saveWorkParts:1, adjustStock:1   // ⭐ v2.64a: 서버 logId 멱등 확보 → 재전송 안전. 재고 이력 유실(수량만 줄고 이력 증발) 차단
+    addStockLog:1, saveCompanyHolidays:1, saveWorkParts:1, adjustStock:1, setPartInternal:1   // ⭐ v2.64a: 서버 logId 멱등 확보 → 재전송 안전. 재고 이력 유실(수량만 줄고 이력 증발) 차단
   };
   // ⭐ v2.62b: 멱등 액션은 첫 전송 25초로 짧게 — 응답 유실 시 재전송이 빨리 개입 (총 대기 최대 ~70초→~30초)
   let _pMut = _gasCallJsonp(params, _IDEMPOTENT_ACTIONS[_act] ? 25000 : undefined);
@@ -15409,7 +15409,9 @@ async function savePart() {
     const idx = stock.findIndex(x=>x.id===editPartId);
     if(idx>-1) {
       const old = {...stock[idx]};
+      const _intChanged = (!!old.internal) !== internal;   // ⭐ v2.69a
       stock[idx] = {...stock[idx], name, category, minQty, model, internal: internal?1:0};   // ⭐ v2.68: 수량은 아래 set 연산으로만
+      if(_intChanged) { try { await gasCall({ action:'setPartInternal', partId: stock[idx].id, internal: internal ? '1' : '0' }); window._stockDirtyUntil = Date.now()+120000; } catch(e) {} }
       const d = qty - Number(old.qty||0);
       if(d !== 0) { try { await adjustStockOp({ idx, set: qty, type: 'adjust', note: '재고 수정' }); } catch(e) {} }
       if(String(old.name) !== String(name)) _logs.push({logId:'l'+Date.now()+'b', partId:editPartId, partName:name, type:'adjust', qty:0, note:`부품명 변경: ${old.name} → ${name}`, date:_now(), worker:currentUser||''});
@@ -15418,9 +15420,14 @@ async function savePart() {
   } else {
     const newId = 'p'+Date.now();
     stock.push({id:newId, name, category, qty, minQty, model, internal: internal?1:0});   // ⭐ v2.69
+    if(internal) window._newPartInternalId = newId;   // ⭐ v2.69a: 구조 저장 후 전용 액션으로 확정
     _logs.push({logId:'l'+Date.now()+'n', partId:newId, partName:name, type:'in', qty:qty, note:`신규 부품 등록 · 재고 0 → ${qty}`, date:_now(), worker:currentUser||''});
   }
   await saveStockToServer();
+  if(window._newPartInternalId) {   // ⭐ v2.69a: 신규 내부 전용 확정
+    try { await gasCall({ action:'setPartInternal', partId: window._newPartInternalId, internal:'1' }); } catch(e) {}
+    window._newPartInternalId = null;
+  }
   for(const log of _logs) {
     stockLog.push(log);
     try { await gasCall({action:'addStockLog', ...log}); } catch(e) {}
