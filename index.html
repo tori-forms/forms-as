@@ -4683,22 +4683,24 @@ async function moveToInspect(entryId) {
 
   try {
     notifyPersist('이동 중...');
-    const resp = await gasCall({action:'updateRepairStatus', id: entryId, newStatus: STATUS_AGING_PASS});
+    const _entryIso = new Date().toISOString();   // ⭐ v2.67c: 검수대기 진입 시각 도장
+    const resp = await gasCall({action:'updateRepairStatus', id: entryId, newStatus: STATUS_AGING_PASS, stamp:'1'});
     console.log('[검수대기 이동] GAS 응답:', resp);
 
     // ⭐ v2.45: await 후 entries idx 재탐색 (자동 동기화가 entries 갈아끼웠을 수 있음)
     const curIdx = entries.findIndex(x => String(x.id) === String(entryId));
     if(curIdx === -1) {
       console.warn('[검수대기 이동] entries에서 못 찾음 — 옛 객체로 push');
-      entries.push({...e, status: STATUS_AGING_PASS});
+      entries.push({...e, status: STATUS_AGING_PASS, agingStart: _entryIso});
     } else {
       entries[curIdx].status = STATUS_AGING_PASS;
+      entries[curIdx].agingStart = _entryIso;
     }
 
-    // 변경 보호 등록 (5초)
+    // 변경 보호 등록 (진입 시각 포함)
     markPendingChange('entries', entryId, {
       type: 'update',
-      data: { status: STATUS_AGING_PASS }
+      data: { status: STATUS_AGING_PASS, agingStart: _entryIso }
     }, 5000);
 
     notify('검수대기로 이동했습니다.');
@@ -5768,11 +5770,12 @@ function renderInspectWaitList() {
     let prevWorker = null;
     list.forEach(e => {
       const worker = String(e.worker||'').split('::')[0];
+      // ⭐ v2.67c: agingStart = '현 단계 진입 시각' — 검수대기로 넘어온 순간부터 대기 시간 계산.
+      //   (구건: 도장 이전에 넘어온 항목은 에이징 시작 시각이 남아 과대 표시될 수 있음 — 회전되며 자연 해소)
       const startMs = e.agingStart ? new Date(e.agingStart).getTime() : 0;
-      const passMs = startMs + agingDurationMs;
-      const waitMs = Math.max(0, nowMs() - passMs);
+      const waitMs = Math.max(0, nowMs() - startMs);
       const waitH = Math.floor(waitMs / 3600000);
-      const passFmt = passMs ? new Date(passMs).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
+      const passFmt = startMs ? new Date(startMs).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
 
       if(worker !== prevWorker) {
         const groupCount = list.filter(x => String(x.worker||'').split('::')[0] === worker).length;
