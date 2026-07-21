@@ -4194,16 +4194,33 @@ function toggleShipListGroupAll(groupId, checked) {
 // ═══════════════════════════════════════════════════════════════════
 // 견적서 / 출고 리스트 발행 (출고 목록에서 체크한 건 기준)
 // ═══════════════════════════════════════════════════════════════════
-// 회사 정보 (고정)
-const VOLTALES_INFO = {
-  bizNo: '449-86-03619',
-  company: '주식회사 볼타레스 / 손성완',
-  addr: '서울특별시 마포구 월드컵로 196, 비101-이171',
+// 회사 정보 (고정) — ⭐ v2.70: 폼즈 AS견적서 양식으로 교체
+const FORMS_INFO = {
+  bizNo: '385-87-02123',
+  company: '주식회사 폼즈 / 이정진',
+  addr: '서울특별시 영등포구 문래북로 8, 6층 608호',
   bizType: '소매업 / 전자상거래 소매업',
   manager: '최민규',
   tel: '01034661699',
-  receiver: '㈜티오더'
+  receiver: '㈜티오더',
+  validity: '견적일로부터 14일간 유효'
 };
+// ⭐ v2.70: PDF 라이브러리 지연 로드 (견적서 발행 때만 — 초기 로딩 무영향)
+function _loadScriptOnce(src) {
+  window._scriptOnce = window._scriptOnce || {};
+  if(!window._scriptOnce[src]) {
+    window._scriptOnce[src] = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = src; s.onload = res; s.onerror = () => { delete window._scriptOnce[src]; rej(new Error('스크립트 로드 실패: ' + src)); };
+      document.head.appendChild(s);
+    });
+  }
+  return window._scriptOnce[src];
+}
+async function _ensurePdfLibs() {
+  if(typeof html2canvas === 'undefined') await _loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+  if(!(window.jspdf && window.jspdf.jsPDF)) await _loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+}
 // 기종 → 견적서 품목코드/품목명 (필요시 추가)
 const MODEL_QUOTE = {
   'S2PRO_N': { code: '00007', name: 'S2Pro_N태블릿' },
@@ -4292,6 +4309,7 @@ async function _buildDocx(bodyXml){
 }
 
 async function issueQuote(dateKey) {
+  // ⭐ v2.70: 폼즈 AS견적서 양식 + PDF 다운로드 (docx → PDF 전환)
   const items = getShipItemsByDate(dateKey);
   if(!items.length) { notify('해당 날짜의 출고 건이 없습니다.', 'error'); return; }
   const byModel = {};
@@ -4308,49 +4326,110 @@ async function issueQuote(dateKey) {
     const mq = MODEL_QUOTE[model] || { code:'', name: model+'태블릿' };
     return { code: mq.code||'', name: mq.name, qty: v.cnt, supply, vat };
   });
-  const I = VOLTALES_INFO;
-
+  const I = FORMS_INFO;
+  let holder = null;
   try {
-    // ── 제목
-    let body = _docxPara('견 적 서', {b:true, sz:40, a:'center', spacing:120});
-    // ── 헤더 표 (4열): 좌 라벨/값, 우 라벨/값
-    const G4 = [1300,3100,1900,3300];
-    const hdr = [];
-    hdr.push(_docxRow([{t:'일련번호',b:true,a:'center',shd:'EEEEEE'},{t:serialYmd+' -1'},{t:'+ VOLTALES',b:true,a:'center',sz:36,span:2}]));
-    hdr.push(_docxRow([{t:'수 신',b:true,a:'center',shd:'EEEEEE'},{t:I.receiver},{t:'사업자등록번호',b:true,a:'center',shd:'EEEEEE'},{t:I.bizNo}]));
-    hdr.push(_docxRow([{t:'참 조',b:true,a:'center',shd:'EEEEEE'},{t:''},{t:'회사명/대표',b:true,a:'center',shd:'EEEEEE'},{t:I.company}]));
-    hdr.push(_docxRow([{t:'TEL/FAX',b:true,a:'center',shd:'EEEEEE'},{t:''},{t:'주 소',b:true,a:'center',shd:'EEEEEE'},{t:I.addr}]));
-    hdr.push(_docxRow([{t:'결제조건',b:true,a:'center',shd:'EEEEEE'},{t:''},{t:'업태/종목',b:true,a:'center',shd:'EEEEEE'},{t:I.bizType}]));
-    hdr.push(_docxRow([{t:'유효기간',b:true,a:'center',shd:'EEEEEE'},{t:''},{t:'담당자',b:true,a:'center',shd:'EEEEEE'},{t:I.manager}]));
-    hdr.push(_docxRow([{t:'1. 귀사의 일익 번창하심을 기원합니다.\n2. 하기와 같이 견적드리오니 검토하기 바랍니다.',sz:18,span:2},{t:'TEL/FAX',b:true,a:'center',shd:'EEEEEE'},{t:I.tel}]));
-    hdr.push(_docxRow([{t:`금 액 : ${numToKorean(gTotal)}원 정          (￦ ${fmt(gTotal)}원) / VAT포함`,b:true,sz:24,span:4}]));
-    body += _docxTable(hdr, G4);
-    body += _docxPara('', {sz:8});
-    // ── 품목 표 (5열)
-    const G5 = [1500,3300,1500,1700,1600];
-    const itm = [];
-    itm.push(_docxRow([{t:'품목코드',b:true,a:'center',shd:'EEEEEE'},{t:'품목명(규격)',b:true,a:'center',shd:'EEEEEE'},{t:'수량(단위포함)',b:true,a:'center',shd:'EEEEEE'},{t:'공급가액',b:true,a:'center',shd:'EEEEEE'},{t:'부가세',b:true,a:'center',shd:'EEEEEE'}]));
-    modelRows.forEach(r=>{
-      itm.push(_docxRow([{t:r.code,a:'center'},{t:r.name},{t:String(r.qty),a:'center'},{t:fmt(r.supply),a:'right'},{t:fmt(r.vat),a:'right'}]));
-    });
-    for(let i=modelRows.length;i<10;i++) itm.push(_docxRow([{t:''},{t:''},{t:''},{t:''},{t:''}]));
-    body += _docxTable(itm, G5);
-    // ── 합계 표 (8열)
-    const G8 = [700,1300,1000,1800,650,1500,750,1900];
-    const tot = [_docxRow([
-      {t:'수량',b:true,a:'center',shd:'EEEEEE'},{t:String(gQty),a:'right'},
-      {t:'공급가액',b:true,a:'center',shd:'EEEEEE'},{t:fmt(gSupply),a:'right'},
-      {t:'VAT',b:true,a:'center',shd:'EEEEEE'},{t:fmt(gVat),a:'right'},
-      {t:'합계',b:true,a:'center',shd:'EEEEEE'},{t:fmt(gTotal),b:true,a:'right'}
-    ])];
-    body += _docxTable(tot, G8);
-
-    const blob = await _buildDocx(body);
-    _downloadBlob(blob, `볼타레스_견적서_${dateKey}.docx`);
-    notify(`견적서 발행: ${dateKey} (${gQty}건 · ${fmt(gTotal)}원)`);
+    notify('견적서 PDF 생성 중…');
+    await _ensurePdfLibs();
+    // ── A4(794px @96dpi) 흰 배경으로 렌더 — 앱 다크테마와 무관
+    const TH = 'border:1px solid #000;background:#eee;font-weight:700;text-align:center;padding:6px 8px;';
+    const TD = 'border:1px solid #000;padding:6px 8px;';
+    const itemRows = modelRows.map(r => `
+        <tr>
+          <td style="${TD}text-align:center;">${escapeHtml(r.code)}</td>
+          <td style="${TD}">${escapeHtml(r.name)}</td>
+          <td style="${TD}text-align:center;">${r.qty}</td>
+          <td style="${TD}text-align:right;">${fmt(r.supply)}</td>
+          <td style="${TD}text-align:right;">${fmt(r.vat)}</td>
+        </tr>`).join('')
+      + Array.from({length: Math.max(0, 10 - modelRows.length)}, () =>
+        `<tr><td style="${TD}">&nbsp;</td><td style="${TD}"></td><td style="${TD}"></td><td style="${TD}"></td><td style="${TD}"></td></tr>`).join('');
+    holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed;left:-10000px;top:0;';
+    holder.innerHTML = `
+      <div id="quote-pdf-page" style="width:794px;box-sizing:border-box;padding:50px 46px;background:#fff;color:#000;font-family:'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo',sans-serif;font-size:13px;line-height:1.5;">
+        <div style="text-align:center;font-size:28px;font-weight:800;letter-spacing:14px;text-indent:14px;margin:0 0 18px;">견 적 서</div>
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+          <colgroup><col style="width:15%"><col style="width:33%"><col style="width:19%"><col style="width:33%"></colgroup>
+          <tr>
+            <td style="${TH}">일련번호</td><td style="${TD}">${escapeHtml(serialYmd)} -1</td>
+            <td colspan="2" style="${TD}text-align:center;font-weight:800;font-size:21px;padding:5px;">Forms</td>
+          </tr>
+          <tr>
+            <td style="${TH}">수 신</td><td style="${TD}">${escapeHtml(I.receiver)}</td>
+            <td style="${TH}">사업자등록번호</td><td style="${TD}">${escapeHtml(I.bizNo)}</td>
+          </tr>
+          <tr>
+            <td style="${TH}">참 조</td><td style="${TD}"></td>
+            <td style="${TH}">회사명/대표</td><td style="${TD}">${escapeHtml(I.company)}</td>
+          </tr>
+          <tr>
+            <td style="${TH}">TEL/FAX</td><td style="${TD}"></td>
+            <td style="${TH}">주 소</td><td style="${TD}">${escapeHtml(I.addr)}</td>
+          </tr>
+          <tr>
+            <td style="${TH}">결제조건</td><td style="${TD}"></td>
+            <td style="${TH}">업태/종목</td><td style="${TD}">${escapeHtml(I.bizType)}</td>
+          </tr>
+          <tr>
+            <td style="${TH}">유효기간</td><td style="${TD}">${escapeHtml(I.validity)}</td>
+            <td style="${TH}">담당자</td><td style="${TD}">${escapeHtml(I.manager)}</td>
+          </tr>
+          <tr>
+            <td colspan="2" style="${TD}font-size:12px;">1. 귀사의 일익 번창하심을 기원합니다.<br>2. 하기와 같이 견적드리오니 검토하기 바랍니다.</td>
+            <td style="${TH}">TEL/FAX</td><td style="${TD}">${escapeHtml(I.tel)}</td>
+          </tr>
+          <tr>
+            <td colspan="4" style="${TD}font-weight:800;font-size:14.5px;padding:10px 8px;">금 액 : ${numToKorean(gTotal)}원 정&nbsp;&nbsp;&nbsp;&nbsp;(￦ ${fmt(gTotal)}원) / VAT포함</td>
+          </tr>
+        </table>
+        <div style="height:10px;"></div>
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+          <colgroup><col style="width:15%"><col style="width:35%"><col style="width:16%"><col style="width:17%"><col style="width:17%"></colgroup>
+          <tr>
+            <td style="${TH}">품목코드</td><td style="${TH}">품목명(규격)</td><td style="${TH}">수량(단위포함)</td><td style="${TH}">공급가액</td><td style="${TH}">부가세</td>
+          </tr>
+          ${itemRows}
+        </table>
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:10px;">
+          <colgroup><col style="width:8%"><col style="width:13%"><col style="width:11%"><col style="width:19%"><col style="width:8%"><col style="width:15%"><col style="width:8%"><col style="width:18%"></colgroup>
+          <tr>
+            <td style="${TH}">수량</td><td style="${TD}text-align:right;">${gQty}</td>
+            <td style="${TH}">공급가액</td><td style="${TD}text-align:right;">${fmt(gSupply)}</td>
+            <td style="${TH}">VAT</td><td style="${TD}text-align:right;">${fmt(gVat)}</td>
+            <td style="${TH}">합계</td><td style="${TD}text-align:right;font-weight:800;">${fmt(gTotal)}</td>
+          </tr>
+        </table>
+      </div>`;
+    document.body.appendChild(holder);
+    const page = holder.querySelector('#quote-pdf-page');
+    const canvas = await html2canvas(page, { scale: 2.5, backgroundColor: '#ffffff' });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+    const pw = 210, ph = 297;
+    const ih = canvas.height * pw / canvas.width;
+    if(ih <= ph + 1) {
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.93), 'JPEG', 0, 0, pw, ih);
+    } else {
+      // 품목이 아주 많아 한 장을 넘으면 페이지 분할
+      const pageHpx = Math.floor(canvas.width * ph / pw);
+      let y = 0, first = true;
+      while(y < canvas.height) {
+        const c2 = document.createElement('canvas');
+        c2.width = canvas.width; c2.height = Math.min(pageHpx, canvas.height - y);
+        c2.getContext('2d').drawImage(canvas, 0, y, canvas.width, c2.height, 0, 0, canvas.width, c2.height);
+        if(!first) pdf.addPage();
+        pdf.addImage(c2.toDataURL('image/jpeg', 0.93), 'JPEG', 0, 0, pw, c2.height * pw / canvas.width);
+        first = false; y += pageHpx;
+      }
+    }
+    pdf.save(`폼즈_AS견적서_${String(dateKey).replace(/-/g,'')}.pdf`);
+    notify(`견적서 발행: ${dateKey} (${gQty}건 · ${fmt(gTotal)}원) — PDF 다운로드 완료`);
   } catch(err) {
     console.error('[견적서] 생성 실패', err);
     notify('견적서 생성 실패: ' + (err.message||err), 'error');
+  } finally {
+    if(holder) holder.remove();
   }
 }
 
@@ -14412,9 +14491,14 @@ function _shCat(l) {
 }
 
 // ⭐ v2.67: 재고 정합성 검사 — 이력의 "재고 X → Y" 사슬 연속성으로 무기록 변동을 자동 탐지.
-//   원리: 부품별 이력을 시간순으로 놓으면 앞 이력의 Y와 다음 이력의 X가 이어져야 한다.
+//   원리: 부품별 이력을 '기록 순서'로 놓으면 앞 이력의 Y와 다음 이력의 X가 이어져야 한다.
 //   사슬이 끊긴 지점 = 이력 없이 재고가 움직인 순간(차감 누락·이력 유실·유령 변경).
 //   마지막 Y ≠ 현재 재고 = 최근 변동이 이력 없이 발생.
+// ⭐ v2.70: 정렬 기준을 '이력 date(클라 시각)' → '시트 기록 순서(_seq)'로 교체.
+//   date는 클라이언트가 요청을 만든 시각이라 전송 지연·재시도·직렬 큐 대기 때문에
+//   서버의 실제 실행 순서와 자주 어긋남 → 날짜 정렬이 ±N이 상쇄되는 가짜 '끊김' 쌍을
+//   대량 생산했음(진짜 끊김에 묻힘). 시트 append 순서 = 락 안의 실제 실행 순서 = 진실.
+//   + 직전과 완전히 같은 X→Y가 연달아 적힌 경우는 '중복 기록(동시 실행·락 경합)'으로 분류.
 function runStockAudit() {
   const box = document.getElementById('stock-audit-result');
   if(!box) return;
@@ -14423,23 +14507,26 @@ function runStockAudit() {
     return m ? { from: Number(m[1].replace(/,/g, '')), to: Number(m[2].replace(/,/g, '')) } : null;
   };
   const byPart = {};
-  (stockLog || []).forEach(l => {
+  (stockLog || []).forEach((l, i) => {
     const key = String(l.partId || l.partName || '?');
-    (byPart[key] = byPart[key] || { name: l.partName || key, logs: [] }).logs.push(l);
+    (byPart[key] = byPart[key] || { name: l.partName || key, logs: [] }).logs.push({ ...l, _seq: i });
   });
   const fmtT = (v) => { const d = new Date(v); return isNaN(d) ? String(v) : `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
   const results = Object.entries(byPart).map(([key, g]) => {
-    g.logs.sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
-    let prevTo = null, prevLog = null, chained = 0;
+    g.logs.sort((a, b) => (a._seq || 0) - (b._seq || 0));   // ⭐ v2.70: 시트 기록 순서 = 실제 실행 순서
+    let prevTo = null, prevLog = null, prevP = null, chained = 0;
     const breaks = [];
     g.logs.forEach(l => {
       const p = parseXY(l.note);
       if(!p) return;   // X→Y 표기가 없는 구형/수기 이력은 사슬 검사에서 제외
       chained++;
       if(prevTo !== null && p.from !== prevTo) {
-        breaks.push({ at: l.date, expected: prevTo, actual: p.from, gap: p.from - prevTo, note: l.note, worker: l.worker, prevNote: prevLog ? prevLog.note : '' });
+        // ⭐ v2.70: 직전과 같은 X→Y가 또 적힘 = 동시 실행이 같은 잔고를 두 번 읽은 흔적.
+        //   기록은 2줄인데 실제 반영은 1회 → 재고가 의도보다 +N 남는 유령 재고.
+        const dup = !!(prevP && p.from === prevP.from && p.to === prevP.to);
+        breaks.push({ at: l.date, expected: prevTo, actual: p.from, gap: p.from - prevTo, note: l.note, worker: l.worker, prevNote: prevLog ? prevLog.note : '', dup });
       }
-      prevTo = p.to; prevLog = l;
+      prevTo = p.to; prevLog = l; prevP = p;
     });
     // 현재 재고 대조 (id 우선, 이름 폴백)
     let cur;
@@ -14462,7 +14549,7 @@ function runStockAudit() {
   const badHtml = bad.map(r => {
     const rows = r.breaks.slice(0, 8).map(b => `
       <div style="font-size:11.5px;padding:5px 8px;border-radius:6px;background:var(--surface2);margin-bottom:3px;line-height:1.5;">
-        <b style="color:#ef4444;">${fmtT(b.at)} 사슬 끊김</b> — 기대 <b>${b.expected}</b> → 실제 <b>${b.actual}</b> (<b style="color:${b.gap > 0 ? 'var(--green)' : '#ef4444'};">${b.gap > 0 ? '+' : ''}${b.gap}</b>개가 이력 없이 변동)<br>
+        <b style="color:${b.dup ? '#f59e0b' : '#ef4444'};">${fmtT(b.at)} ${b.dup ? '🧬 중복 기록(동시 실행)' : '사슬 끊김'}</b> — 기대 <b>${b.expected}</b> → 실제 <b>${b.actual}</b> (<b style="color:${b.gap > 0 ? 'var(--green)' : '#ef4444'};">${b.gap > 0 ? '+' : ''}${b.gap}</b>개가 이력 없이 변동)${b.dup ? ' · <span style="color:#f59e0b;">같은 차감이 두 번 적힘 — 실제 반영은 1회(락 경합 의심)</span>' : ''}<br>
         <span style="color:var(--text3);">직전: ${escapeHtml(b.prevNote || '-')} → 해당: ${escapeHtml(b.note || '-')}${b.worker ? ' · ' + escapeHtml(b.worker) : ''}</span>
       </div>`).join('');
     const curLine = r.curMatch === false ? `<div style="font-size:11.5px;color:#ef4444;font-weight:700;padding:4px 8px;">⚠ 현재 재고 ${r.cur} ≠ 이력상 마지막 값 ${r.lastTo} (${r.cur - r.lastTo > 0 ? '+' : ''}${r.cur - r.lastTo}개 무기록 변동)</div>` : '';
@@ -14474,7 +14561,7 @@ function runStockAudit() {
   box.innerHTML = `<div class="card" style="padding:14px 16px;margin-bottom:12px;border:1px solid ${bad.length ? '#ef444455' : 'var(--border)'};">
     ${head}
     ${bad.length ? badHtml : '<div style="font-size:12.5px;color:var(--green);padding:4px 2px;">모든 부품의 이력 사슬이 연속이고 현재 재고와 일치합니다 — 무기록 차감·유실 없음.</div>'}
-    <div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.55;">💡 "사슬 끊김"은 그 시각 직전에 <b>이력 없이 재고가 바뀐 흔적</b>입니다 (기록 유실·수동 시트 편집·과거 버그). 초기 재고 설정 이전 구간과 X→Y 표기가 없는 구형 이력은 검사 대상에서 제외됩니다.</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.55;">💡 사슬은 <b>시트 기록 순서</b>(=서버 실제 실행 순서)로 잇습니다 — 표시 시각이 뒤바뀌어 보여도 순서 문제로는 끊김 판정하지 않습니다. "사슬 끊김"은 <b>이력 없이 재고가 바뀐 흔적</b>(기록 유실·수동 시트 편집·과거 버그), "🧬 중복 기록"은 <b>동시 실행이 같은 잔고를 두 번 읽은 흔적</b>(차감 2회 의도 → 실제 1회 반영 = 재고 +N 부풀림)입니다. 초기 재고 설정 이전 구간과 X→Y 표기가 없는 구형 이력은 검사에서 제외됩니다.</div>
   </div>`;
   box.style.display = '';
 }
@@ -15478,9 +15565,17 @@ function _applyInternalOverrides() {
 async function adjustStockOp(o) {   // o: { idx, delta? | set?, type, note }
   const sp = stock[o.idx]; if(!sp) return null;
   const logId = 'l' + Date.now() + '_' + (Math.random() * 1e6 | 0);
-  const res = await gasCall({ action: 'adjustStock', logId, partId: sp.id, partName: sp.name,
+  const payload = { action: 'adjustStock', logId, partId: sp.id, partName: sp.name,
     ...(o.set !== undefined ? { set: o.set } : { delta: o.delta }),
-    type: o.type || '', note: o.note || '', worker: currentUser || '', date: new Date().toISOString() });
+    type: o.type || '', note: o.note || '', worker: currentUser || '', date: new Date().toISOString() };
+  let res = await gasCall(payload);
+  // ⭐ v2.70: 서버가 락을 못 잡으면 실행하지 않고 busy-lock을 돌려준다(백엔드 v2.70과 세트).
+  //   같은 logId 재전송은 멱등이라 중복 위험 없음 — 2.5초 뒤 1회 재시도, 그래도 실패면 사용자에게 알림.
+  if(!res || !res.ok) {
+    await new Promise(r => setTimeout(r, 2500));
+    try { res = await gasCall(payload); } catch(e) {}
+  }
+  if(res && !res.ok) notify(`재고 반영 실패: ${o.note || '재고 조정'} (${res.error || '서버 오류'}) — 재고 이력에서 확인 후 다시 시도하세요.`, 'error');
   if(res && res.ok) {
     const prev = Number(res.prev !== undefined ? res.prev : sp.qty);
     sp.qty = Number(res.qty);
