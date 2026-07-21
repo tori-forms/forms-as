@@ -3375,6 +3375,7 @@ function autoDetectModel() {
     const inp = document.querySelector(`#wc-${k} input`);
     if(inp){ inp.checked = true; document.getElementById('wc-'+k).classList.add('checked'); renderPartQtys(k); }
   });
+  try { renderDeductPreview(); } catch(e) {}   // ⭐ v2.70c: 기종 바뀌면 차감 미리보기도 갱신
 }
 function getModel() {
   const auto = document.getElementById('model-auto').textContent;
@@ -10270,13 +10271,16 @@ const WORK_ROW2 = ['pcb', 'panel', 'board'];
 // 반환 형식: [{name, qty, modelOnly}]  (modelOnly: 공용이면 '', 아니면 기종값)
 function getWorkParts(k, model) {
   const map = window.WORK_PARTS_MAP || null;
+  // ⭐ v2.70c: 기종 표기 정규화 비교 — 수기 입력 "S2PRO"/"s2pro" 등이 매핑의 "S2PRO_N"과
+  //   달라서 부품이 조용히 필터링(=차감 누락)되던 문제 차단
+  const nModel = (typeof normalizeModel === 'function') ? normalizeModel(model||'') : String(model||'');
   if(map && Array.isArray(map[k])) {
     return map[k]
-      .filter(p => { const pm = p.model||'공용'; return pm==='공용' || pm===model; })
+      .filter(p => { const pm = p.model||'공용'; return pm==='공용' || normalizeModel(pm)===nModel; })
       .map(p => ({ name:p.name, qty:Number(p.qty)||1, modelOnly: (p.model && p.model!=='공용') ? p.model : '' }));
   }
   return (WORKS[k]?.parts||[])
-    .filter(p => !p.modelOnly || p.modelOnly === model)
+    .filter(p => !p.modelOnly || normalizeModel(p.modelOnly) === nModel)
     .map(p => ({ name:p.name, qty:p.qty, modelOnly:p.modelOnly||'' }));
 }
 
@@ -10451,6 +10455,49 @@ function removeExtraPart(workKey, id) {
 function updatePP() {
   const cs = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
   document.getElementById('price-preview').textContent = cs.length ? `공임비 합계: ${fmt(cs.reduce((s,k)=>s+WORKS[k].price,0))}원` : '';
+  try { renderDeductPreview(); } catch(e) {}   // ⭐ v2.70c: 재고 차감 미리보기 갱신
+}
+
+// ⭐ v2.70c: 재고 차감 미리보기 — 등록 저장 전에 "이 등록으로 어떤 부품이 몇 개 차감되는지"를
+//   실제 차감 로직(deductStock)과 동일한 매칭으로 보여준다. 매칭 실패(빨강)·재고 부족(주황)이
+//   저장 전에 눈에 보이므로 '조용한 카운트 누락'이 원천적으로 드러남.
+function renderDeductPreview() {
+  const wc = document.getElementById('work-checks');
+  if(!wc) return;
+  let el = document.getElementById('deduct-preview');
+  if(!el) {
+    el = document.createElement('div');
+    el.id = 'deduct-preview';
+    el.style.cssText = 'margin-top:10px;';
+    wc.parentNode.insertBefore(el, wc.nextSibling);
+  }
+  const checked = [...document.querySelectorAll('#work-checks input:checked')];
+  if(!checked.length || !Array.isArray(stock) || !stock.length) { el.innerHTML = ''; return; }
+  const pd = getPartsData();
+  const model = getModel();
+  const curModel = normalizeModel(model || '');
+  const chips = [];
+  Object.entries(pd).forEach(([name, qty]) => {
+    if(qty <= 0) return;
+    if(typeof isQualityFlagKey === 'function' && isQualityFlagKey(name)) return;
+    const nm = String(name).trim().toLowerCase();
+    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && normalizeModel(p.model||'공용')===curModel);
+    if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
+    if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
+    if(idx < 0) {
+      chips.push(`<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(239,68,68,.12);border:1px solid #ef444466;color:#ef4444;padding:3px 10px;border-radius:99px;font-size:11.5px;font-weight:600;margin:2px;">✕ ${escapeHtml(name)} — 재고 목록에 없음 (차감 안 됨!)</span>`);
+    } else {
+      const cur = Number(stock[idx].qty||0);
+      const short = cur < qty;
+      chips.push(`<span style="display:inline-flex;align-items:center;gap:4px;background:${short?'rgba(245,158,11,.12)':'rgba(16,185,129,.10)'};border:1px solid ${short?'#f59e0b66':'#10b98155'};color:${short?'#f59e0b':'#10b981'};padding:3px 10px;border-radius:99px;font-size:11.5px;font-weight:600;margin:2px;">${short?'⚠':'✓'} ${escapeHtml(stock[idx].name)} −${qty} <span style="color:var(--text3);font-weight:500;">(현재 ${fmt(cur)})</span>${short?' 재고 부족':''}</span>`);
+    }
+  });
+  el.innerHTML = chips.length ? `
+    <div style="border:1px dashed var(--border2);border-radius:10px;padding:9px 12px;background:var(--surface2);">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">📦 이 등록으로 차감될 재고</div>
+      <div>${chips.join('')}</div>
+    </div>` : `
+    <div style="border:1px dashed var(--border2);border-radius:10px;padding:9px 12px;background:var(--surface2);font-size:11.5px;color:var(--text3);">📦 이 등록으로 차감될 재고 없음 — 선택한 작업에 매핑된 부품이 없거나 수량이 0입니다.</div>`;
 }
 const getChecked = ()=>[...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
 function clearChecks() {
@@ -11110,16 +11157,29 @@ function buildT4StatsHtml() {
   const sTotal = agg(() => true);
 
   // ⭐ v2.70b: 3중 작업(LCD 교체 + 논배터리 + 메인보드 부분수리 동시 진행) 별도 집계
+  // ⭐ v2.70c: 매칭 강화 — 키('panel' 등)뿐 아니라 구형/수기 데이터의 태그·라벨 표기도 인식
   const isTriple = e => {
-    const ws = parseWorks(e.works);
-    return ['panel', 'nonbat', 'board'].every(k => ws.includes(k));
+    const ws = parseWorks(e.works).map(x => String(x));
+    const has = (key, pats) => ws.some(x => x === key || pats.some(t => x.includes(t)));
+    return has('panel', ['LCD', '패널'])
+        && has('nonbat', ['논배터리'])
+        && has('board', ['메인보드', 'MB']);
   };
-  const tAgg = (filterFn) => all.filter(e => isTriple(e) && filterFn(e)).length;
+  const tripleList = all.filter(isTriple);
+  const tAgg = (filterFn) => tripleList.filter(filterFn).length;
   const tToday = tAgg(e => dnorm(e) === today);
   const tWeek  = tAgg(e => dnorm(e) >= weekStartStr && dnorm(e) <= today);
   const tMonth = tAgg(e => dnorm(e).startsWith(curMonth));
   const tPrev  = tAgg(e => dnorm(e).startsWith(prevMonth));
   const tTotal = tAgg(() => true);
+  // 이번 달 명단 (최신순) — 카드에서 펼쳐서 어떤 건이 집계됐는지 확인용
+  const tMonthRows = tripleList.filter(e => dnorm(e).startsWith(curMonth))
+    .sort((a, b) => new Date(b.date||0) - new Date(a.date||0))
+    .map(e => `<div style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:12px;border-bottom:1px dashed var(--border);">
+      <span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭 복사" style="font-weight:700;color:var(--text);">${escapeHtml(e.serial)}</span>
+      <span style="color:var(--text3);">${escapeHtml(dnorm(e))}</span>
+      <span style="color:var(--text2);margin-left:auto;">${escapeHtml(String(e.worker||'').split('::')[0])}</span>
+    </div>`).join('');
 
   // 행: 구간별 한 줄에 건수 + 공임비
   const row = (label, s, hi) => `
@@ -11169,6 +11229,10 @@ function buildT4StatsHtml() {
       <span style="color:var(--text2);">전월 대비</span>
       <span>${delta(tMonth, tPrev)}</span>
     </div>
+    <details style="margin-top:8px;">
+      <summary style="cursor:pointer;font-size:11.5px;color:var(--text2);list-style:none;">▾ 이번 달 명단 보기 (${tMonth}건) — 빠진 건이 있으면 그 건의 수리 항목에 LCD·논배터리·MB수리 3개가 모두 체크됐는지 확인</summary>
+      <div style="margin-top:6px;max-height:220px;overflow-y:auto;">${tMonthRows || '<div style="font-size:12px;color:var(--text3);padding:6px 2px;">이번 달 3중 작업 건이 없습니다.</div>'}</div>
+    </details>
   </div>`;
 }
 
@@ -15727,9 +15791,10 @@ async function deductStock(works, partsData, model) {
     if(qty <= 0) continue;
     if(typeof isQualityFlagKey === 'function' && isQualityFlagKey(partName)) continue;   // ⚑ 품질 특이 키는 부품 아님
     // ⭐ 기종 우선 매칭: (1)해당기종 전용 → (2)공용 → (3)이름만 일치
+    // ⭐ v2.70c: 기종 정규화 비교 (수기 "S2PRO" ↔ 재고 "S2PRO_N" 표기 흔들림 흡수)
     const nm = partName.trim().toLowerCase();
-    const curModel = model || '';
-    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')===curModel);
+    const curModel = normalizeModel(model || '');
+    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && normalizeModel(p.model||'공용')===curModel);
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
     if(idx < 0) { missed.push(partName); continue; }   // ⭐ v2.70b: 스킵을 기록
@@ -15754,10 +15819,10 @@ async function deductStock(works, partsData, model) {
 async function applyStockDelta(oldParts, newParts, model) {
   if(!stock.length) return;
   const names = new Set([...Object.keys(oldParts||{}), ...Object.keys(newParts||{})]);
-  const curModel = model || '';
+  const curModel = normalizeModel(model || '');   // ⭐ v2.70c: 기종 정규화
   const findIdx = (partName) => {
     const nm = String(partName).trim().toLowerCase();
-    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')===curModel);
+    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && normalizeModel(p.model||'공용')===curModel);
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
     return idx;
@@ -15804,12 +15869,12 @@ async function restoreStockForEntry(e) {
     });
   }
   let restored = 0;
-  const curModel = e.model || '';
+  const curModel = normalizeModel(e.model || '');   // ⭐ v2.70c: 기종 정규화
   for(const [partName, qty] of Object.entries(toRestore)) {
     if(qty <= 0) continue;
     // ⭐ 차감(deductStock)과 동일한 기종 우선 매칭: (1)해당기종 →(2)공용 →(3)이름만
     const nm = partName.trim().toLowerCase();
-    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')===curModel);
+    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && normalizeModel(p.model||'공용')===curModel);
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
     if(idx < 0) continue;
