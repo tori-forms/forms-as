@@ -4634,8 +4634,8 @@ function renderAging() {
     const workerInProgress = items.length - workerPassed;
     const tier = tierMap[worker] || '';
 
-    html += `<div class="card" style="margin-bottom:10px;padding:0;overflow:hidden;${isMe?'border:2px solid #f59e0b;':''}">
-      <div onclick="toggleAgingWorker('${escapeHtml(worker)}')" style="cursor:pointer;padding:14px 18px;background:${isMe?'linear-gradient(135deg,#fef3c7,#fde68a)':'var(--surface,#fff)'};display:flex;align-items:center;gap:12px;user-select:none;transition:background .15s;${isMe?'color:#111827;':''}" onmouseover="this.style.filter='brightness(0.95)'" onmouseout="this.style.filter=''">
+    html += `<div class="card" onclick="if(event.target.closest('[data-aging-body]'))return;toggleAgingWorker('${escapeHtml(worker)}')" onmouseover="this.style.filter='brightness(0.97)'" onmouseout="this.style.filter=''" style="margin-bottom:10px;padding:0;overflow:hidden;cursor:pointer;transition:filter .15s;${isMe?'border:2px solid #f59e0b;':''}">
+      <div style="padding:14px 18px;background:${isMe?'linear-gradient(135deg,#fef3c7,#fde68a)':'var(--surface,#fff)'};display:flex;align-items:center;gap:12px;user-select:none;${isMe?'color:#111827;':''}">
         <span style="font-size:14px;color:${isMe?'#374151':'var(--text2,#666)'};font-family:monospace;width:18px;display:inline-block;text-align:center;">${isExpanded?'▼':'▶'}</span>
         <span style="font-size:15px;font-weight:700;${isMe?'color:#111827;':'color:var(--text,#111);'}">${isMe?'👤 ':''}${escapeHtml(worker)}</span>
         ${tier ? `<span style="background:${isMe?'rgba(245,158,11,.25)':'var(--accent-bg,#dbeafe)'};color:${isMe?'#92400e':'var(--accent,#3b82f6)'};padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;">${tier}</span>` : ''}
@@ -4646,7 +4646,7 @@ function renderAging() {
           <span style="background:${isMe?'rgba(255,255,255,.7)':'var(--surface2,#f3f4f6)'};border:1px solid ${isMe?'#f59e0b':'var(--border,#e5e7eb)'};padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;color:${isMe?'#111827':'var(--text,#111)'};">총 ${items.length}건</span>
         </span>
       </div>
-      <div style="display:${isExpanded?'block':'none'};">
+      <div data-aging-body style="display:${isExpanded?'block':'none'};cursor:default;">
         ${workerPassed > 0 ? `<div style="padding:8px 14px;border-bottom:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;">
             <input type="checkbox" onclick="agingToggleAll('${escapeHtml(worker)}',this.checked)"> 완료건 전체 선택
