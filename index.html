@@ -11886,15 +11886,29 @@ function renderEditParts(ws) {
   //   스냅샷이 아예 없는 구형 기록은 기존대로 기본 수량 유지.
   const _hasSnapshot = Object.keys(savedParts).length > 0;
   const assign = {};               // { workKey: [ {name, qty} ] }
+  // ⭐ v2.70g: 같은 부품이 여러 작업 매핑에 겹칠 때의 '수량 뻥튀기' 근본 차단.
+  //   저장은 부품명당 총합 1개인데, 기존엔 그 총합을 겹치는 작업 섹션마다 중복 시드하고
+  //   저장 시 다시 전부 합산 → 수정 저장을 누를 때마다 1→2→4→…로 불어나며 재고도 그만큼
+  //   추가 차감되던 사고. 이제 부품명당 '첫 번째 작업 섹션'에만 총합을 표시·집계하고,
+  //   뒤 섹션에는 0으로 고정(표시 생략)해 저장 합산이 항상 원래 총합과 같게(멱등) 만든다.
+  const _seenNames = new Set();
   ws.forEach(k => {
-    assign[k] = getWorkParts(k, model).map(p => {
+    assign[k] = [];
+    getWorkParts(k, model).forEach(p => {
+      if(_seenNames.has(p.name)) {
+        // 이미 앞 작업 섹션에서 집계된 부품 — 이 섹션 몫은 0으로 고정 (저장 시 재합산 방지)
+        if(!partQtys[k]) partQtys[k] = {};
+        if(partQtys[k][p.name] === undefined) partQtys[k][p.name] = 0;
+        return;
+      }
+      _seenNames.add(p.name);
       const sv = savedParts[p.name];
       const svNum = Number(sv);
       // ⭐ 명시적 0 저장 지원: 저장값이 있으면(0 포함) 그대로, 없으면 스냅샷 유무로 0/기본값 결정
       const qty = (sv !== undefined && sv !== null && sv !== '' && Number.isFinite(svNum))
         ? svNum
         : (_hasSnapshot ? 0 : (Number(p.qty) || 1));
-      return { name: p.name, qty };
+      assign[k].push({ name: p.name, qty });
     });
   });
 
@@ -11918,11 +11932,12 @@ function renderEditParts(ws) {
       const safeKey = k + '-' + partSafeKey(name);
       if(!partQtys[k]) partQtys[k] = {};
       if(partQtys[k][name] === undefined) partQtys[k][name] = Number(qty);
+      const shown = Number(partQtys[k][name]);   // ⭐ v2.70g: 화면 표시 = 실제 저장값 (재렌더 시 어긋남 방지)
       html += `<div class="part-qty-row">
         <span style="color:var(--text2);font-size:12px;">${escapeHtml(name)}</span>
         <div style="display:flex;align-items:center;gap:6px;">
           <button class="qty-btn" type="button" onclick="changeQty('${k}','${escapeJs(name)}',-1)">−</button>
-          <span class="qty-num" id="eqty-${safeKey}" style="${Number(qty)===0?'opacity:.45;':''}">${Number(qty)}</span>
+          <span class="qty-num" id="eqty-${safeKey}" style="${shown===0?'opacity:.45;':''}">${shown}</span>
           <button class="qty-btn" type="button" onclick="changeQty('${k}','${escapeJs(name)}',1)">+</button>
         </div>
       </div>`;
