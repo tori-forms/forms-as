@@ -9125,6 +9125,15 @@ async function saveWorkParts() {
       return { name, qty:Number(qty)||1, model: sp ? (sp.model||'공용') : '공용' };
     });
   });
+  // ⭐ v2.70g: 기본 수량 이상치 확인 — 휠 스크롤·오타로 6 같은 값이 저장되면 그 뒤 모든 등록에서
+  //   조용히 6개씩 기록·차감됨 (등록 화면 부품 패널은 기본 접힘이라 아무도 못 봄). 저장 전에 한 번 묻는다.
+  const _bigs = [];
+  WORKPARTS_JOBS.forEach(j => (map[j.key]||[]).forEach(p => { if(Number(p.qty) >= 3) _bigs.push(`${j.label} · ${p.name} ×${p.qty}`); }));
+  if(_bigs.length && !window._wpQtyConfirmed) {
+    openModal('기본 수량 확인', `수량이 큰 부품이 있어요 — 앞으로 등록할 때마다 이 수량만큼 차감됩니다: ${_bigs.join(' / ')} — 의도한 값이 맞나요?`, () => { window._wpQtyConfirmed = true; saveWorkParts(); }, '이대로 저장', 'btn-primary');
+    return;
+  }
+  window._wpQtyConfirmed = false;
   window.WORK_PARTS_MAP = map;
   try { localStorage.setItem('fa_workparts_local', JSON.stringify({ map, t: Date.now() })); } catch(e) {}   // ⭐ v2.67d: 최근 저장분 우선용 백업
   try {
@@ -15732,6 +15741,12 @@ document.addEventListener('click', (ev) => {
     try { el.showPicker(); } catch(e) {}
   }
 });
+// ⭐ v2.70g: 숫자 입력칸 위에서 마우스 휠이 값을 바꾸지 않게 차단 — 매핑 기본 수량·단가가
+//   페이지 스크롤 중 1→6처럼 몰래 바뀌던 사고 방지 (포커스된 number 입력은 휠 시 포커스 해제)
+document.addEventListener('wheel', (ev) => {
+  const ae = document.activeElement;
+  if(ae && ae.tagName === 'INPUT' && ae.type === 'number' && ae === ev.target) ae.blur();
+}, { passive: true });
 
 // ⭐ v2.68: 부품 단위 원자 재고 연산 — 서버가 락 안에서 시트 현재값 기준으로 적용하고
 //   이력까지 기록(logId 멱등·재전송 안전). 반환된 수량으로 로컬을 맞춰 어떤 탭이 낡아도 정확.
