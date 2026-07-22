@@ -2695,14 +2695,15 @@ function gasCall(params) {
   const _act = (params && params.action) || 'load';
   // ⭐ v2.62b: 응답 유실 시 자동 1회 재전송 — 서버가 멱등(같은 id 재전송 시 중복 적재 없음)을
   //   보장하는 액션만. "서버는 성공했는데 화면엔 '반영 실패'"로 뜨던 신뢰 문제의 직접 처방.
-  //   (append형: addStockLog/addShipLog/addExchange/addInspection/completeRework/addDoc 은
+  //   (append형: addStockLog/addShipLog/addInspection/completeRework/addDoc 은
   //    재전송 시 중복 행이 생기므로 제외 — 기존대로 실패 표시 + 2초 뒤 신선본 재조정)
   const _IDEMPOTENT_ACTIONS = {
     add:1, edit:1, 'delete':1, updateRepairStatus:1, restartAging:1,
     saveKPI:1, saveStock:1, savePriceSettings:1, savePassword:1, saveWorkers:1,
     deleteExchange:1, deleteShipLog:1, bulkDeleteShipLog:1, deleteDoc:1,
     deleteInspection:1, updateInspection:1, updateShipSerial:1,
-    addStockLog:1, saveCompanyHolidays:1, saveWorkParts:1, adjustStock:1, setPartInternal:1   // ⭐ v2.64a: 서버 logId 멱등 확보 → 재전송 안전. 재고 이력 유실(수량만 줄고 이력 증발) 차단
+    addStockLog:1, saveCompanyHolidays:1, saveWorkParts:1, adjustStock:1, setPartInternal:1,   // ⭐ v2.64a: 서버 logId 멱등 확보 → 재전송 안전. 재고 이력 유실(수량만 줄고 이력 증발) 차단
+    addExchange:1   // ⭐ v2.70f: 서버 id 멱등 확보(Code.gs v2.70b) → 재전송 안전 — "저장 실패로 떴는데 실제론 저장됨" 해소
   };
   // ⭐ v2.62b: 멱등 액션은 첫 전송 25초로 짧게 — 응답 유실 시 재전송이 빨리 개입 (총 대기 최대 ~70초→~30초)
   let _pMut = _gasCallJsonp(params, _IDEMPOTENT_ACTIONS[_act] ? 25000 : undefined);
@@ -2944,7 +2945,11 @@ async function syncData(silent=false, force=false, _snapData=null) {
       window.WORK_PARTS_MAP = _wpUse;
     }
     // exchange: Code.gs 미업데이트 시 로컬 데이터 유지 (덮어쓰기 방지)
-    if(data.exchange !== undefined) exchangeList = data.exchange;
+    if(data.exchange !== undefined) {
+      // ⭐ v2.70f: 같은 id 중복 행(과거 이중 실행 잔재)은 화면에서 1건만 표시
+      const _seenEx = new Set();
+      exchangeList = (data.exchange || []).filter(x => { const k = String(x.id); if(_seenEx.has(k)) return false; _seenEx.add(k); return true; });
+    }
     // ⭐ v2.66b: 회사 지정 휴무일 (법정 공휴일 아닌 자체 휴무 — 예: 제헌절)
     // ⭐ v2.66d: 서버 응답(캐시 파이프라인)이 아직 낡아 필드가 없으면 localStorage 백업으로 복원 —
     //   재빌드·발행이 따라잡기 전에도 새로고침 직후부터 미달 판정·주차 계산에 반영되도록.
