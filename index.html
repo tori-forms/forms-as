@@ -2703,7 +2703,8 @@ function gasCall(params) {
     deleteExchange:1, deleteShipLog:1, bulkDeleteShipLog:1, deleteDoc:1,
     deleteInspection:1, updateInspection:1, updateShipSerial:1,
     addStockLog:1, saveCompanyHolidays:1, saveWorkParts:1, adjustStock:1, setPartInternal:1,   // ⭐ v2.64a: 서버 logId 멱등 확보 → 재전송 안전. 재고 이력 유실(수량만 줄고 이력 증발) 차단
-    addExchange:1   // ⭐ v2.70f: 서버 id 멱등 확보(Code.gs v2.70b) → 재전송 안전 — "저장 실패로 떴는데 실제론 저장됨" 해소
+    addExchange:1,   // ⭐ v2.70f: 서버 id 멱등 확보(Code.gs v2.70b) → 재전송 안전 — "저장 실패로 떴는데 실제론 저장됨" 해소
+    addInspection:1, completeRework:1   // ⭐ v2.70i: 서버 qualityId 멱등(Code.gs v2.70c) → 검수/재작업 처리 응답 유실 시 자동 재전송 (유실 = 검수대기 재등장의 원인 1)
   };
   // ⭐ v2.62b: 멱등 액션은 첫 전송 25초로 짧게 — 응답 유실 시 재전송이 빨리 개입 (총 대기 최대 ~70초→~30초)
   let _pMut = _gasCallJsonp(params, _IDEMPOTENT_ACTIONS[_act] ? 25000 : undefined);
@@ -6567,6 +6568,7 @@ async function submitRework(entryId) {
 
     const resp = await gasCall({
       action: 'completeRework',
+      qualityId: 'R' + Date.now() + '_' + (Math.random() * 1000 | 0),   // ⭐ v2.70i: 서버 멱등 키
       id: entryId,
       serial: e.serial || '',
       model: e.model || '',
@@ -6783,8 +6785,10 @@ async function submitInspect(entryId) {
 
     console.log('[검수 처리] entryId:', entryId, 'result:', result, 'defectTypes:', defectTypes);
 
+    const _qId = 'Q' + Date.now() + '_' + (Math.random() * 1000 | 0);   // ⭐ v2.70i: 클라 생성 qualityId — 서버 멱등 키 (재전송 안전)
     const resp = await gasCall({
       action: 'addInspection',
+      qualityId: _qId,
       repairId: entryId,
       serial: e.serial || '',
       model: e.model || '',
@@ -6817,7 +6821,7 @@ async function submitInspect(entryId) {
     }
 
     inspections.push({
-      qualityId: 'Q'+Date.now(),
+      qualityId: _qId,   // ⭐ v2.70i: 서버와 같은 id (동기화 시 중복 방지)
       repairId: entryId,
       serial: e.serial,
       model: e.model,
@@ -9989,7 +9993,10 @@ function markPendingChange(kind, id, change, durationMs = 3000) {
   //   새로고침하면 재등장" 현상 차단. 서버 데이터가 변경을 확인하는 즉시 조기 해제됨(아래).
   // ⭐ v2.65c: update(상태 변경 등)도 3분 — 30초 보호가 GitHub 파이프라인 최악 지연(~35초+)보다
   //   짧아 검수완료가 검수대기로 되살아나던 문제 차단. update에도 서버 확인 해제 추가(applyPendingChanges).
-  const _minMs = (change && (change.type === 'add' || change.type === 'delete' || change.type === 'update')) ? 180000 : 30000;
+  // ⭐ v2.70i: 3분 → 12분 — 실측상 캐시·GitHub 발행 파이프라인이 5~15분까지 밀리는 날이 있어
+  //   (재고 129→67 지연 사례), 3분 보호가 끝난 뒤 낡은 페이로드가 상태를 되돌리던 창을 봉쇄.
+  //   서버 데이터가 변경을 확인하는 즉시 조기 해제되므로 평상시엔 수십 초 내 자연 종료됨.
+  const _minMs = (change && (change.type === 'add' || change.type === 'delete' || change.type === 'update')) ? 720000 : 30000;
   durationMs = Math.max(durationMs || 3000, _minMs);
   window._pendingChanges[kind][String(id)] = {
     ...change,
