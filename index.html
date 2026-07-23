@@ -2948,8 +2948,11 @@ async function syncData(silent=false, force=false, _snapData=null) {
     // exchange: Code.gs 미업데이트 시 로컬 데이터 유지 (덮어쓰기 방지)
     if(data.exchange !== undefined) {
       // ⭐ v2.70f: 같은 id 중복 행(과거 이중 실행 잔재)은 화면에서 1건만 표시
+      // ⭐ v2.70k: 숨긴 중복 건수를 기억해 교품 화면에 안내 (시트 정리 유도 — 고객 대시와 건수 불일치 원인)
       const _seenEx = new Set();
-      exchangeList = (data.exchange || []).filter(x => { const k = String(x.id); if(_seenEx.has(k)) return false; _seenEx.add(k); return true; });
+      let _dupEx = 0;
+      exchangeList = (data.exchange || []).filter(x => { const k = String(x.id); if(_seenEx.has(k)) { _dupEx++; return false; } _seenEx.add(k); return true; });
+      window._excDupCount = _dupEx;
     }
     // ⭐ v2.66b: 회사 지정 휴무일 (법정 공휴일 아닌 자체 휴무 — 예: 제헌절)
     // ⭐ v2.66d: 서버 응답(캐시 파이프라인)이 아직 낡아 필드가 없으면 localStorage 백업으로 복원 —
@@ -4698,7 +4701,7 @@ function renderAging() {
         </td>
         <td style="text-align:center;white-space:nowrap;">
           <button class="btn btn-secondary" onclick="openAddPartsModal('${e.id}')" style="height:30px;padding:0 10px;font-size:12px;">🔧 부품 추가</button>
-          <button data-move-inspect-btn class="btn btn-primary" onclick="moveToInspect('${e.id}')" style="height:30px;padding:0 10px;font-size:12px;margin-left:4px;" ${passed?'':'disabled'}>→ 검수대기</button>
+          <button data-move-inspect-btn class="btn btn-primary" onclick="moveToInspect('${e.id}')" style="height:30px;padding:0 10px;font-size:12px;margin-left:4px;${!passed && isFullAdmin() ? 'background:#b45309;' : ''}" ${(passed || isFullAdmin())?'':'disabled'} title="${!passed && isFullAdmin() ? 'T4 권한: 에이징 건너뛰고 이관' : ''}">${!passed && isFullAdmin() ? '⚡ 즉시 이관' : '→ 검수대기'}</button>
           <button class="btn btn-sm" onclick="excludeFromHold('${escapeJs(e.serial)}')" style="height:30px;padding:0 10px;font-size:12px;margin-left:4px;color:#ef4444;border-color:#ef444455;" title="이번 출고분에서 제외 — 출고 관리의 제외함으로 이동, 복원 시 에이징으로 복귀">🚩 출고 제외</button>
         </td>
       </tr>`;
@@ -4778,7 +4781,16 @@ async function moveToInspect(entryId) {
   const e = entries.find(x => String(x.id) === String(entryId));
   if(!e) { notify('수리건을 찾을 수 없습니다.', 'error'); return; }
   const c = calcAging(e.agingStart);
-  if(!c.isPassed) { notify('아직 24시간이 경과하지 않았습니다.', 'error'); return; }
+  // ⭐ v2.70j: T4(팀장)는 에이징 미완료여도 강제 이관 가능 (테스트·긴급 출고용) — 확인 후 진행
+  if(!c.isPassed && isFullAdmin()) {
+    const hrs = Math.ceil(c.remaining / 3600000);
+    if(!window._agingSkipConfirm || window._agingSkipConfirm !== String(entryId)) {
+      window._agingSkipConfirm = String(entryId);
+      openModal('에이징 건너뛰기 (T4)', `${e.serial} — 에이징이 약 ${hrs}시간 남았습니다. 팀장 권한으로 지금 검수대기로 넘길까요?`, () => { moveToInspect(entryId); }, '건너뛰고 이관', 'btn-danger');
+      return;
+    }
+    window._agingSkipConfirm = null;
+  } else if(!c.isPassed) { notify('아직 24시간이 경과하지 않았습니다.', 'error'); return; }
 
   try {
     notifyPersist('이동 중...');
@@ -12900,7 +12912,7 @@ async function revertExchange(id) {
 }
 
 // ⭐ v2.66: 교품 처리 필터·요약 — 기간(오늘/7일/이번달/전체) + 엔지니어 + 검색, 상단 한눈 요약
-window._excFilter = window._excFilter || { period: 'today', worker: 'all', q: '' };   // ⭐ v2.66a: 기본 = 금일 등록건만 (전체는 버튼으로)
+window._excFilter = window._excFilter || { period: 'today', worker: 'all', q: '', model: 'all' };   // ⭐ v2.66a: 기본 = 금일 등록건만 · v2.70k: 기종 필터 추가
 function setExcFilter(k, v) { window._excFilter[k] = v; renderExchangeList(); }
 function excSearchGo() {
   const inp = document.getElementById('exc-search-inp');
@@ -12938,11 +12950,12 @@ function renderExchangeList() {
       const hay = `${x.serial||''} ${x.note||''} ${x.reason||''} ${x.model||''}`.toUpperCase();
       if(!hay.includes(q)) return false;
     }
+    if(F.model && F.model !== 'all' && normalizeModel(x.model||'') !== F.model) return false;   // ⭐ v2.70k: 기종 필터
     return true;
   };
   const base = exchangeList.filter(_passPQ);
   let filtered = base.filter(x => F.worker === 'all' || String(x.worker) === F.worker);
-  if(countEl) countEl.textContent = `${filtered.length}건 표시 / 전체 ${exchangeList.length}건`;
+  if(countEl) countEl.textContent = `${filtered.length}건 표시 / 전체 ${exchangeList.length}건${window._excDupCount ? ` · ⚠ 시트 중복 ${window._excDupCount}건 숨김 — 해당 건 [원복] 1회 후 재등록하면 시트도 정리됩니다` : ''}`;
 
   const workers2 = [...new Set(exchangeList.map(x => String(x.worker||'')).filter(Boolean))].sort();
   const pBtn = (key, label, cnt) => {
@@ -12987,12 +13000,16 @@ function renderExchangeList() {
         <option value="all" ${F.worker==='all'?'selected':''}>엔지니어 전체</option>
         ${workers2.map(w => `<option value="${escapeHtml(w)}" ${F.worker===w?'selected':''}>${escapeHtml(w)}</option>`).join('')}
       </select>
+      <select onchange="setExcFilter('model', this.value)" style="height:30px;font-size:12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 8px;">
+        <option value="all" ${(!F.model||F.model==='all')?'selected':''}>기종 전체</option>
+        ${[...new Set(exchangeList.map(x => normalizeModel(x.model||'')).filter(Boolean))].sort().map(m => `<option value="${escapeHtml(m)}" ${F.model===m?'selected':''}>${escapeHtml(m)}</option>`).join('')}
+      </select>
       <input id="exc-search-inp" value="${escapeHtml(F.q)}" placeholder="시리얼·사유·메모 검색"
         onkeydown="if(event.key==='Enter') excSearchGo()"
         style="height:30px;font-size:12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 10px;min-width:170px;">
       <button class="btn btn-sm" onclick="excSearchGo()">🔍 검색</button>
       <button class="btn btn-sm" onclick="window._excShowMonthly=!window._excShowMonthly;renderExchangeList();" style="font-weight:700;${window._excShowMonthly?'background:var(--accent);color:#fff;border-color:var(--accent);':''}">📅 월별 마감</button>
-      ${(F.period!=='all'||F.worker!=='all'||F.q) ? `<button class="btn btn-sm" onclick="window._excFilter={period:'all',worker:'all',q:''};renderExchangeList();" style="color:var(--text3);">✕ 초기화</button>` : ''}
+      ${(F.period!=='all'||F.worker!=='all'||F.q||(F.model&&F.model!=='all')) ? `<button class="btn btn-sm" onclick="window._excFilter={period:'all',worker:'all',q:'',model:'all'};renderExchangeList();" style="color:var(--text3);">✕ 초기화</button>` : ''}
     </div>`;
 
   // ⭐ v2.68d: 월별 마감 집계 — 월별 교품 총수·엔지니어별 분해·환산 합계(주 단위 8:1, 주의 월요일이 속한 달 귀속, 07-21 이후)
