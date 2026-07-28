@@ -4777,19 +4777,18 @@ function moveSelectedToInspect(worker) {
 }
 
 // 검수대기로 이동
-async function moveToInspect(entryId) {
+async function moveToInspect(entryId, _skipConfirmed) {
   const e = entries.find(x => String(x.id) === String(entryId));
   if(!e) { notify('수리건을 찾을 수 없습니다.', 'error'); return; }
   const c = calcAging(e.agingStart);
   // ⭐ v2.70j: T4(팀장)는 에이징 미완료여도 강제 이관 가능 (테스트·긴급 출고용) — 확인 후 진행
+  //   (v2.70m: 플래그 방식 → 인자 방식 — 확인창을 취소한 뒤 다시 눌러도 반드시 확인창이 다시 뜨게)
   if(!c.isPassed && isFullAdmin()) {
-    const hrs = Math.ceil(c.remaining / 3600000);
-    if(!window._agingSkipConfirm || window._agingSkipConfirm !== String(entryId)) {
-      window._agingSkipConfirm = String(entryId);
-      openModal('에이징 건너뛰기 (T4)', `${e.serial} — 에이징이 약 ${hrs}시간 남았습니다. 팀장 권한으로 지금 검수대기로 넘길까요?`, () => { moveToInspect(entryId); }, '건너뛰고 이관', 'btn-danger');
+    if(!_skipConfirmed) {
+      const hrs = Math.ceil(c.remaining / 3600000);
+      openModal('에이징 건너뛰기 (T4)', `${e.serial} — 에이징이 약 ${hrs}시간 남았습니다. 팀장 권한으로 지금 검수대기로 넘길까요?`, () => { moveToInspect(entryId, true); }, '건너뛰고 이관', 'btn-danger');
       return;
     }
-    window._agingSkipConfirm = null;
   } else if(!c.isPassed) { notify('아직 24시간이 경과하지 않았습니다.', 'error'); return; }
 
   try {
@@ -4959,7 +4958,7 @@ async function doRemoveSavedPart(entryId, partName) {
     const r = await gasCall({ action:'edit', id:String(entryId), works:(e.works||[]).join(','), total:e.total, note:e.note||'', parts:partsStr, serial:e.serial, model:e.model });
     if(r && r.ok === false) { notify('제거 실패 — 대상 건을 찾지 못했습니다.','error'); return; }
     // 재고 복구 (제거한 부품 = 이전 - 이후, applyStockDelta로 복구 처리)
-    try { await applyStockDelta(e.parts, newParts, e.model); } catch(err) { console.warn('재고 복구 실패', err); }
+    try { await applyStockDelta(e.parts, newParts, e.model, e.serial); } catch(err) { console.warn('재고 복구 실패', err); }
     e.parts = newParts;
     markPendingChange('entries', entryId, { type:'update', data:{ parts:newParts } }, 5000);
     try { renderStock(); renderAging(); } catch(x){}
@@ -5075,7 +5074,7 @@ async function submitAddParts(entryId) {
       if(sidx < 0) sidx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
       if(sidx < 0) continue;   // 재고에 없는 부품은 기록 없이 스킵 (기존과 동일)
       // ⭐ v2.68: 원자 연산 — 서버가 시트 기준으로 차감·이력 기록
-      try { await adjustStockOp({ idx: sidx, delta: -b.qty, type: 'out', note: `에이징 중 부품 추가 (${e.serial})${note ? ' - ' + note : ''}` }); } catch {}
+      try { await adjustStockOp({ idx: sidx, delta: -b.qty, type: 'out', note: `에이징 중 부품 추가 [${String(e.serial).toUpperCase()}]${note ? ' - ' + note : ''}` }); } catch {}
     }
 
     const curIdx = entries.findIndex(x => String(x.id) === String(entryId));
@@ -10671,7 +10670,7 @@ async function addEntry() {
     renderAll();
     notify(`${serial} 수리 등록 완료!`);
     // ⭐ 미리 계산한 스냅샷으로 차감 (폼 비운 것과 무관)
-    if(stock.length) await deductStock(works, partsSnapshot, model);
+    if(stock.length) await deductStock(works, partsSnapshot, model, serial);   // ⭐ v2.70l: 시리얼 태깅
 
     // 백그라운드 검증 (차감 저장 끝난 뒤 동기화)
     setTimeout(async () => {
@@ -12183,7 +12182,7 @@ async function saveEdit() {
       return;
     }
     // ⭐ v2.57k: 재고 delta 반영 (수정후 - 수정전 차이만큼 재고 증감)
-    try { await applyStockDelta(_oldParts, editPartsResult, newModel); } catch(err) { console.warn('재고 delta 실패', err); }
+    try { await applyStockDelta(_oldParts, editPartsResult, newModel, newSerial); } catch(err) { console.warn('재고 delta 실패', err); }
     // 서버 성공 → 로컬 반영 + 화면 갱신
     const idx = entries.findIndex(x=>String(x.id)===String(editTargetId));
     if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; entries[idx].parts=editPartsResult; entries[idx].serial=newSerial; entries[idx].model=newModel; }
@@ -12914,6 +12913,15 @@ async function revertExchange(id) {
 // ⭐ v2.66: 교품 처리 필터·요약 — 기간(오늘/7일/이번달/전체) + 엔지니어 + 검색, 상단 한눈 요약
 window._excFilter = window._excFilter || { period: 'today', worker: 'all', q: '', model: 'all' };   // ⭐ v2.66a: 기본 = 금일 등록건만 · v2.70k: 기종 필터 추가
 function setExcFilter(k, v) { window._excFilter[k] = v; renderExchangeList(); }
+// ⭐ v2.70l: 교품 기간 지정 조회 (시작~끝 날짜, 한쪽만 넣어도 동작)
+function setExcRange() {
+  const f = (document.getElementById('exc-from')?.value || '').trim();
+  const t = (document.getElementById('exc-to')?.value || '').trim();
+  if(!f && !t) { notify('시작일 또는 종료일을 선택하세요.', 'error'); return; }
+  if(f && t && f > t) { notify('시작일이 종료일보다 늦습니다.', 'error'); return; }
+  window._excFilter.from = f; window._excFilter.to = t; window._excFilter.period = 'range';
+  renderExchangeList();
+}
 function excSearchGo() {
   const inp = document.getElementById('exc-search-inp');
   window._excFilter.q = (inp ? inp.value : '').trim();
@@ -12932,18 +12940,33 @@ function renderExchangeList() {
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   const monthStr = todayStr.slice(0, 7);
-  const weekMs = now.getTime() - 7 * 86400000;
   const _localDay = (v) => { const d = new Date(v); return isNaN(d) ? '' : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+  // ⭐ v2.70l: 주 경계는 무조건 월~일 (기존 '최근 7일' 롤링 제거) + 저번 주 + 기간 지정
+  const _dowMon = (now.getDay() + 6) % 7;                       // 월=0
+  const _fmtD2 = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const wkStart = new Date(now); wkStart.setDate(now.getDate() - _dowMon);
+  const thisWkStart = _fmtD2(wkStart);                          // 이번 주 월요일
+  const lwS = new Date(wkStart); lwS.setDate(wkStart.getDate() - 7);
+  const lwE = new Date(wkStart); lwE.setDate(wkStart.getDate() - 1);
+  const lastWkStart = _fmtD2(lwS), lastWkEnd = _fmtD2(lwE);     // 저번 주 월~일
 
   // 요약 (필터 무관, 전체 기준)
   const cToday = exchangeList.filter(x => _localDay(x.date) === todayStr).length;
-  const cWeek  = exchangeList.filter(x => new Date(x.date).getTime() >= weekMs).length;
+  const cWeek  = exchangeList.filter(x => { const d = _localDay(x.date); return d >= thisWkStart && d <= todayStr; }).length;
+  const cLastWeek = exchangeList.filter(x => { const d = _localDay(x.date); return d >= lastWkStart && d <= lastWkEnd; }).length;
   const cMonth = exchangeList.filter(x => _localDay(x.date).slice(0,7) === monthStr).length;
 
   // 필터 적용 — 기간·검색을 먼저 적용한 base(엔지니어 무관)를 만들어 엔지니어별 그래프에 재사용
   const _passPQ = (x) => {
-    if(F.period === 'today' && _localDay(x.date) !== todayStr) return false;
-    if(F.period === 'week'  && new Date(x.date).getTime() < weekMs) return false;
+    const _d = _localDay(x.date);
+    if(F.period === 'today' && _d !== todayStr) return false;
+    if(F.period === 'week'  && !(_d >= thisWkStart && _d <= todayStr)) return false;
+    if(F.period === 'lastweek' && !(_d >= lastWkStart && _d <= lastWkEnd)) return false;
+    if(F.period === 'range') {
+      if(F.from && _d < F.from) return false;
+      if(F.to && _d > F.to) return false;
+      // (둘 다 비어 있으면 기간 제한 없음 — 아래 검색어·기종 필터는 계속 적용)
+    }
     if(F.period === 'month' && _localDay(x.date).slice(0,7) !== monthStr) return false;
     if(F.q) {
       const q = F.q.toUpperCase();
@@ -12969,7 +12992,8 @@ function renderExchangeList() {
   const barHtml = `
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
       ${sumCard('금일 교품', cToday, cToday ? '#ef4444' : 'var(--text2)')}
-      ${sumCard('최근 7일', cWeek, 'var(--text)')}
+      ${sumCard('이번 주 (월~일)', cWeek, 'var(--text)')}
+      ${sumCard('저번 주 (월~일)', cLastWeek, 'var(--text)')}
       ${sumCard('이번 달', cMonth, 'var(--text)')}
       ${sumCard('누적 전체', exchangeList.length, 'var(--text)')}
     </div>
@@ -12995,7 +13019,12 @@ function renderExchangeList() {
       }).join('') + `</div>`;
     })()}
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
-      ${pBtn('today','오늘',cToday)}${pBtn('week','7일',cWeek)}${pBtn('month','이번 달',cMonth)}${pBtn('all','전체',exchangeList.length)}
+      ${pBtn('today','오늘',cToday)}${pBtn('week','이번 주',cWeek)}${pBtn('lastweek','저번 주',cLastWeek)}${pBtn('month','이번 달',cMonth)}${pBtn('all','전체',exchangeList.length)}
+      <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text2);border:1px solid ${F.period==='range'?'var(--accent)':'var(--border)'};border-radius:8px;padding:2px 6px;background:${F.period==='range'?'var(--accent)18':'transparent'};">
+        <input type="date" id="exc-from" value="${escapeHtml(F.from||'')}" style="height:26px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);padding:0 4px;">~
+        <input type="date" id="exc-to" value="${escapeHtml(F.to||'')}" style="height:26px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);padding:0 4px;">
+        <button class="btn btn-sm" onclick="setExcRange()" style="height:26px;padding:0 8px;font-weight:700;${F.period==='range'?'background:var(--accent);color:#fff;border-color:var(--accent);':''}">기간 조회</button>
+      </span>
       <select onchange="setExcFilter('worker', this.value)" style="height:30px;font-size:12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 8px;">
         <option value="all" ${F.worker==='all'?'selected':''}>엔지니어 전체</option>
         ${workers2.map(w => `<option value="${escapeHtml(w)}" ${F.worker===w?'selected':''}>${escapeHtml(w)}</option>`).join('')}
@@ -13009,7 +13038,7 @@ function renderExchangeList() {
         style="height:30px;font-size:12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 10px;min-width:170px;">
       <button class="btn btn-sm" onclick="excSearchGo()">🔍 검색</button>
       <button class="btn btn-sm" onclick="window._excShowMonthly=!window._excShowMonthly;renderExchangeList();" style="font-weight:700;${window._excShowMonthly?'background:var(--accent);color:#fff;border-color:var(--accent);':''}">📅 월별 마감</button>
-      ${(F.period!=='all'||F.worker!=='all'||F.q||(F.model&&F.model!=='all')) ? `<button class="btn btn-sm" onclick="window._excFilter={period:'all',worker:'all',q:'',model:'all'};renderExchangeList();" style="color:var(--text3);">✕ 초기화</button>` : ''}
+      ${(F.period!=='all'||F.worker!=='all'||F.q||(F.model&&F.model!=='all')) ? `<button class="btn btn-sm" onclick="window._excFilter={period:'all',worker:'all',q:'',model:'all',from:'',to:''};renderExchangeList();" style="color:var(--text3);">✕ 초기화</button>` : ''}
     </div>`;
 
   // ⭐ v2.68d: 월별 마감 집계 — 월별 교품 총수·엔지니어별 분해·환산 합계(주 단위 8:1, 주의 월요일이 속한 달 귀속, 07-21 이후)
@@ -14780,8 +14809,26 @@ function renderStockHistory() {
     .filter(l => _shFilter === 'all' || _shCat(l) === _shFilter)
     .filter(l => !q || String(l.partName||'').toLowerCase().includes(q) || String(l.note||'').toLowerCase().includes(q) || String(l.worker||'').toLowerCase().includes(q))
     .sort((a,b) => new Date(b.date||0) - new Date(a.date||0));
-  const cntEl = document.getElementById('sh-count');
-  if(cntEl) cntEl.textContent = `전체 ${rows.length.toLocaleString()}건 · ${Math.min(_shLimit, rows.length).toLocaleString()}건 표시`;
+  // ⭐ v2.70l: 이력 노트에서 사용 제품 시리얼 추출 ("수리 자동 차감 [T023126B...]" 형식)
+  const _shSerial = (l) => {
+    const m = String(l.note||'').match(/\[([A-Z0-9\-_]{5,})\]/);
+    return m ? m[1] : '';
+  };
+  // 부호 있는 수량 (기존 signedQty와 동일 판정 — 숫자만)
+  const _shSignedNum = (l) => {
+    const n = Number(l.qty||0);
+    if(!n) return 0;
+    const note = String(l.note||'');
+    const m = note.match(/\(([+-])\d+\)/);
+    const xy = note.match(/재고\s*([\d,]+)\s*→\s*([\d,]+)/);
+    let sign;
+    if(m) sign = m[1];
+    else if(xy) sign = (Number(xy[2].replace(/,/g,'')) >= Number(xy[1].replace(/,/g,''))) ? '+' : '-';
+    else if(_shCat(l) === 'out') sign = /복구/.test(note) ? '+' : '-';
+    else if(l.type === 'out') sign = '-';
+    else sign = '+';
+    return sign === '+' ? n : -n;
+  };
   const badge = l => {
     const c = _shCat(l);
     if(c === 'in') return '<span style="background:rgba(16,185,129,.12);color:#10b981;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">입고</span>';
@@ -14790,22 +14837,6 @@ function renderStockHistory() {
       : '<span style="background:rgba(239,68,68,.12);color:#ef4444;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">차감</span>';
     return '<span style="background:rgba(245,158,11,.14);color:#d97706;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">조정/변경</span>';
   };
-  // 수량 부호: 입고·원복 +, 차감 -, 조정은 note의 (+N)/(-N) 우선, 실사는 type 방향
-  const signedQty = l => {
-    const n = Number(l.qty||0);
-    if(!n) return '—';
-    const note = String(l.note||'');
-    const m = note.match(/\(([+-])\d+\)/);
-    let sign;
-    const xy = note.match(/재고\s*([\d,]+)\s*→\s*([\d,]+)/);   // ⭐ v2.68e: "재고 X → Y"에서 증감 방향 판독
-    if(m) sign = m[1];
-    else if(xy) sign = (Number(xy[2].replace(/,/g,'')) >= Number(xy[1].replace(/,/g,''))) ? '+' : '-';
-    else if(_shCat(l) === 'out') sign = /복구/.test(note) ? '+' : '-';
-    else if(l.type === 'out') sign = '-';
-    else sign = '+';
-    const color = sign === '+' ? '#10b981' : '#ef4444';
-    return `<span style="color:${color};">${sign}${n.toLocaleString()}</span>`;
-  };
   const fmtD = d => {   // ⭐ v2.64b: ISO(UTC) 그대로 잘라 9시간 어긋나던 표시 → 로컬(한국) 시간 변환
     try {
       const dt = new Date(d);
@@ -14813,32 +14844,97 @@ function renderStockHistory() {
       return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
     } catch(e) { return d || '-'; }
   };
-  if(!rows.length) {
-    el.innerHTML = '<div style="text-align:center;color:var(--text2);padding:40px 0;">기록이 없습니다.</div>';
+  // ⭐ v2.70l: 시리얼 묶음 보기(기본) — 같은 시리얼+부품의 -1/+1 반복을 최종 순증감 1줄로 압축.
+  //   순증감 0(차감 후 전량 복구)은 목록에서 제외. 시리얼 없는 구형/일반(입고·실사 등) 행은 원본 유지.
+  const grouped = (window._shGrouped !== false);
+  let dispRows = rows, zeroHidden = 0, mergedCnt = 0;
+  if(grouped) {
+    const groups = new Map();   // key: serial|partKey → { rows:[], net, last }
+    const plain = [];
+    rows.forEach(l => {
+      const sn = _shSerial(l);
+      if(!sn) { plain.push({ raw: l }); return; }
+      const key = sn + '|' + String(l.partId || l.partName || '');
+      if(!groups.has(key)) groups.set(key, { serial: sn, partName: l.partName, rows: [], net: 0, last: l });
+      const g = groups.get(key);
+      g.rows.push(l);
+      g.net += _shSignedNum(l);
+      if(new Date(l.date||0) > new Date(g.last.date||0)) g.last = l;
+    });
+    const gRows = [];
+    groups.forEach(g => {
+      if(g.net === 0) { zeroHidden += g.rows.length; return; }   // 상쇄(사용 안 함) — 숨김
+      if(g.rows.length > 1) mergedCnt += g.rows.length - 1;
+      gRows.push({ grp: g });
+    });
+    dispRows = [...gRows, ...plain].sort((a,b) => {
+      const da = a.grp ? a.grp.last.date : a.raw.date;
+      const db = b.grp ? b.grp.last.date : b.raw.date;
+      return new Date(db||0) - new Date(da||0);
+    });
+  } else {
+    dispRows = rows.map(l => ({ raw: l }));
+  }
+  const cntEl = document.getElementById('sh-count');
+  if(cntEl) cntEl.textContent = `전체 ${dispRows.length.toLocaleString()}건 · ${Math.min(_shLimit, dispRows.length).toLocaleString()}건 표시${grouped && (mergedCnt || zeroHidden) ? ` (묶음 ${mergedCnt}건 · 상쇄 숨김 ${zeroHidden}건)` : ''}`;
+  const serialChip = (sn) => `<span onclick="viewSerialRepair('${escapeJs(sn)}')" title="클릭하면 이 시리얼의 수리 내역으로 이동" style="cursor:pointer;font-family:monospace;font-weight:700;font-size:12px;color:var(--accent);background:var(--accent-bg,rgba(45,212,191,.08));border:1px solid var(--accent);border-radius:8px;padding:2px 8px;">${escapeHtml(sn)}</span>`;
+  const netQtyHtml = (net) => `<span style="color:${net > 0 ? '#10b981' : '#ef4444'};">${net > 0 ? '+' : ''}${net.toLocaleString()}</span>`;
+  const netBadge = (net) => net > 0
+    ? '<span style="background:rgba(59,130,246,.12);color:#3b82f6;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">원복</span>'
+    : '<span style="background:rgba(239,68,68,.12);color:#ef4444;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">차감</span>';
+  const toolbar = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+      <button class="btn btn-sm" onclick="window._shGrouped=!(window._shGrouped!==false);renderStockHistory();" style="font-weight:700;${grouped?'background:var(--accent);color:#fff;border-color:var(--accent);':''}">🔗 시리얼 묶음 보기</button>
+      <span style="font-size:11px;color:var(--text3);">${grouped ? '같은 시리얼·부품의 반복 증감을 최종 1줄로 압축, 전량 복구(상쇄)건은 숨김' : '모든 이력을 원본 그대로 표시'}</span>
+    </div>`;
+  if(!dispRows.length) {
+    el.innerHTML = toolbar + '<div style="text-align:center;color:var(--text2);padding:40px 0;">기록이 없습니다.</div>';
     return;
   }
-  el.innerHTML = `
+  el.innerHTML = toolbar + `
     <div style="overflow-x:auto;">
     <table class="table" style="width:100%;">
       <thead><tr>
         <th style="white-space:nowrap;">일시</th><th>부품명</th><th style="text-align:center;">유형</th>
-        <th style="text-align:center;">수량</th><th>사유/메모</th><th style="white-space:nowrap;">작업자</th>
+        <th style="text-align:center;">수량</th><th>사용 제품 시리얼 / 메모</th>
       </tr></thead>
       <tbody>
-        ${rows.slice(0, _shLimit).map(l => `
-          <tr>
+        ${dispRows.slice(0, _shLimit).map(r => {
+          if(r.grp) {
+            const g = r.grp;
+            return `<tr>
+              <td style="white-space:nowrap;font-size:12px;color:var(--text2);">${fmtD(g.last.date)}</td>
+              <td style="font-weight:600;">${escapeHtml(g.partName||'-')}</td>
+              <td style="text-align:center;">${netBadge(g.net)}</td>
+              <td style="text-align:center;font-weight:700;">${netQtyHtml(g.net)}</td>
+              <td>${serialChip(g.serial)}${g.rows.length > 1 ? ` <span style="font-size:11px;color:var(--text3);">(${g.rows.length}회 변동 합산)</span>` : ''}</td>
+            </tr>`;
+          }
+          const l = r.raw;
+          const sn = _shSerial(l);
+          const noteDisp = grouped && sn ? '' : escapeHtml(l.note||'');
+          return `<tr>
             <td style="white-space:nowrap;font-size:12px;color:var(--text2);">${fmtD(l.date)}</td>
             <td style="font-weight:600;">${escapeHtml(l.partName||'-')}</td>
             <td style="text-align:center;">${badge(l)}</td>
-            <td style="text-align:center;font-weight:700;">${signedQty(l)}</td>
-            <td style="font-size:12.5px;">${escapeHtml(l.note||'')}</td>
-            <td style="font-size:12px;color:var(--text2);">${escapeHtml(l.worker||'')}</td>
-          </tr>`).join('')}
+            <td style="text-align:center;font-weight:700;">${(() => { const n = _shSignedNum(l); return n === 0 ? '—' : netQtyHtml(n); })()}</td>
+            <td style="font-size:12.5px;">${sn ? serialChip(sn) + ' ' : ''}${grouped && sn ? '' : noteDisp}</td>
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>
     </div>
-    ${rows.length > _shLimit ? `<div style="text-align:center;margin-top:12px;"><button class="btn btn-sm" onclick="_shLimit += 300; renderStockHistory();" style="padding:8px 24px;">⬇ 더 보기 (${Math.min(300, rows.length - _shLimit)}건 추가 · 남은 ${(rows.length - _shLimit).toLocaleString()}건)</button></div>` : ''}
-    <div style="margin-top:10px;font-size:11.5px;color:var(--text2);">💡 서버에서 최근 3,000건까지 불러옵니다. 그 이전 기록은 구글시트 '재고이력' 탭에서 확인하세요.</div>`;
+    ${dispRows.length > _shLimit ? `<div style="text-align:center;margin-top:12px;"><button class="btn btn-sm" onclick="_shLimit += 300; renderStockHistory();" style="padding:8px 24px;">⬇ 더 보기 (${Math.min(300, dispRows.length - _shLimit)}건 추가 · 남은 ${(dispRows.length - _shLimit).toLocaleString()}건)</button></div>` : ''}
+    <div style="margin-top:10px;font-size:11.5px;color:var(--text2);">💡 서버에서 최근 3,000건까지 불러옵니다. 시리얼 표시는 새 버전 배포 이후 기록부터 자동으로 붙습니다. 그 이전 기록은 구글시트 '재고이력' 탭에서 확인하세요.</div>`;
+}
+
+// ⭐ v2.70l: 재고 이력의 시리얼 클릭 → 시리얼 조회 탭에서 그 기기 수리 내역 바로 열기
+function viewSerialRepair(serial) {
+  try {
+    gotoTab('search');
+    const inp = document.getElementById('inp-search');
+    if(inp) { inp.value = String(serial).toUpperCase(); doSearch(); }
+  } catch(e) { console.warn(e); }
 }
 
 function switchStockTab(tab) {
@@ -15879,9 +15975,11 @@ async function saveStockIn() {
 }
 
 // 수리 등록 시 재고 자동 차감
-async function deductStock(works, partsData, model) {
+async function deductStock(works, partsData, model, serial) {
   // partsData: getPartsData() 결과 {부품명: 실사용수량}
   // model: 현재 기종 (modelOnly 필터용)
+  // ⭐ v2.70l: serial — 재고이력에 "어느 기기 수리에 쓰였는지"를 [시리얼]로 기록 (이력 화면 시리얼 묶음 보기의 재료)
+  const _sTag = serial ? ` [${String(serial).toUpperCase()}]` : '';
 
   // 차감할 부품 목록 구성
   // partsData가 있으면 그걸 기준으로, 없으면 WORKS 기본 부품으로 폴백
@@ -15916,7 +16014,7 @@ async function deductStock(works, partsData, model) {
     if(idx < 0) { missed.push(partName); continue; }   // ⭐ v2.70b: 스킵을 기록
     // ⭐ v2.68: 원자 연산 — 서버가 시트 기준으로 차감·이력 기록 (하한 0 클램프는 서버)
     try {
-      const r = await adjustStockOp({ idx, delta: -qty, type: 'out', note: '수리 자동 차감' });
+      const r = await adjustStockOp({ idx, delta: -qty, type: 'out', note: '수리 자동 차감' + _sTag });
       changed = true;
       // ⭐ v2.70b: 0 하한 클램프 감지 — 요청량만큼 못 깎였으면 즉시 알림 (조용한 카운트 누락 방지)
       if(r && r.ok && r.prev !== undefined && (Number(r.prev) - Number(r.qty)) < qty) {
@@ -15932,8 +16030,9 @@ async function deductStock(works, partsData, model) {
 
 // ⭐ v2.57k: 수정 시 재고 delta 반영 — (수정후 - 수정전) 차이만큼 재고 증감 + 로그
 //   oldParts/newParts: {부품명: 수량}. model: 기종(매칭용). 재고에 없는 이름은 자동 스킵(옛이름 안전).
-async function applyStockDelta(oldParts, newParts, model) {
+async function applyStockDelta(oldParts, newParts, model, serial) {
   if(!stock.length) return;
+  const _sTag = serial ? ` [${String(serial).toUpperCase()}]` : '';   // ⭐ v2.70l: 시리얼 태깅
   const names = new Set([...Object.keys(oldParts||{}), ...Object.keys(newParts||{})]);
   const curModel = normalizeModel(model || '');   // ⭐ v2.70c: 기종 정규화
   const findIdx = (partName) => {
@@ -15959,7 +16058,7 @@ async function applyStockDelta(oldParts, newParts, model) {
     }
     // ⭐ v2.68: 원자 연산 — 서버가 시트 기준으로 증감·이력 기록
     try {
-      const r = await adjustStockOp({ idx, delta: -diff, type: diff > 0 ? 'out' : 'in', note: diff > 0 ? '수리 수정 추가차감' : '수리 수정 복구' });
+      const r = await adjustStockOp({ idx, delta: -diff, type: diff > 0 ? 'out' : 'in', note: (diff > 0 ? '수리 수정 추가차감' : '수리 수정 복구') + _sTag });
       changed = true;
       if(diff > 0 && r && r.ok && r.prev !== undefined && (Number(r.prev) - Number(r.qty)) < diff) {   // ⭐ v2.70b: 클램프 알림
         notify(`⚠ ${stock[idx].name}: ${diff}개 추가차감 필요한데 재고가 ${r.prev}개라 ${Number(r.prev) - Number(r.qty)}개만 차감됨`, 'error');
@@ -15995,7 +16094,7 @@ async function restoreStockForEntry(e) {
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
     if(idx < 0) continue;
     // ⭐ v2.68: 원자 연산
-    try { const r = await adjustStockOp({ idx, delta: qty, type: 'in', note: '수리 삭제 복구' }); if(r && r.ok) restored += qty; } catch {}
+    try { const r = await adjustStockOp({ idx, delta: qty, type: 'in', note: '수리 삭제 복구' + (e.serial ? ` [${String(e.serial).toUpperCase()}]` : '') }); if(r && r.ok) restored += qty; } catch {}
   }
   return restored;
 }
