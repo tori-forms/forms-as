@@ -3012,6 +3012,16 @@ async function syncData(silent=false, force=false, _snapData=null) {
       link: (d.link||'').replace(/\[CL\]/g,'::').replace(/\[PP\]/g,'||'),
       memo: (d.memo||'').replace(/\[BR\]/g,'\n').replace(/\[CL\]/g,'::').replace(/\[PP\]/g,'||')
     }));
+    // ⭐ v2.70n: 방금(10분 내) 등록한 교육자료는 낡은 캐시 페이로드에 안 밀리게 로컬 기억으로 되살림.
+    //   (등록 직후 새로고침하면 캐시 재빌드(~1분)까지 자료가 사라져 보이던 문제 해소.
+    //    서버 페이로드에 그 자료가 등장하면 즉시 기억 해제 — 자연 수렴)
+    try {
+      const _dov = JSON.parse(localStorage.getItem('fa_docs_ov') || '[]');
+      const _now2 = Date.now();
+      const _kept = _dov.filter(o => o && o.doc && (_now2 - (o.t||0)) < 10*60*1000 && !docs.some(d => String(d.id) === String(o.doc.id)));
+      _kept.forEach(o => docs.push(o.doc));
+      if(_kept.length !== _dov.length) localStorage.setItem('fa_docs_ov', JSON.stringify(_kept));
+    } catch(e) {}
     // === 검수 시스템 (Phase2): 검수 이력 + 서버시간 ===
     // ⭐ v2.33: 변경 보호 적용 - 최근 변경한 항목은 서버 데이터로 덮어쓰지 않음
     const rawInspections = data.inspections || [];
@@ -3809,6 +3819,8 @@ function loginAs(name) {
   // ⭐ 목표 미달 사유 검사 (수리 엔지니어만, 직전 영업일 미달 시 강제 입력)
   // ⭐ v2.64c: 지연 사유 수집 중단 (대시보드에서 미달 명단만 노출하기로 결정) — 필요 시 이 줄 복원
   // setTimeout(() => { try { checkMissOnLogin(); } catch(e){ console.error(e); } }, 1200);
+  // ⭐ v2.70o: 오늘 특이사항 공지가 있으면 팝업 (전 직원, 1회)
+  setTimeout(() => { try { checkDailyNotice(); } catch(e){ console.warn(e); } }, 1500);
 }
 async function loginMaster() {
   if(!_selectedAdminName) {
@@ -11430,6 +11442,8 @@ async function buildMissSummaryHtml() {
     return html;
   }
 
+  // ⭐ v2.70o: 특이사항 공지 조회 (배치 1회) — 공지일 미달은 '참작'으로 분리 표시
+  try { await fetchNotices(days); } catch(e) {}
   // ⭐ v2.63: 1차 로컬 계산으로 '미달 있는 날'만 추림 — 없는 날은 서버 조회도, 표시도 하지 않음.
   //   (기존: 7일 전부 사유 조회 + 전원 달성 날까지 렌더 → 조회·표시 모두 낭비)
   const repairEngs = workers.filter(isRepairEngineer);
@@ -11443,12 +11457,16 @@ async function buildMissSummaryHtml() {
     if(missList.length) missByDay.push({ dayStr, missList });
   });
 
+  // ⭐ v2.70o: 공지 등록 버튼 (T3·T4)
+  const noticeBtn = (isFullAdmin() || isPartMaster()) ? `<button class="btn btn-sm" onclick="openNoticeModal()" style="margin-left:auto;font-weight:700;color:#f59e0b;border-color:#f59e0b66;">📢 특이사항 공지</button>` : '';
+
   // 미달이 하루도 없으면 — 서버 호출 없이 즉시 요약 카드
   if(!missByDay.length) {
     const html = `<div class="card" style="padding:16px 18px;margin-bottom:16px;">
-      <div style="display:flex;align-items:center;gap:10px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <span style="font-size:15px;font-weight:800;color:var(--text);">📉 목표 미달</span>
         <span style="font-size:12px;font-weight:700;color:var(--green);background:#10b9811a;padding:3px 10px;border-radius:99px;">🎉 최근 ${days.length}영업일 전원 달성</span>
+        ${noticeBtn}
       </div>
     </div>`;
     _missSummaryCache = html;
@@ -11457,36 +11475,42 @@ async function buildMissSummaryHtml() {
 
   // ⭐ v2.64c: 사유 수집·표시 전면 제거 — 미달 명단만 로컬 계산으로 즉시 렌더.
   //   getMissReasonsRange 서버 왕복(대시보드 진입 시 유일한 GAS 호출)이 사라져 로딩 단축.
-  let totalMissPersonDays = 0;
+  let totalMissPersonDays = 0, noticedPersonDays = 0;
 
   const dayBlocks = missByDay.map(({ dayStr, missList }) => {
     const dow = ['일','월','화','수','목','금','토'][new Date(dayStr+'T00:00:00').getDay()];
     const isYesterday = (dayStr === days[0]);
     const mmdd = dayStr.slice(5);  // MM-DD
-    totalMissPersonDays += missList.length;
+    const notice = window._noticeByDate[dayStr] || '';   // ⭐ v2.70o: 그날 특이사항 공지
+    if(notice) noticedPersonDays += missList.length;
+    else totalMissPersonDays += missList.length;
+    const accent = notice ? '#f59e0b' : '#ef4444';
 
     const rows = missList.map(m => {
-      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;background:var(--surface2);margin-bottom:4px;">
+      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;background:var(--surface2);margin-bottom:4px;${notice ? 'opacity:.75;' : ''}">
         <span style="font-weight:700;font-size:12.5px;color:var(--text);min-width:54px;">${escapeHtml(m.name)}</span>
-        <span style="font-size:11px;font-weight:700;color:#ef4444;white-space:nowrap;">${m.short}건 부족</span>
-        <span style="font-size:11px;color:var(--text3);white-space:nowrap;">${m.done}/${m.target}</span>
+        <span style="font-size:11px;font-weight:700;color:${accent};white-space:nowrap;">${m.short}건 부족${notice ? ' · 참작' : ''}</span>
+        <span style="font-size:11px;color:var(--text3);white-space:nowrap;">${m.done}/${m.target}${m.exc ? ` <span title="교품 ${m.exc}건 포함(8:1 환산)">＋교품${m.exc}</span>` : ''}</span>
       </div>`;
     }).join('');
 
     return `<div style="padding:9px 0;border-bottom:1px solid var(--border);">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
         <span style="font-size:12.5px;font-weight:700;color:var(--text);min-width:78px;">${mmdd} (${dow})</span>
         ${isYesterday?'<span style="font-size:10px;font-weight:700;color:#fff;background:var(--accent);padding:1px 7px;border-radius:99px;">어제</span>':''}
-        <span style="font-size:11px;font-weight:700;color:#ef4444;">미달 ${missList.length}명</span>
+        <span style="font-size:11px;font-weight:700;color:${accent};">${notice ? '참작' : '미달'} ${missList.length}명</span>
+        ${notice ? `<span style="font-size:11px;font-weight:700;color:#f59e0b;background:#f59e0b1a;padding:2px 9px;border-radius:99px;">📢 ${escapeHtml(notice)}</span>` : ''}
       </div>
       ${rows}
     </div>`;
   }).join('');
 
   const html = `<div class="card" style="padding:16px 18px;margin-bottom:16px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
       <span style="font-size:15px;font-weight:800;color:var(--text);">📉 목표 미달</span>
       <span style="font-size:12px;font-weight:700;color:#ef4444;background:#ef44441a;padding:3px 10px;border-radius:99px;">미달 ${totalMissPersonDays}건</span>
+      ${noticedPersonDays > 0 ? `<span style="font-size:12px;font-weight:700;color:#f59e0b;background:#f59e0b1a;padding:3px 10px;border-radius:99px;">📢 참작 ${noticedPersonDays}건</span>` : ''}
+      ${noticeBtn}
     </div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">최근 7영업일 · ${MISS_START_DATE}~ 집계</div>
     ${dayBlocks}
@@ -12498,8 +12522,121 @@ function calcMissForDay(name, dayStr) {
   const target = getPersonalDailyTarget(name, refD);
   if(!target || target <= 0) return null;          // 목표 없는 사람(관리자·교육중·QC) 제외
   const done = entries.filter(e => e.worker === name && toLocalDay(e.date) === dayStr).length;
-  if(done >= target) return null;                  // 달성 → 미달 아님
-  return { target, done, short: target - done };
+  // ⭐ v2.70o: 교품 8:1 환산 포함 (2026-07-21 정책 시작일부터) — 교품 8건 = 수리 1건으로 달성 인정
+  let excCnt = 0, excConv = 0;
+  if(dayStr >= EXC_CONV_START) {
+    excCnt = (exchangeList || []).filter(x => String(x.worker||'').split('::')[0] === name && toLocalDay(x.date) === dayStr).length;
+    excConv = Math.floor(excCnt / 8);
+  }
+  const doneTotal = done + excConv;
+  if(doneTotal >= target) return null;             // 달성 → 미달 아님
+  return { target, done: doneTotal, doneRepair: done, exc: excCnt, short: target - doneTotal };
+}
+const EXC_CONV_START = '2026-07-21';   // ⭐ v2.70o: 교품 8:1 환산 정책 시작일 (월별 마감과 동일)
+const NOTICE_NAME = '__공지__';        // ⭐ v2.70o: 특이사항 공지 저장 키 (미달기록 시트의 이름 칸)
+window._noticeByDate = window._noticeByDate || {};   // { 'YYYY-MM-DD': '사유' | '' }
+
+// ⭐ v2.70o: 날짜별 특이사항 공지 일괄 조회 (미달기록 시트, name='__공지__' 행) — 1회 배치 호출
+// ⭐ v2.70p: 6초 타임아웃 — 서버가 느려도 대시보드/리포트 렌더를 절대 붙잡지 않음.
+//   (타임아웃 시 캐시 미기록 → 다음 렌더에서 자동 재시도. v2.64c가 이 왕복을 없앤 이유였던
+//    "대시보드 로딩 지연"의 재발 방지)
+async function fetchNotices(dates) {
+  const need = (dates || []).filter(d => d && !(d in window._noticeByDate));
+  if(!need.length) return;
+  try {
+    const r = await Promise.race([
+      gasCall({ action: 'getMissReasonsRange', dates: need.join(',') }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('notice-timeout')), 6000))
+    ]);
+    need.forEach(d => { window._noticeByDate[d] = window._noticeByDate[d] || ''; });
+    if(r && r.byDate) Object.entries(r.byDate).forEach(([d, list]) => {
+      const n = (list || []).find(x => String(x.name) === NOTICE_NAME);
+      if(n && n.reason) window._noticeByDate[d] = String(n.reason);
+    });
+  } catch(e) { console.warn('[공지 조회]', e); }
+}
+
+// ⭐ v2.70o: 해당 월의 엔지니어 미달 일수 (오늘 제외 · 주말/공휴일 제외 · 공지일은 '참작'으로 분리)
+function calcMissDaysForMonth(name, monthVal) {
+  const today = todayStr();
+  const res = { miss: 0, noticed: 0 };
+  const d = new Date(monthVal + '-01T00:00:00');
+  if(isNaN(d)) return res;
+  while(true) {
+    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    if(!ds.startsWith(monthVal) || ds >= today) break;
+    const dow = d.getDay();
+    const hol = holidayCache[ds.slice(0,7)];
+    const isBiz = dow !== 0 && dow !== 6 && !(hol && hol.includes(ds));
+    if(isBiz && ds >= MISS_START_DATE) {
+      const m = calcMissForDay(name, ds);
+      if(m) {
+        if(window._noticeByDate[ds]) res.noticed++;   // 공지(특이사항) 있는 날 = 참작
+        else res.miss++;
+      }
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return res;
+}
+
+// ⭐ v2.70o: 특이사항 공지 팝업 — 로그인 후 오늘 공지가 있으면 1회 표시 (전 직원)
+async function checkDailyNotice() {
+  const today = todayStr();
+  await fetchNotices([today]);
+  const reason = window._noticeByDate[today];
+  if(!reason) return;
+  const seenKey = today + '|' + reason;
+  try { if(localStorage.getItem('fa_notice_seen') === seenKey) return; } catch(e) {}
+  openModal('📢 특이사항 공지', `${reason}\n\n이 특이사항으로 인해 오늘 수리 생성 지연·목표 달성이 어려울 수 있습니다. (미달 집계에 참작됩니다)`, () => {}, '확인', 'btn-primary');
+  try { localStorage.setItem('fa_notice_seen', seenKey); } catch(e) {}
+}
+
+// ⭐ v2.70o: 특이사항 공지 등록 (T3·T4) — 미달기록 시트에 name='__공지__'로 저장 (날짜당 1건, 덮어쓰기)
+function openNoticeModal() {
+  if(!(isFullAdmin() || isPartMaster())) { notify('관리자만 등록할 수 있습니다.', 'error'); return; }
+  let m = document.getElementById('notice-modal');
+  if(!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay';
+    m.id = 'notice-modal';
+    m.innerHTML = `<div class="modal" style="width:420px;">
+      <div class="modal-title">📢 특이사항 공지 등록</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.6;">부품 입고 지연·설비 문제 등으로 수리 생성이 지연되거나 목표 달성이 어려운 날을 공지합니다.<br>공지된 날짜의 미달은 <b>참작</b>으로 분리 집계되고, 당일 로그인한 전 직원에게 팝업으로 안내됩니다.</div>
+      <div class="form-group" style="margin-bottom:12px;">
+        <label class="form-label">대상 날짜</label>
+        <input type="date" id="notice-date" style="width:100%;">
+      </div>
+      <div class="form-group" style="margin-bottom:16px;">
+        <label class="form-label">공지 내용</label>
+        <textarea id="notice-text" placeholder="예: S2PRO 액정 입고 지연으로 금일 LCD 교체 작업 불가 — 목표 달성 어려움 예상" style="width:100%;min-height:80px;"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="document.getElementById('notice-modal').classList.remove('open')">취소</button>
+        <button class="btn btn-primary" onclick="saveNotice()">공지 등록</button>
+      </div>
+    </div>`;
+    document.body.appendChild(m);
+  }
+  document.getElementById('notice-date').value = todayStr();
+  document.getElementById('notice-text').value = window._noticeByDate[todayStr()] || '';
+  m.classList.add('open');
+}
+async function saveNotice() {
+  const date = (document.getElementById('notice-date')?.value || '').trim();
+  const text = (document.getElementById('notice-text')?.value || '').trim();
+  if(!date || !text) { notify('날짜와 내용을 입력하세요.', 'error'); return; }
+  try {
+    await gasCall({ action: 'saveMissReason', date, name: NOTICE_NAME, target: 0, done: 0, short: 0, reason: text, submittedAt: new Date().toISOString() });
+    window._noticeByDate[date] = text;
+    document.getElementById('notice-modal').classList.remove('open');
+    notify(`📢 ${date} 특이사항 공지 등록 완료`);
+    _missSummaryCache = null;   // 미달 카드 재계산
+    buildMissSummaryHtml().then(html => {
+      const slot = document.getElementById('t4-miss-slot') || document.getElementById('t3-miss-slot');
+      if(slot && html) slot.innerHTML = html;
+    }).catch(()=>{});
+  } catch(e) { notify('공지 저장 실패 — 다시 시도해주세요.', 'error'); }
 }
 
 // 로그인 직후 호출 — 본인의 '직전 영업일' 미달이 있고 아직 사유 미작성이면 모달 강제
@@ -13770,40 +13907,69 @@ async function renderReport() {
     if(!wn) return;
     regCntByWorker[wn] = (regCntByWorker[wn] || 0) + 1;
   });
+  // ⭐ v2.70o: 그 달 엔지니어별 교품 건수 (8:1 환산 — 환산분은 기여도 실적에 합산)
+  const excByWorker = {};
+  (exchangeList || []).forEach(x => {
+    const xd = toLocalDay(x.date);
+    if(!xd.startsWith(monthVal) || xd < EXC_CONV_START) return;
+    const wn = String(x.worker||'').split('::')[0];
+    if(!wn) return;
+    excByWorker[wn] = (excByWorker[wn] || 0) + 1;
+  });
+  // ⭐ v2.70o: 공지·공휴일 데이터 준비 (미달 일수 집계용 — 실패해도 리포트는 뜸)
+  try {
+    await ensureHolidaysLoaded(new Date(y, m-1, 1).getTime(), Math.min(Date.now(), new Date(y, m, 0).getTime()), null);
+    const _nd = [];
+    const _cursor = new Date(y, m-1, 1);
+    const _todayS = todayStr();
+    while(_cursor.getMonth() === m-1) {
+      const ds = `${_cursor.getFullYear()}-${String(_cursor.getMonth()+1).padStart(2,'0')}-${String(_cursor.getDate()).padStart(2,'0')}`;
+      if(ds >= _todayS) break;
+      if(ds >= MISS_START_DATE) _nd.push(ds);
+      _cursor.setDate(_cursor.getDate() + 1);
+    }
+    await fetchNotices(_nd);
+  } catch(e) { console.warn('[리포트 공지·휴일]', e); }
   // ⭐ 기여도 분모 = 월 KPI 목표 (설정 시). 미설정이면 전체 출고로 폴백.
   const shareBase = monthKPI > 0 ? monthKPI : totalDone;
   const rows = [...allNames].map(name => {
     const cnt = contribByWorker[name]?.cnt || 0;
     const rev = contribByWorker[name]?.rev || 0;
     const reg = regCntByWorker[name] || 0;
+    const exc = excByWorker[name] || 0;
+    const excConv = Math.floor(exc / 8);             // ⭐ v2.70o: 8:1 환산
+    const kpiCnt = cnt + excConv;                     // 기여도 실적 = 출고 + 교품 환산
+    const md = calcMissDaysForMonth(name, monthVal);  // ⭐ v2.70o: 미달 일수 (공지일은 참작 분리)
     const tw = tenureWeek(name, refDate);            // 입사 주차 (없으면 null)
     const daily = tenureDailyTarget(name, refDate);  // 그 시점 일 목표 (없으면 null)
     const manual = workerDailyTargets[name];
-    return { name, cnt, reg, rev, tw, daily, manual, share: shareBase ? (cnt/shareBase*100) : 0 };
-  }).sort((a, b) => b.cnt - a.cnt);
+    return { name, cnt, reg, rev, exc, excConv, kpiCnt, missDays: md.miss, noticedDays: md.noticed, tw, daily, manual, share: shareBase ? (kpiCnt/shareBase*100) : 0 };
+  }).sort((a, b) => b.kpiCnt - a.kpiCnt);
   const maxShare = rows.length ? Math.max(...rows.map(r => r.share)) : 0;
   const medals = ['🥇', '🥈', '🥉'];
 
   h += `<div class="card" style="padding:0;">
-    <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">엔지니어별 KPI 기여도 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 출고 완료 ÷ ${monthKPI>0?`월 KPI ${fmt(monthKPI)}건`:'전체 출고'} 기준</span></div>
+    <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">엔지니어별 KPI 기여도 <span style="font-size:11px;color:var(--text3);font-weight:400;">· (출고 완료 + 교품 8:1 환산) ÷ ${monthKPI>0?`월 KPI ${fmt(monthKPI)}건`:'전체 출고'} 기준</span></div>
     <div class="table-wrap"><table>
       <thead><tr>
         <th style="width:44px;text-align:center">순위</th>
         <th>엔지니어</th>
         <th>현재 단계 <span style="font-size:10px;color:var(--text3);font-weight:400;">(입사 주차·일 목표)</span></th>
         <th style="text-align:right">수리 등록</th>
+        <th style="text-align:right">교품 <span style="font-size:10px;color:var(--text3);font-weight:400;">(8:1 환산)</span></th>
         <th style="text-align:right">출고(실적)</th>
+        <th style="text-align:center">미달 <span style="font-size:10px;color:var(--text3);font-weight:400;">(일)</span></th>
         <th style="min-width:130px;">기여도</th>
         <th style="text-align:right">공임비 합계</th>
       </tr></thead>
       <tbody>`;
 
   if(!rows.length) {
-    h += `<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--text3);">표시할 엔지니어가 없습니다.</td></tr>`;
+    h += `<tr><td colspan="9" style="padding:24px;text-align:center;color:var(--text3);">표시할 엔지니어가 없습니다.</td></tr>`;
   }
   rows.forEach((r, i) => {
     const rank = i + 1;
-    const rankCell = (r.cnt > 0 && rank <= 3) ? `<span style="font-size:16px;">${medals[rank-1]}</span>` : `<span style="color:var(--text3);font-weight:600;">${rank}</span>`;
+    const rankCell = (r.kpiCnt > 0 && rank <= 3) ? `<span style="font-size:16px;">${medals[rank-1]}</span>` : `<span style="color:var(--text3);font-weight:600;">${rank}</span>`;
     const barW = maxShare ? Math.max(2, Math.round(r.share / maxShare * 100)) : 0;
     const barColor = (r.cnt > 0 && rank === 1) ? 'var(--accent)' : 'var(--text2)';
     const tierB = tierBadge(tierMap[r.name] || '');
@@ -13824,7 +13990,9 @@ async function renderReport() {
       <td style="font-weight:600;">${r.name} ${tierB}</td>
       <td style="font-size:12px;color:var(--text2);">${stage}</td>
       <td style="text-align:right;color:var(--text2);">${r.reg}<span style="font-size:11px;color:var(--text3);">건</span></td>
-      <td style="text-align:right;font-weight:700;font-size:15px;">${r.cnt}<span style="font-size:11px;color:var(--text2);font-weight:500;">건</span></td>
+      <td style="text-align:right;color:var(--text2);">${r.exc}<span style="font-size:11px;color:var(--text3);">건</span>${r.excConv > 0 ? ` <span style="font-size:11px;font-weight:700;color:#8b5cf6;">＋${r.excConv}</span>` : ''}</td>
+      <td style="text-align:right;font-weight:700;font-size:15px;">${r.cnt}<span style="font-size:11px;color:var(--text2);font-weight:500;">건</span>${r.excConv > 0 ? ` <span style="font-size:11px;color:#8b5cf6;font-weight:700;">＋${r.excConv}</span>` : ''}</td>
+      <td style="text-align:center;">${r.missDays > 0 ? `<span style="font-weight:800;color:#ef4444;">${r.missDays}</span><span style="font-size:11px;color:var(--text3);">일</span>` : '<span style="color:var(--green);font-weight:700;">0</span>'}${r.noticedDays > 0 ? ` <span style="font-size:10px;color:#f59e0b;" title="특이사항 공지일 미달 — 참작">📢${r.noticedDays}</span>` : ''}</td>
       <td>
         <div style="display:flex;align-items:center;gap:8px;">
           <div style="flex:1;background:var(--surface2);border-radius:4px;height:8px;overflow:hidden;min-width:70px;">
@@ -13839,14 +14007,19 @@ async function renderReport() {
 
   const footRev = rows.reduce((s, r) => s + r.rev, 0);
   const footReg = rows.reduce((s, r) => s + r.reg, 0);
-  const footShare = shareBase ? Math.round(totalDone / shareBase * 100) : 0;
+  const footExc = rows.reduce((s, r) => s + r.exc, 0);
+  const footExcConv = rows.reduce((s, r) => s + r.excConv, 0);
+  const footMiss = rows.reduce((s, r) => s + r.missDays, 0);
+  const footShare = shareBase ? Math.round((totalDone + footExcConv) / shareBase * 100) : 0;
   h += `</tbody>
     <tfoot><tr>
       <td></td>
       <td style="font-weight:700;padding:10px 12px;">합계 (${rows.length}명)</td>
       <td></td>
       <td style="text-align:right;font-weight:700;color:var(--text2);">${footReg}건</td>
+      <td style="text-align:right;font-weight:700;color:var(--text2);">${footExc}건${footExcConv>0?` <span style="color:#8b5cf6;">＋${footExcConv}</span>`:''}</td>
       <td style="text-align:right;font-weight:700;">${totalDone}건</td>
+      <td style="text-align:center;font-weight:700;color:${footMiss>0?'#ef4444':'var(--green)'};">${footMiss}일</td>
       <td style="text-align:right;font-weight:700;color:var(--accent);padding-right:42px;">${footShare}%</td>
       <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);">${fmt(footRev)}원</td>
     </tr></tfoot>
@@ -16196,7 +16369,14 @@ async function saveDoc() {
   try {
     const escapeMemo = m => (m||'').replace(/\n/g,'[BR]').replace(/::/g,'[CL]');
     await gasCall({action:'addDoc', id, title, category:category||'기타', type, link, memo:escapeMemo(memo), date});
-    docs.push({id, title, category:category||'기타', type, link, memo, date});
+    const _newDoc = {id, title, category:category||'기타', type, link, memo, date};
+    docs.push(_newDoc);
+    // ⭐ v2.70n: 새로고침해도 10분간 유지 (캐시 재빌드 지연 방어)
+    try {
+      const _dov = JSON.parse(localStorage.getItem('fa_docs_ov') || '[]');
+      _dov.push({ doc: _newDoc, t: Date.now() });
+      localStorage.setItem('fa_docs_ov', JSON.stringify(_dov));
+    } catch(e) {}
     closeDocModal();
     renderDocs();
     notify('자료가 추가되었습니다!');
