@@ -11534,15 +11534,20 @@ async function renderMyDash() {
       return;
     }
     el.dataset.t4RenderedFor = currentUser;
-    // 미달 슬롯엔 캐시가 있으면 먼저 표시 (깜빡임 방지)
-    const missInit = _missSummaryCache || '<div style="color:var(--text3);font-size:13px;padding:10px 2px;">미달 현황 불러오는 중…</div>';
     const boardOpen = !!window._boardOpen;   // ⭐ 펼침 상태 유지
     const t4ReportMonth = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+    // ⭐ v2.70q: 목표 미달 카드 제거 — 특이사항 공지 카드를 맨 위로 + 실적 리포트 월 이동
     el.innerHTML =
+      `<div id="t4-notice-slot"></div>` +
+      `<div style="display:flex;align-items:center;gap:8px;margin:2px 0 8px;flex-wrap:wrap;">
+        <span style="font-size:14px;font-weight:800;color:var(--text);">📊 실적 리포트</span>
+        <button class="btn btn-sm" onclick="t4ReportShift(-1)" style="height:28px;padding:0 10px;">‹ 전월</button>
+        <input type="month" id="t4-report-month" value="${t4ReportMonth}" onchange="renderReportInto('t4-report-slot', this.value)" style="height:28px;font-size:12px;border:1px solid var(--border2);border-radius:8px;background:var(--surface);color:var(--text);padding:0 8px;">
+        <button class="btn btn-sm" onclick="t4ReportShift(1)" style="height:28px;padding:0 10px;">다음 달 ›</button>
+      </div>` +
       `<div id="t4-report-slot"><div style="color:var(--text3);font-size:13px;padding:10px 2px;">실적 리포트 불러오는 중…</div></div>` +
       `<div id="t4-triple-slot"></div>` +   // ⭐ v2.70d: 3중 작업 현황 카드 자리
-      `<div id="t4-miss-slot">${missInit}</div>
-      <details id="t4-board-details" style="margin-top:4px;"${boardOpen?' open':''}>
+      `<details id="t4-board-details" style="margin-top:4px;"${boardOpen?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
           <span style="font-size:12px;transition:transform .15s;" class="t4-board-arrow">${boardOpen?'▼':'▶'}</span>
           🛰️ 엔지니어별 미처리 관제판 <span style="font-size:12px;color:var(--text3);font-weight:400;">(펼치기)</span>
@@ -11550,6 +11555,8 @@ async function renderMyDash() {
         <div id="t4-board-slot" style="margin-top:10px;"></div>
       </details>`;
 
+    // ⭐ v2.70q: 특이사항 공지 카드 (맨 위)
+    renderNoticeSlot().catch(e => console.warn('[공지카드]', e));
     // ⭐ 실적 리포트 임베드 (관리자탭의 실적 리포트를 대시보드에 표시)
     try { if(!_shipHistoryLoaded) loadShipHistory(); } catch(e) {}   // ⭐ v2.63a: 출고 집계 재료 선로딩 — 도착 시 위 훅이 리포트 재렌더
     try { renderReportInto('t4-report-slot', t4ReportMonth).catch(e => console.warn('[실적리포트]', e)); } catch(e) { console.warn(e); }
@@ -11576,11 +11583,6 @@ async function renderMyDash() {
       });
     }
 
-    // 미달 요약 갱신 (캐시 먼저 보였으니 빈 화면 없음)
-    buildMissSummaryHtml().then(html => {
-      const slot = document.getElementById('t4-miss-slot');
-      if(slot && html) slot.innerHTML = html;
-    }).catch(e => { console.error(e); });
     return;
   }
 
@@ -11813,8 +11815,8 @@ async function renderMyDash() {
         <span style="font-size:14px;font-weight:800;color:var(--text);">운영 현황</span>
         <div style="flex:1;height:1px;background:var(--border);"></div>
       </div>
+      <div id="t3-notice-slot"></div>
       <div id="t3-triple-slot"></div>
-      <div id="t3-miss-slot">${_missSummaryCache || '<div style="color:var(--text3);font-size:13px;padding:10px 2px;">미달 현황 불러오는 중…</div>'}</div>
       <details id="t3-board-details" style="margin-top:4px;"${window._board3Open?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
           <span style="font-size:12px;" class="t3-board-arrow">${window._board3Open?'▼':'▶'}</span>
@@ -11843,10 +11845,7 @@ async function renderMyDash() {
       });
     }
 
-    buildMissSummaryHtml().then(html => {
-      const slot = document.getElementById('t3-miss-slot');
-      if(slot && html) slot.innerHTML = html;
-    }).catch(e => { console.error(e); });
+    renderNoticeSlot().catch(e => console.warn('[공지카드]', e));   // ⭐ v2.70q: 특이사항 공지 카드 (T3)
   }
 }
 
@@ -12571,8 +12570,9 @@ function calcMissDaysForMonth(name, monthVal) {
     if(isBiz && ds >= MISS_START_DATE) {
       const m = calcMissForDay(name, ds);
       if(m) {
-        if(window._noticeByDate[ds]) res.noticed++;   // 공지(특이사항) 있는 날 = 참작
-        else res.miss++;
+        // ⭐ v2.70q: 일수가 아니라 '부족 건수' 합산 (공지일은 참작으로 분리)
+        if(window._noticeByDate[ds]) res.noticed += m.short;
+        else res.miss += m.short;
       }
     }
     d.setDate(d.getDate() + 1);
@@ -12631,12 +12631,45 @@ async function saveNotice() {
     window._noticeByDate[date] = text;
     document.getElementById('notice-modal').classList.remove('open');
     notify(`📢 ${date} 특이사항 공지 등록 완료`);
-    _missSummaryCache = null;   // 미달 카드 재계산
-    buildMissSummaryHtml().then(html => {
-      const slot = document.getElementById('t4-miss-slot') || document.getElementById('t3-miss-slot');
-      if(slot && html) slot.innerHTML = html;
-    }).catch(()=>{});
+    renderNoticeSlot().catch(()=>{});   // ⭐ v2.70q: 공지 카드 즉시 갱신
   } catch(e) { notify('공지 저장 실패 — 다시 시도해주세요.', 'error'); }
+}
+
+// ⭐ v2.70q: 특이사항 공지 카드 (T4·T3 대시보드 맨 위) — 최근 14일 공지 목록 + 등록 버튼
+async function renderNoticeSlot() {
+  const el = document.getElementById('t4-notice-slot') || document.getElementById('t3-notice-slot');
+  if(!el) return;
+  const today = todayStr();
+  const dates = [];
+  const d = new Date();
+  for(let i = 0; i < 14; i++) {
+    dates.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+    d.setDate(d.getDate() - 1);
+  }
+  await fetchNotices(dates);
+  const items = dates.filter(ds => window._noticeByDate[ds]).map(ds => ({ ds, reason: window._noticeByDate[ds] }));
+  const btn = (isFullAdmin() || isPartMaster()) ? `<button class="btn btn-sm" onclick="openNoticeModal()" style="margin-left:auto;font-weight:700;color:#f59e0b;border-color:#f59e0b66;">＋ 공지 등록</button>` : '';
+  el.innerHTML = `<div class="card" style="padding:14px 18px;margin-bottom:14px;border-left:4px solid #f59e0b;">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;${items.length ? 'margin-bottom:8px;' : ''}">
+      <span style="font-size:15px;font-weight:800;color:var(--text);">📢 특이사항 공지</span>
+      ${items.length ? '' : '<span style="font-size:12px;color:var(--text3);">최근 14일 공지 없음</span>'}
+      ${btn}
+    </div>
+    ${items.map(it => `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 10px;border-radius:8px;background:${it.ds === today ? '#f59e0b1a' : 'var(--surface2)'};margin-bottom:4px;">
+      <span style="font-size:12px;font-weight:700;color:${it.ds === today ? '#f59e0b' : 'var(--text2)'};white-space:nowrap;">${it.ds.slice(5)}${it.ds === today ? ' (오늘)' : ''}</span>
+      <span style="font-size:12.5px;color:var(--text);line-height:1.5;">${escapeHtml(it.reason)}</span>
+    </div>`).join('')}
+  </div>`;
+}
+
+// ⭐ v2.70q: T4 대시보드 실적 리포트 월 이동
+function t4ReportShift(delta) {
+  const inp = document.getElementById('t4-report-month');
+  if(!inp || !inp.value) return;
+  const [y, m] = inp.value.split('-').map(Number);
+  const nd = new Date(y, m - 1 + delta, 1);
+  inp.value = `${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}`;
+  renderReportInto('t4-report-slot', inp.value);
 }
 
 // 로그인 직후 호출 — 본인의 '직전 영업일' 미달이 있고 아직 사유 미작성이면 모달 강제
@@ -13958,7 +13991,7 @@ async function renderReport() {
         <th style="text-align:right">수리 등록</th>
         <th style="text-align:right">교품 <span style="font-size:10px;color:var(--text3);font-weight:400;">(8:1 환산)</span></th>
         <th style="text-align:right">출고(실적)</th>
-        <th style="text-align:center">미달 <span style="font-size:10px;color:var(--text3);font-weight:400;">(일)</span></th>
+        <th style="text-align:center">미달 <span style="font-size:10px;color:var(--text3);font-weight:400;">(건)</span></th>
         <th style="min-width:130px;">기여도</th>
         <th style="text-align:right">공임비 합계</th>
       </tr></thead>
@@ -13991,8 +14024,8 @@ async function renderReport() {
       <td style="font-size:12px;color:var(--text2);">${stage}</td>
       <td style="text-align:right;color:var(--text2);">${r.reg}<span style="font-size:11px;color:var(--text3);">건</span></td>
       <td style="text-align:right;color:var(--text2);">${r.exc}<span style="font-size:11px;color:var(--text3);">건</span>${r.excConv > 0 ? ` <span style="font-size:11px;font-weight:700;color:#8b5cf6;">＋${r.excConv}</span>` : ''}</td>
-      <td style="text-align:right;font-weight:700;font-size:15px;">${r.cnt}<span style="font-size:11px;color:var(--text2);font-weight:500;">건</span>${r.excConv > 0 ? ` <span style="font-size:11px;color:#8b5cf6;font-weight:700;">＋${r.excConv}</span>` : ''}</td>
-      <td style="text-align:center;">${r.missDays > 0 ? `<span style="font-weight:800;color:#ef4444;">${r.missDays}</span><span style="font-size:11px;color:var(--text3);">일</span>` : '<span style="color:var(--green);font-weight:700;">0</span>'}${r.noticedDays > 0 ? ` <span style="font-size:10px;color:#f59e0b;" title="특이사항 공지일 미달 — 참작">📢${r.noticedDays}</span>` : ''}</td>
+      <td style="text-align:right;font-weight:700;font-size:15px;">${r.cnt}<span style="font-size:11px;color:var(--text2);font-weight:500;">건</span></td>
+      <td style="text-align:center;">${r.missDays > 0 ? `<span style="font-weight:800;color:#ef4444;">${r.missDays}</span><span style="font-size:11px;color:var(--text3);">건</span>` : '<span style="color:var(--green);font-weight:700;">0</span>'}${r.noticedDays > 0 ? ` <span style="font-size:10px;color:#f59e0b;" title="특이사항 공지일 부족분 — 참작">📢${r.noticedDays}</span>` : ''}</td>
       <td>
         <div style="display:flex;align-items:center;gap:8px;">
           <div style="flex:1;background:var(--surface2);border-radius:4px;height:8px;overflow:hidden;min-width:70px;">
@@ -14019,7 +14052,7 @@ async function renderReport() {
       <td style="text-align:right;font-weight:700;color:var(--text2);">${footReg}건</td>
       <td style="text-align:right;font-weight:700;color:var(--text2);">${footExc}건${footExcConv>0?` <span style="color:#8b5cf6;">＋${footExcConv}</span>`:''}</td>
       <td style="text-align:right;font-weight:700;">${totalDone}건</td>
-      <td style="text-align:center;font-weight:700;color:${footMiss>0?'#ef4444':'var(--green)'};">${footMiss}일</td>
+      <td style="text-align:center;font-weight:700;color:${footMiss>0?'#ef4444':'var(--green)'};">${footMiss}건</td>
       <td style="text-align:right;font-weight:700;color:var(--accent);padding-right:42px;">${footShare}%</td>
       <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);">${fmt(footRev)}원</td>
     </tr></tfoot>
