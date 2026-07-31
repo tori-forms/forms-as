@@ -2323,6 +2323,7 @@ let serverTimeOffset = 0; // 서버-클라이언트 시간 차이 (ms)
 
 // === ⭐ 입사일 기준 주차별(램프업) KPI 목표 ===
 const KPI_STD_DAILY = 12;   // 표준 1일 목표 (3개월차 도달 후 유지 상한)
+const T3_STD_DAILY = 6;     // ⭐ v2.70s: T3(파트장) 1일 목표 — 관리·신입 교육 병행 반영
 // 입사 후 주차별 1일 목표 (1주차 → 12주차). 12주 이후는 KPI_STD_DAILY 유지.
 //  ⭐ 수습 3개월 평가 전 "12개 꾸준히 치는 모습"을 보여주도록:
 //     1개월(4주) 6개 · 6주차 10개 · 8주차(≈2개월) 12 안착 · 이후 평가까지 ~한달 12 유지
@@ -2534,6 +2535,9 @@ function getPersonalDailyTarget(name, asOf) {
   if(manual !== undefined && manual !== null && manual > 0) return manual;
   // 수리 엔지니어가 아니면(QC 전담·T4 등) 목표 없음
   if(!isRepairEngineer(name)) return 0;
+  // ⭐ v2.70s: T3(파트장)는 관리 업무·신입 교육 병행 — 일 목표 6건 (개별 지정이 있으면 그 값 우선,
+  //   교육 중 플래그면 위에서 이미 0 처리 · QC 전담 T3는 위 가드에서 0 유지)
+  if(tierMap[name] === 'T3') return T3_STD_DAILY;
   // 입사일 기준 그 시점 일 목표 (입사일 없으면 정착 기준)
   const ref = (asOf instanceof Date && !isNaN(asOf.getTime())) ? asOf : new Date();
   return tenureDailyTarget(name, ref) || KPI_STD_DAILY;
@@ -11547,6 +11551,7 @@ async function renderMyDash() {
       </div>` +
       `<div id="t4-report-slot"><div style="color:var(--text3);font-size:13px;padding:10px 2px;">실적 리포트 불러오는 중…</div></div>` +
       `<div id="t4-triple-slot"></div>` +   // ⭐ v2.70d: 3중 작업 현황 카드 자리
+      `<div id="t4-parts-slot"></div>` +    // ⭐ v2.70s: 부품별 교체 사유 분석 자리
       `<details id="t4-board-details" style="margin-top:4px;"${boardOpen?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
           <span style="font-size:12px;transition:transform .15s;" class="t4-board-arrow">${boardOpen?'▼':'▶'}</span>
@@ -11562,6 +11567,8 @@ async function renderMyDash() {
     try { renderReportInto('t4-report-slot', t4ReportMonth).catch(e => console.warn('[실적리포트]', e)); } catch(e) { console.warn(e); }
     // ⭐ v2.70d: 3중 작업 현황 카드 (실적 리포트 아래) — v2.70h: 필터 지원 공용 렌더러
     renderTripleSlot();
+    // ⭐ v2.70s: 부품별 교체 사유 분석 카드
+    renderPartCauseSlot().catch(e => console.warn('[부품사유]', e));
 
     const det = document.getElementById('t4-board-details');
     const boardSlot = document.getElementById('t4-board-slot');
@@ -11817,6 +11824,7 @@ async function renderMyDash() {
       </div>
       <div id="t3-notice-slot"></div>
       <div id="t3-triple-slot"></div>
+      <div id="t3-parts-slot"></div>
       <details id="t3-board-details" style="margin-top:4px;"${window._board3Open?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
           <span style="font-size:12px;" class="t3-board-arrow">${window._board3Open?'▼':'▶'}</span>
@@ -11846,6 +11854,7 @@ async function renderMyDash() {
     }
 
     renderNoticeSlot().catch(e => console.warn('[공지카드]', e));   // ⭐ v2.70q: 특이사항 공지 카드 (T3)
+    renderPartCauseSlot().catch(e => console.warn('[부품사유]', e));   // ⭐ v2.70s: 부품별 교체 사유 (T3)
   }
 }
 
@@ -12511,6 +12520,9 @@ function prevBizDayStr(fromStr) {
 // 특정 엔지니어의 특정 날짜 미달 여부 계산 → {target, done, short} 또는 null(목표없음/달성/시작일이전)
 function calcMissForDay(name, dayStr) {
   if(dayStr < MISS_START_DATE) return null;        // ⭐ 6/30 이전은 미달 검사 안 함
+  // ⭐ v2.70s: 삭제(퇴사)된 계정은 미달 집계 제외 — 작업자 목록에 없는 이름이 기본 목표 12건을
+  //   받아 미달로 잡히던 데이터 오염 차단 (매출·출고 기여는 기존대로 표기)
+  if(Array.isArray(workers) && workers.length && !workers.includes(name)) return null;
   // ⭐ v2.57v: 입사일 이전 날짜는 미달 대상 아님 (입사 전엔 근무일 아님)
   const _hd = (typeof hireDateMap !== 'undefined') ? hireDateMap[name] : null;
   if(_hd && dayStr < String(_hd).slice(0,10)) return null;
@@ -12635,31 +12647,157 @@ async function saveNotice() {
   } catch(e) { notify('공지 저장 실패 — 다시 시도해주세요.', 'error'); }
 }
 
-// ⭐ v2.70q: 특이사항 공지 카드 (T4·T3 대시보드 맨 위) — 최근 14일 공지 목록 + 등록 버튼
+// ⭐ v2.70q: 특이사항 공지 카드 (T4·T3 대시보드 맨 위)
+// ⭐ v2.70s: 월 단위 기록 보기 — ‹ › 로 달을 이동하며 그 달의 공지 전체를 시간순으로 확인 (월 마감 리뷰용)
 async function renderNoticeSlot() {
   const el = document.getElementById('t4-notice-slot') || document.getElementById('t3-notice-slot');
   if(!el) return;
   const today = todayStr();
+  const curMonth = today.slice(0, 7);
+  const mv = window._noticeMonth || (window._noticeMonth = curMonth);
+  // 그 달 1일~말일 (현재 달은 오늘까지) 날짜 목록
   const dates = [];
-  const d = new Date();
-  for(let i = 0; i < 14; i++) {
-    dates.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
-    d.setDate(d.getDate() - 1);
+  const d = new Date(mv + '-01T00:00:00');
+  while(!isNaN(d) && `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` === mv) {
+    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    if(ds > today) break;
+    dates.push(ds);
+    d.setDate(d.getDate() + 1);
   }
   await fetchNotices(dates);
-  const items = dates.filter(ds => window._noticeByDate[ds]).map(ds => ({ ds, reason: window._noticeByDate[ds] }));
+  const items = dates.filter(ds => window._noticeByDate[ds]).map(ds => ({ ds, reason: window._noticeByDate[ds] }));   // 시간순(오름차순)
   const btn = (isFullAdmin() || isPartMaster()) ? `<button class="btn btn-sm" onclick="openNoticeModal()" style="margin-left:auto;font-weight:700;color:#f59e0b;border-color:#f59e0b66;">＋ 공지 등록</button>` : '';
+  const [my, mm] = mv.split('-');
   el.innerHTML = `<div class="card" style="padding:14px 18px;margin-bottom:14px;border-left:4px solid #f59e0b;">
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;${items.length ? 'margin-bottom:8px;' : ''}">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;${items.length ? 'margin-bottom:8px;' : ''}">
       <span style="font-size:15px;font-weight:800;color:var(--text);">📢 특이사항 공지</span>
-      ${items.length ? '' : '<span style="font-size:12px;color:var(--text3);">최근 14일 공지 없음</span>'}
+      <button class="btn btn-sm" onclick="noticeShiftMonth(-1)" style="height:26px;padding:0 8px;">‹</button>
+      <span style="font-size:13px;font-weight:700;color:var(--text2);">${my}년 ${Number(mm)}월</span>
+      <button class="btn btn-sm" onclick="noticeShiftMonth(1)" style="height:26px;padding:0 8px;${mv >= curMonth ? 'opacity:.4;' : ''}" ${mv >= curMonth ? 'disabled' : ''}>›</button>
+      <span style="font-size:11px;color:var(--text3);">${items.length ? `공지 ${items.length}일` : '이 달 공지 없음'}</span>
       ${btn}
     </div>
     ${items.map(it => `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 10px;border-radius:8px;background:${it.ds === today ? '#f59e0b1a' : 'var(--surface2)'};margin-bottom:4px;">
-      <span style="font-size:12px;font-weight:700;color:${it.ds === today ? '#f59e0b' : 'var(--text2)'};white-space:nowrap;">${it.ds.slice(5)}${it.ds === today ? ' (오늘)' : ''}</span>
+      <span style="font-size:12px;font-weight:700;color:${it.ds === today ? '#f59e0b' : 'var(--text2)'};white-space:nowrap;">${it.ds.slice(5)} (${['일','월','화','수','목','금','토'][new Date(it.ds+'T00:00:00').getDay()]})${it.ds === today ? ' 오늘' : ''}</span>
       <span style="font-size:12.5px;color:var(--text);line-height:1.5;">${escapeHtml(it.reason)}</span>
     </div>`).join('')}
   </div>`;
+}
+// ⭐ v2.70s: 특이사항 노트 → 증상 카테고리 목록
+//   티오더 접수 표기 관례("메인보드 기능 이상 - 펌웨어 설치 불가, 디스플레이 이미지 품질 - LCD노화")를
+//   콤마로 나누고 각 구절의 ' - ' 앞 대분류만 취해 자동 분류. 표기가 같으면 같은 유형으로 뭉침.
+function noteSymptomCats(note) {
+  const cats = [];
+  String(note || '').split(',').forEach(seg => {
+    seg = seg.trim();
+    if(!seg) return;
+    let head = seg.split(' - ')[0].trim();
+    if(!head) return;
+    if(head.length > 22) head = head.slice(0, 22) + '…';
+    cats.push(head);
+  });
+  return cats;
+}
+
+// ⭐ v2.70s: 부품별 교체 사유 분석 (T3·T4 대시보드 카드)
+//   데이터 출처 2곳 병합: ① 수리건의 부품 스냅샷(e.parts) ② 재고이력의 [시리얼] 태그 차감 행
+//   (같은 수리건+부품 조합은 1회만 집계 — 이중 카운트 방지)
+window._pcFilter = window._pcFilter || { part: '', period: '3m' };
+function buildPartCauseData() {
+  const seen = new Set();
+  const agg = {};   // part → { total, cats: {cat: n} }
+  const periodOk = (dstr) => {
+    const p = window._pcFilter.period;
+    if(p === 'all') return true;
+    const now = new Date();
+    if(p === 'month') return String(dstr).startsWith(todayStr().slice(0, 7));
+    const cut = new Date(now.getFullYear(), now.getMonth() - 2, 1);   // 최근 3개월
+    return String(dstr) >= `${cut.getFullYear()}-${String(cut.getMonth()+1).padStart(2,'0')}-01`;
+  };
+  const add = (key, part, note) => {
+    if(!note || seen.has(key)) return;
+    seen.add(key);
+    const cats = noteSymptomCats(note);
+    if(!cats.length) return;
+    const g = (agg[part] = agg[part] || { total: 0, cats: {} });
+    cats.forEach(c => { g.cats[c] = (g.cats[c] || 0) + 1; });
+    g.total++;
+  };
+  // ① 수리건 부품 스냅샷
+  (entries || []).forEach(e => {
+    if(!e.note || !e.parts || typeof e.parts !== 'object') return;
+    if(!periodOk(toLocalDay(e.date))) return;
+    Object.entries(e.parts).forEach(([pn, q]) => {
+      if(!(Number(q) > 0)) return;
+      if(typeof isQualityFlagKey === 'function' && isQualityFlagKey(pn)) return;
+      add(String(e.id) + '|' + pn, pn, e.note);
+    });
+  });
+  // ② 재고이력 [시리얼] 태그 차감 행 → 시리얼로 수리건 노트 조인
+  //    (⭐ QA: 행마다 findEntryBySerial(O(n)) 대신 시리얼 맵 1회 구축 — 이력이 쌓여도 느려지지 않게)
+  const _bySerial = {};
+  (entries || []).forEach(e => { try { _bySerial[normalizeSerial(e.serial)] = e; } catch(x) {} });
+  (stockLog || []).forEach(l => {
+    const nt = String(l.note || '');
+    if(!/수리 자동 차감|수리 수정 추가차감|에이징 중 부품 추가/.test(nt)) return;
+    const m = nt.match(/\[([A-Z0-9\-_]{5,})\]/);
+    if(!m) return;
+    const e = _bySerial[normalizeSerial(m[1])];
+    if(!e || !e.note) return;
+    if(!periodOk(toLocalDay(e.date))) return;
+    add(String(e.id) + '|' + String(l.partName || ''), String(l.partName || ''), e.note);
+  });
+  return agg;
+}
+async function renderPartCauseSlot() {
+  const el = document.getElementById('t4-parts-slot') || document.getElementById('t3-parts-slot');
+  if(!el) return;
+  const agg = buildPartCauseData();
+  const parts = Object.entries(agg).sort((a, b) => b[1].total - a[1].total);
+  const F = window._pcFilter;
+  if(F.part && !agg[F.part]) F.part = '';
+  const selPart = F.part || (parts[0] ? parts[0][0] : '');
+  const perBtn = (key, label) => `<button class="btn btn-sm" onclick="window._pcFilter.period='${key}';renderPartCauseSlot()" style="height:26px;padding:0 10px;font-weight:700;${F.period === key ? 'background:var(--accent);color:#fff;border-color:var(--accent);' : ''}">${label}</button>`;
+  let body = '';
+  if(!parts.length) {
+    body = `<div style="font-size:12px;color:var(--text3);padding:8px 2px;">집계할 데이터가 없습니다. 수리 등록 시 특이사항(증상)과 부품이 기록된 건부터 집계됩니다.</div>`;
+  } else {
+    const g = agg[selPart];
+    const cats = Object.entries(g.cats).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    const maxC = cats.length ? cats[0][1] : 1;
+    body = `
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <select onchange="window._pcFilter.part=this.value;renderPartCauseSlot()" style="height:30px;max-width:280px;font-size:12px;border:1px solid var(--border2);border-radius:8px;background:var(--surface);color:var(--text);padding:0 8px;">
+          ${parts.map(([pn, gg]) => `<option value="${escapeHtml(pn)}" ${pn === selPart ? 'selected' : ''}>${escapeHtml(pn)} (${gg.total}건)</option>`).join('')}
+        </select>
+        <span style="font-size:11px;color:var(--text3);">이 부품이 쓰인 수리 ${g.total}건의 증상 분포</span>
+      </div>
+      ${cats.map(([c, n]) => `<div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;">
+        <span style="font-size:12px;font-weight:600;color:var(--text);min-width:170px;">${escapeHtml(c)}</span>
+        <div style="flex:1;background:var(--surface2);border-radius:4px;height:10px;overflow:hidden;">
+          <div style="height:100%;border-radius:4px;background:#3b82f6;width:${Math.max(3, Math.round(n / maxC * 100))}%;"></div>
+        </div>
+        <span style="font-size:12px;font-weight:800;min-width:34px;text-align:right;">${n}</span>
+      </div>`).join('')}`;
+  }
+  el.innerHTML = `<div class="card" style="padding:14px 18px;margin-bottom:16px;border-left:4px solid #3b82f6;">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+      <span style="font-size:15px;font-weight:800;color:var(--text);">🔧 부품별 교체 사유 분석</span>
+      ${perBtn('month', '이번 달')}${perBtn('3m', '최근 3개월')}${perBtn('all', '전체')}
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">부품이 어떤 증상(특이사항) 수리에 쓰였는지 자동 분류 · 출고 완료된 옛 건은 부품 기록이 없어 제외될 수 있음</div>
+    ${body}
+  </div>`;
+}
+
+function noticeShiftMonth(delta) {
+  const mv = window._noticeMonth || todayStr().slice(0, 7);
+  const [y, m] = mv.split('-').map(Number);
+  const nd = new Date(y, m - 1 + delta, 1);
+  const next = `${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}`;
+  if(next > todayStr().slice(0, 7)) return;   // 미래 달 이동 방지
+  window._noticeMonth = next;
+  renderNoticeSlot().catch(()=>{});
 }
 
 // ⭐ v2.70q: T4 대시보드 실적 리포트 월 이동
@@ -13256,12 +13394,37 @@ function renderExchangeList() {
     </div>`;
   }
 
+  // ⭐ v2.70s: 불량 유형 분포 — 현재 필터(기간·엔지니어·기종·검색)에 걸린 교품의 특이사항을
+  //   "대분류(첫 구절 ' - ' 앞)" 기준으로 자동 분류해 상위 8개 가로 막대로 표시
+  let defectDistHtml = '';
+  {
+    const catCnt = {};
+    filtered.forEach(x => noteSymptomCats(x.note).forEach(c => { catCnt[c] = (catCnt[c] || 0) + 1; }));
+    const sorted = Object.entries(catCnt).sort((a, b) => b[1] - a[1]);
+    if(sorted.length) {
+      const top = sorted.slice(0, 8);
+      const rest = sorted.slice(8).reduce((s, [, c]) => s + c, 0);
+      if(rest > 0) top.push(['그 외', rest]);
+      const maxC = top[0][1] || 1;
+      defectDistHtml = `<div class="card" style="padding:14px 16px;margin-bottom:12px;">
+        <div style="font-size:13.5px;font-weight:800;margin-bottom:8px;">🏷️ 교품 불량 유형 분포 <span style="font-size:11px;font-weight:600;color:var(--text3);">· 현재 필터 기준 ${filtered.length}건 · 특이사항 첫 구절로 자동 분류</span></div>
+        ${top.map(([c, n]) => `<div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;">
+          <span style="font-size:12px;font-weight:600;color:var(--text);min-width:170px;">${escapeHtml(c)}</span>
+          <div style="flex:1;background:var(--surface2);border-radius:4px;height:10px;overflow:hidden;">
+            <div style="height:100%;border-radius:4px;background:#ef4444;width:${Math.max(3, Math.round(n / maxC * 100))}%;"></div>
+          </div>
+          <span style="font-size:12px;font-weight:800;min-width:34px;text-align:right;">${n}</span>
+        </div>`).join('')}
+      </div>`;
+    }
+  }
+
   if(!filtered.length) {
     el.innerHTML = barHtml + monthlyHtml + '<div class="empty"><div class="empty-icon">🔍</div>조건에 맞는 교품 내역이 없습니다.</div>';
     return;
   }
   const sorted = filtered.sort((a,b) => new Date(b.date)-new Date(a.date));
-  el.innerHTML = barHtml + monthlyHtml + `<div class="card" style="padding:0;"><div class="table-wrap"><table>
+  el.innerHTML = barHtml + monthlyHtml + defectDistHtml + `<div class="card" style="padding:0;"><div class="table-wrap"><table>
     <thead><tr>
       <th style="white-space:nowrap;">날짜</th>
       <th>시리얼</th>
@@ -13972,11 +14135,12 @@ async function renderReport() {
     const exc = excByWorker[name] || 0;
     const excConv = Math.floor(exc / 8);             // ⭐ v2.70o: 8:1 환산
     const kpiCnt = cnt + excConv;                     // 기여도 실적 = 출고 + 교품 환산
-    const md = calcMissDaysForMonth(name, monthVal);  // ⭐ v2.70o: 미달 일수 (공지일은 참작 분리)
+    const isCurrent = workers.includes(name);         // ⭐ v2.70s: 삭제(퇴사) 계정 구분
+    const md = isCurrent ? calcMissDaysForMonth(name, monthVal) : { miss: 0, noticed: 0 };   // 퇴사자는 미달 미집계
     const tw = tenureWeek(name, refDate);            // 입사 주차 (없으면 null)
     const daily = tenureDailyTarget(name, refDate);  // 그 시점 일 목표 (없으면 null)
     const manual = workerDailyTargets[name];
-    return { name, cnt, reg, rev, exc, excConv, kpiCnt, missDays: md.miss, noticedDays: md.noticed, tw, daily, manual, share: shareBase ? (kpiCnt/shareBase*100) : 0 };
+    return { name, cnt, reg, rev, exc, excConv, kpiCnt, isCurrent, missDays: md.miss, noticedDays: md.noticed, tw, daily, manual, share: shareBase ? (kpiCnt/shareBase*100) : 0 };
   }).sort((a, b) => b.kpiCnt - a.kpiCnt);
   const maxShare = rows.length ? Math.max(...rows.map(r => r.share)) : 0;
   const medals = ['🥇', '🥈', '🥉'];
@@ -14008,8 +14172,12 @@ async function renderReport() {
     const tierB = tierBadge(tierMap[r.name] || '');
     // 현재 단계 표시
     let stage;
-    if(mentoringMap[r.name]) {
+    if(!r.isCurrent) {
+      stage = `<span style="font-weight:600;color:var(--text3);">퇴사·계정 삭제</span> <span style="font-size:10px;color:var(--text3);">실적만 표기 · 미달 미집계</span>`;   // ⭐ v2.70s
+    } else if(mentoringMap[r.name]) {
       stage = `<span style="font-weight:700;color:#7c3aed;">🎓 교육 중</span> <span style="font-size:10px;color:var(--text3);">목표 면제 · 실적만 집계</span>`;
+    } else if(tierMap[r.name] === 'T3' && !(r.manual != null && r.manual > 0)) {
+      stage = `<span style="font-weight:600;">일 ${T3_STD_DAILY}건</span> <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#e0f2fe;color:#0369a1;">파트장 · 관리 병행</span>`;   // ⭐ v2.70s
     } else if(r.manual != null && r.manual > 0) {
       stage = `<span style="font-weight:600;">일 ${r.manual}건</span> <span style="font-size:10px;color:var(--text3);">개별 지정</span>`;
     } else if(r.tw != null) {
@@ -14025,7 +14193,7 @@ async function renderReport() {
       <td style="text-align:right;color:var(--text2);">${r.reg}<span style="font-size:11px;color:var(--text3);">건</span></td>
       <td style="text-align:right;color:var(--text2);">${r.exc}<span style="font-size:11px;color:var(--text3);">건</span>${r.excConv > 0 ? ` <span style="font-size:11px;font-weight:700;color:#8b5cf6;">＋${r.excConv}</span>` : ''}</td>
       <td style="text-align:right;font-weight:700;font-size:15px;">${r.cnt}<span style="font-size:11px;color:var(--text2);font-weight:500;">건</span></td>
-      <td style="text-align:center;">${r.missDays > 0 ? `<span style="font-weight:800;color:#ef4444;">${r.missDays}</span><span style="font-size:11px;color:var(--text3);">건</span>` : '<span style="color:var(--green);font-weight:700;">0</span>'}${r.noticedDays > 0 ? ` <span style="font-size:10px;color:#f59e0b;" title="특이사항 공지일 부족분 — 참작">📢${r.noticedDays}</span>` : ''}</td>
+      <td style="text-align:center;">${!r.isCurrent ? '<span style="color:var(--text3);">—</span>' : r.missDays > 0 ? `<span style="font-weight:800;color:#ef4444;">${r.missDays}</span><span style="font-size:11px;color:var(--text3);">건</span>` : '<span style="color:var(--green);font-weight:700;">0</span>'}${r.isCurrent && r.noticedDays > 0 ? ` <span style="font-size:10px;color:#f59e0b;" title="특이사항 공지일 부족분 — 참작">📢${r.noticedDays}</span>` : ''}</td>
       <td>
         <div style="display:flex;align-items:center;gap:8px;">
           <div style="flex:1;background:var(--surface2);border-radius:4px;height:8px;overflow:hidden;min-width:70px;">
