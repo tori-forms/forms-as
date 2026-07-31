@@ -7273,7 +7273,7 @@ async function moveExcludedToOk(i) {
   const e = item.entry;
   // ⭐ v2.65: 에이징에서 제외됐던 건은 에이징으로 복원 (검수 건너뛰기 방지) — agingStart 보존이라 타이머 이어짐
   const fromAging = String(e.status) === STATUS_HOLD_AGING;
-  const backTo = fromAging ? STATUS.AGING : STATUS_INSPECTED;
+  const backTo = fromAging ? STATUS_AGING : STATUS_INSPECTED;   // ⭐ v2.70r: STATUS.AGING(백엔드 상수) 오참조 수정 — 에이징 복원 버튼이 v2.65부터 죽어 있던 버그
   try {
     notifyPersist('처리 중...');
     await gasCall({ action: 'updateRepairStatus', id: e.id, newStatus: backTo });
