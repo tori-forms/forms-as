@@ -4262,7 +4262,10 @@ const MODEL_QUOTE = {
 };
 
 function getShipItemsByDate(dateKey) {
-  return (shipHistory||[]).filter(h => shipDateKey(h.shipDate) === dateKey).map(h => {
+  // ⭐ v2.70z: 무상 재작업 건은 견적서(청구) 대상에서 제외 — 수량·금액 모두 청구와 일치 유지
+  return (shipHistory||[]).filter(h => shipDateKey(h.shipDate) === dateKey)
+    .filter(h => { const e = findEntryBySerial(h.serial); return !(e && isFreeEntry(e)); })
+    .map(h => {
     const e = findEntryBySerial(h.serial);
     const model = normalizeModel(h.model || e?.model || '-');
     const works = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k) : String(h.works||'').split('|').filter(Boolean);
@@ -6999,6 +7002,7 @@ function renderShipping() {
     <div style="padding:12px 18px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);">
       <span style="font-size:13px;font-weight:700;color:var(--green);">✅ 출고 가능 (${ok.length}건)</span>
       <button class="btn btn-sm btn-danger" id="exclude-selected-btn" style="display:none;" onclick="excludeSelected()">출고 제외</button>
+      <button class="btn btn-sm" id="free-selected-btn" style="display:none;color:#10b981;border-color:#10b98155;font-weight:700;" onclick="freeSelected()">🆓 무상 처리/해제</button>
     </div>
     <div class="table-wrap"><table>
       <thead><tr>
@@ -7008,7 +7012,7 @@ function renderShipping() {
       <tbody>${ok.map((x,i) => `<tr>
         <td style="text-align:center;"><input type="checkbox" class="ship-row-check" data-idx="${i}" data-serial="${x.entry.serial}" style="accent-color:var(--accent);" onchange="onShipCheckChange()"></td>
         <td>${(() => { const __m = normalizeModel(x.entry.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
-        <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${x.entry.serial}</span></td>
+        <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${x.entry.serial}</span>${isFreeEntry(x.entry) ? ' <span style="font-size:10px;font-weight:800;background:#10b9811a;color:#10b981;border:1px solid #10b98155;padding:1px 6px;border-radius:99px;">무상</span>' : ''}</td>
         <td>${x.entry.worker}</td>
         <td>${workTags(x.entry.works)}</td>
         <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
@@ -7209,12 +7213,56 @@ function onShipCheckChange() {
   const excludeBtn = document.getElementById('exclude-selected-btn');
   const completeBtn = document.getElementById('shipping-complete-btn');
   if(excludeBtn) excludeBtn.style.display = checked.length ? 'inline-flex' : 'none';
+  const freeBtn = document.getElementById('free-selected-btn');   // ⭐ v2.70z: 무상 처리 버튼
+  if(freeBtn) freeBtn.style.display = checked.length ? 'inline-flex' : 'none';
   // 출고 완료 버튼 텍스트 - 체크 있으면 선택 건수 표시
   if(completeBtn) {
     completeBtn.textContent = checked.length
       ? `✅ 선택 ${checked.length}건 출고 완료`
       : `✅ 출고 완료 처리`;
   }
+}
+
+// ⭐ v2.70z: 무상 재작업 처리 — 공임 0원(청구·월 KPI 출고 실적 제외), 부품 차감·일일 등록 카운트는 유지.
+//   note에 [무상 재작업·원공임 N원] 태그로 원금 보존 → 같은 버튼으로 해제(원금 복원) 가능.
+const FREE_TAG_RE = /\s?\[무상 재작업·원공임 ([\d,]+)원\]/;
+function isFreeEntry(e) { return FREE_TAG_RE.test(String(e && e.note || '')); }
+async function freeSelected() {
+  const serials = [...document.querySelectorAll('.ship-row-check:checked')].map(cb => cb.dataset.serial).filter(Boolean);
+  if(!serials.length) { notify('처리할 항목을 선택하세요.', 'error'); return; }
+  const targets = serials.map(sn => entries.find(x => String(x.serial) === String(sn))).filter(Boolean);
+  const toFree = targets.filter(e => !isFreeEntry(e)).length;
+  const toRestore = targets.length - toFree;
+  openModal('무상 재작업 처리', `선택 ${targets.length}건 — 무상 전환 ${toFree}건${toRestore ? ` · 무상 해제(원공임 복원) ${toRestore}건` : ''}. 무상 건은 청구·월 KPI 출고 실적에서 빠지고, 부품 차감과 일일 등록 카운트는 유지됩니다. 진행할까요?`, async () => {
+    notifyPersist('처리 중...');
+    let done = 0;
+    for(const e of targets) {
+      try {
+        let newTotal, newNote;
+        const m = String(e.note || '').match(FREE_TAG_RE);
+        if(m) {   // 해제 — 원공임 복원
+          newTotal = Number(m[1].replace(/,/g, '')) || 0;
+          newNote = String(e.note || '').replace(FREE_TAG_RE, '').trim();
+        } else {  // 무상 전환
+          newTotal = 0;
+          newNote = `${String(e.note || '').trim()} [무상 재작업·원공임 ${fmt(Number(e.total || 0))}원]`.trim();
+        }
+        const partsSafe2 = Object.entries(e.parts && typeof e.parts === 'object' ? e.parts : {})
+          .map(([k, v]) => encodeURIComponent(k) + '=' + v).join('|');
+        const r = await gasCall({ action: 'edit', id: String(e.id), works: JSON.stringify(parseWorks(e.works)),
+          total: newTotal, note: newNote, parts: partsSafe2, serial: e.serial, model: e.model || '' });
+        if(r && r.ok !== false) {
+          e.total = newTotal; e.note = newNote;
+          markPendingChange('entries', e.id, { type: 'update', data: { total: newTotal, note: newNote } }, 8000);
+          done++;
+        }
+      } catch(err) { console.warn('[무상 처리]', e.serial, err); }
+    }
+    window._shipOk = null;
+    renderShipping();
+    notify(`무상 처리 완료: ${done}/${targets.length}건`);
+    setTimeout(() => syncData(true), 300);
+  }, '진행', 'btn-primary');
 }
 
 async function excludeSelected() {
@@ -14081,7 +14129,11 @@ async function renderReport() {
   const wd = monthKPI ? await getWorkdays(y, m) : 0;
   const dailyTarget = monthKPI && wd && kpiTargetCount ? Math.ceil(monthKPI / wd / kpiTargetCount) : 0;
   // ⭐ KPI 집계는 출고 기준 — 해당 월에 출고된 건수
-  const monthShipped = (shipHistory || []).filter(h => shipDateKey(h.shipDate).startsWith(monthVal));
+  // ⭐ v2.70z: 무상 재작업 출고는 월 실적·기여도·청구에서 제외 (이미 1차 출고로 계상된 기기의 재작업)
+  const monthShippedAll = (shipHistory || []).filter(h => shipDateKey(h.shipDate).startsWith(monthVal));
+  const _freeSet = new Set(monthShippedAll.filter(h => { const en = findEntryBySerial(h.serial); return en && isFreeEntry(en); }));
+  const monthShipped = monthShippedAll.filter(h => !_freeSet.has(h));
+  const _freeShippedCnt = _freeSet.size;
   const totalDone = monthShipped.length;
   const totalRev = monthShipped.reduce((s,h) => {
     const en = findEntryBySerial(h.serial);
@@ -14107,6 +14159,7 @@ async function renderReport() {
       <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
         <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">출고 완료</div>
         <div style="font-size:18px;font-weight:700;color:var(--accent);">${fmt(totalDone)}<span style="font-size:11px;color:var(--text2);">대</span></div>
+        ${_freeShippedCnt ? `<div style="font-size:10px;color:#10b981;font-weight:700;margin-top:2px;">🆓 무상 재작업 ${_freeShippedCnt}건 별도</div>` : ''}
       </div>
       <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
         <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">남은 건수</div>
