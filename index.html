@@ -2160,6 +2160,7 @@ window.addEventListener('DOMContentLoaded', function(){
         <label class="form-label">수리 항목</label>
         <div id="edit-work-checks" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:4px;"></div>
       </div>
+      <div id="edit-reentry-section" class="form-group" style="margin-bottom:14px;display:none;"></div>
       <div class="form-group" style="margin-bottom:20px;">
         <label class="form-label">특이사항 <span style="color:var(--text3);font-weight:400;">(선택)</span></label>
         <textarea id="edit-note" placeholder="특이사항을 입력하세요."></textarea>
@@ -11960,6 +11961,24 @@ async function openEditModal(id) {
     </label>`;
   }).join('');
   document.getElementById('edit-note').value = e.note || '';
+  // ⭐ v2.70w: 재인입 건이면 사유 변경 UI 표시 (등록 때 잘못 고른 분류를 수정 가능)
+  const _reSec = document.getElementById('edit-reentry-section');
+  if(_reSec) {
+    const _r = parseReentry(e);
+    if(_r) {
+      _reSec.style.display = 'block';
+      _reSec.innerHTML = `
+        <label class="form-label">🔁 재인입 사유 <span style="color:var(--text3);font-weight:400;">(${_r.v}차 · 고객 대시보드 분류에 반영)</span></label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 8px;">
+          ${Object.entries(REENTRY_REASONS).map(([k, v]) => `
+            <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid ${_r.rs === k ? v.color : 'var(--border)'};border-radius:8px;cursor:pointer;background:${_r.rs === k ? v.color + '18' : 'var(--surface)'};">
+              <input type="radio" name="edit-reentry-rs" value="${k}" ${_r.rs === k ? 'checked' : ''} style="accent-color:${v.color};">
+              <span style="font-size:12px;font-weight:600;">${escapeHtml(v.label.split(' (')[0])}</span>
+            </label>`).join('')}
+        </div>
+        <input id="edit-reentry-memo" value="${escapeHtml(_r.memo || '')}" placeholder="재인입 메모 (선택)" style="width:100%;height:32px;padding:0 10px;font-size:12.5px;border:1px solid var(--border2);border-radius:8px;background:var(--surface);color:var(--text);">`;
+    } else { _reSec.style.display = 'none'; _reSec.innerHTML = ''; }
+  }
   renderEditParts(ws);
   updateEditPP();
   document.getElementById('edit-modal').classList.add('open');
@@ -12204,10 +12223,20 @@ async function saveEdit() {
     if(dup){ notify(`이미 등록된 시리얼입니다 (${dup.worker}).`,'error'); btn.disabled=false; btn.textContent='저장'; return; }
     // ⭐ v2.57k: 재고 delta용 — 수정 전 저장돼 있던 부품 스냅샷
     const _oldParts = (origEntry && origEntry.parts && typeof origEntry.parts === 'object') ? {...origEntry.parts} : {};
+    // ⭐ v2.70w: 재인입 건이면 수정된 사유·메모를 함께 저장
+    const _origRe = parseReentry(origEntry);
+    let _reentryParam = {};
+    let _newReJson = '';
+    if(_origRe) {
+      const _rsSel = document.querySelector('input[name="edit-reentry-rs"]:checked')?.value || _origRe.rs;
+      const _reMemo = (document.getElementById('edit-reentry-memo')?.value || '').trim();
+      _newReJson = JSON.stringify({ v: _origRe.v, rs: _rsSel, prev: _origRe.prev || '', memo: _reMemo });
+      _reentryParam = { reentryJson: _newReJson };
+    }
     // ⭐ v2.57g: 수정은 서버 저장 확인 후 성공 표시 (실패를 숨기지 않음 → 새로고침 원복 방지)
     notifyPersist('저장 중...');
     try {
-      const r = await gasCall({action:'edit', id:String(editTargetId), works:JSON.stringify(works), total, note, parts:partsSafe, serial:newSerial, model:newModel});
+      const r = await gasCall({action:'edit', id:String(editTargetId), works:JSON.stringify(works), total, note, parts:partsSafe, serial:newSerial, model:newModel, ..._reentryParam});
       if(r && r.ok === false) {
         notify('저장 실패 — 대상 건을 찾지 못했습니다. 새로고침 후 다시 시도해주세요.','error');
         btn.disabled=false; btn.textContent='저장';
@@ -12222,7 +12251,7 @@ async function saveEdit() {
     try { await applyStockDelta(_oldParts, editPartsResult, newModel, newSerial); } catch(err) { console.warn('재고 delta 실패', err); }
     // 서버 성공 → 로컬 반영 + 화면 갱신
     const idx = entries.findIndex(x=>String(x.id)===String(editTargetId));
-    if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; entries[idx].parts=editPartsResult; entries[idx].serial=newSerial; entries[idx].model=newModel; }
+    if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; entries[idx].parts=editPartsResult; entries[idx].serial=newSerial; entries[idx].model=newModel; if(_newReJson) entries[idx].reentry=_newReJson; }   // ⭐ v2.70w
     markPendingChange('entries', editTargetId, {
       type: 'update',
       data: { works, total, note, parts: editPartsResult, serial: newSerial, model: newModel }
