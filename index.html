@@ -13870,9 +13870,10 @@ async function renderHistory() {
 // ═══ ⭐ v2.64: 재인입(재전달) 플로우 — 출고 완료된 시리얼의 재등록을 회차·사유와 함께 정식 지원 ═══
 const REENTRY_REASONS = {
   defect: { label: '증상 재발 (볼타레스 수리 이슈)', color: '#ef4444' },
+  newdefect: { label: '타 불량 추가 발생 (기존 수리와 다른 새 증상)', color: '#8b5cf6' },   // ⭐ v2.70v: 재발 아님·새 문제 — 재발률에 안 잡힘
   store:  { label: '매장/고객 과실 (파손 등)',        color: '#f59e0b' },
   task:   { label: '단순 작업 요청 (펌웨어/점검 등)', color: '#3b82f6' },
-  etc:    { label: '기타 (메모에 상세 기재)', color: '#94a3b8' }   // 3분류에 안 맞는 케이스의 배출구
+  etc:    { label: '기타 (메모에 상세 기재)', color: '#94a3b8' }   // 분류에 안 맞는 케이스의 배출구
 };
 function parseReentry(e) {
   try { const r = JSON.parse(e && e.reentry || ''); return (r && r.v >= 2) ? r : null; } catch(_) { return null; }
