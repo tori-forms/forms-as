@@ -2262,6 +2262,11 @@ const WORKS = {
   battery: { label:'배터리 교체',                          price:0,     tag:'배터리',     tagColor:'#0891b2', tagBg:'#cffafe',
     // 공임/부품 미정 (추후 책정)
     parts: [] },
+  // ⭐ v2.70u: 기타 작업 — 재작업(재인입) 등 부품 없이 처리되는 건 (펌웨어 재설치·재조립·점검 등).
+  //   공임 0원 · 부품 차감 없음 · 일반 흐름(에이징→검수→출고) 그대로 탐. 이 항목 덕에
+  //   "작업 미선택으로 등록 불가"였던 부품 미사용 건도 정상 등록 가능.
+  etc: { label:'기타 작업 (펌웨어·재조립 등 부품 미사용)',  price:0,     tag:'기타작업',   tagColor:'#6b7280', tagBg:'#f3f4f6',
+    parts: [] },
 };
 
 // 수리 항목 태그 렌더링 함수
@@ -8191,10 +8196,10 @@ function renderShipAnalysis() {
   });
 
   const fmt = n => Number(n).toLocaleString();
-  const WORK_LABELS = { pcb:'PCB 교체', panel:'LCD 교체', board:'MB수리', nonbat:'논배터리' };
-  const WORK_COLORS = { pcb:'#60a5fa', panel:'#34d399', board:'#c084fc', nonbat:'#fb923c' };
-  const WORK_DARK   = { pcb:'#3b82f6', panel:'#10b981', board:'#a855f7', nonbat:'#f97316' };
-  const WORK_KEYS   = ['nonbat','pcb','panel','board'];
+  const WORK_LABELS = { pcb:'PCB 교체', panel:'LCD 교체', board:'MB수리', nonbat:'논배터리', etc:'기타작업' };   // ⭐ v2.70u
+  const WORK_COLORS = { pcb:'#60a5fa', panel:'#34d399', board:'#c084fc', nonbat:'#fb923c', etc:'#9ca3af' };
+  const WORK_DARK   = { pcb:'#3b82f6', panel:'#10b981', board:'#a855f7', nonbat:'#f97316', etc:'#6b7280' };
+  const WORK_KEYS   = ['nonbat','pcb','panel','board','etc'];
 
   // ① 수리항목별 발생 현황
   const workCount = {}; const workFee = {}; const workParts = {};
@@ -10310,10 +10315,10 @@ async function _autoRefreshOnTabSwitch(name) {
 
 /* 체크박스 */
 // ⭐ v2.5: 수리 항목 표시 순서 (논배터리/배터리 먼저, 그 다음 PCB/패널/메인보드)
-const WORK_DISPLAY_ORDER = ['nonbat', 'battery', 'pcb', 'panel', 'board'];
-// ⭐ v2.6: 행 분리 (1행: 논배터리/배터리, 2행: PCB/패널/메인보드)
+const WORK_DISPLAY_ORDER = ['nonbat', 'battery', 'pcb', 'panel', 'board', 'etc'];   // ⭐ v2.70u: 기타 작업 추가
+// ⭐ v2.6: 행 분리 (1행: 논배터리/배터리, 2행: PCB/패널/메인보드/기타)
 const WORK_ROW1 = ['nonbat', 'battery'];
-const WORK_ROW2 = ['pcb', 'panel', 'board'];
+const WORK_ROW2 = ['pcb', 'panel', 'board', 'etc'];
 
 // ⭐ 작업 k의 부품 목록 반환 — 매핑(WORK_PARTS_MAP) 우선, 없으면 WORKS 폴백
 // 반환 형식: [{name, qty, modelOnly}]  (modelOnly: 공용이면 '', 아니면 기종값)
