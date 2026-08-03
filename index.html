@@ -12254,7 +12254,7 @@ async function saveEdit() {
     if(idx>-1){ entries[idx].works=works; entries[idx].total=total; entries[idx].note=note; entries[idx].parts=editPartsResult; entries[idx].serial=newSerial; entries[idx].model=newModel; if(_newReJson) entries[idx].reentry=_newReJson; }   // ⭐ v2.70w
     markPendingChange('entries', editTargetId, {
       type: 'update',
-      data: { works, total, note, parts: editPartsResult, serial: newSerial, model: newModel }
+      data: { works, total, note, parts: editPartsResult, serial: newSerial, model: newModel, ...(_newReJson ? { reentry: _newReJson } : {}) }   // ⭐ v2.70w-QA: 재인입 사유도 보호 — 낡은 캐시가 되돌려 보이는 창 차단
     }, 8000);
     closeEditModal();
     renderToday(); renderAll();
