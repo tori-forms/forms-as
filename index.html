@@ -3384,7 +3384,7 @@ function entryColor(e) {
   if(S2_WHITE_RE.test(String(e && e.serial || '').toUpperCase().trim())) return '화이트';   // 구 등록건도 화이트는 자동 인식
   return '';
 }
-window._regColor = '블랙';
+window._regColor = '';   // ⭐ v2.71a: 기본 선택 없음 — S2는 색상을 직접 골라야 등록 가능 (깜빡 방지)
 function updateColorRow(autoWhite) {
   const row = document.getElementById('color-row');
   if(!row) return;
@@ -3392,13 +3392,13 @@ function updateColorRow(autoWhite) {
   row.style.display = isS2 ? '' : 'none';
   if(!isS2) { window._regColor = ''; return; }
   if(autoWhite) window._regColor = '화이트';
-  if(!S2_COLORS.includes(window._regColor)) window._regColor = '블랙';
+  if(window._regColor && !S2_COLORS.includes(window._regColor)) window._regColor = '';
   const CC = { '블랙': '#374151', '로즈골드': '#e07a8b', '화이트': '#6b7280' };
   const chipsEl = document.getElementById('color-chips');
   if(chipsEl) chipsEl.innerHTML = S2_COLORS.map(c => {
     const on = window._regColor === c;
     return `<button type="button" onclick="window._regColor='${c}';updateColorRow()" style="padding:6px 14px;border-radius:99px;font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid ${on ? CC[c] : 'var(--border)'};background:${on ? CC[c] : 'var(--surface)'};color:${on ? '#fff' : 'var(--text2)'};">${c}</button>`;
-  }).join('');
+  }).join('') + (!window._regColor ? `<span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;color:#ef4444;">← 색상 선택 필수</span>` : '');
 }
 function detectModel(serial) {
   if(!serial) return '';
@@ -10684,8 +10684,14 @@ async function addEntry() {
   let serial = document.getElementById('inp-serial').value.trim();
   const works = getChecked();
   let note = document.getElementById('inp-note').value.trim();
-  // ⭐ v2.71: S2 색상 태그 — 색상 선택이 표시된 상태면 note에 [색상:X] 저장 (출고 엑셀 색상란의 재료)
-  if(document.getElementById('color-row')?.style.display !== 'none' && window._regColor) {
+  // ⭐ v2.71a: S2는 색상 선택이 필수 — 기본값 없음 (깜빡하고 블랙으로 잘못 등록되는 사고 방지)
+  const _colorVisible = document.getElementById('color-row')?.style.display !== 'none';
+  if(_colorVisible && !window._regColor) {
+    notify('S2 기종은 색상(블랙/로즈골드/화이트)을 선택해야 등록할 수 있습니다.', 'error');
+    try { document.getElementById('color-row').scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
+    return;
+  }
+  if(_colorVisible && window._regColor) {
     note = `${note} [색상:${window._regColor}]`.trim();
   }
   if(!worker){ notify('엔지니어를 선택하세요.','error'); return; }
@@ -10772,7 +10778,7 @@ async function addEntry() {
     document.getElementById('model-auto').textContent = '';
     document.getElementById('model-auto').style.display = 'none';
     document.getElementById('inp-model').style.display = 'block';
-    window._regColor = '블랙';   // ⭐ v2.71: 색상 선택 초기화
+    window._regColor = '';   // ⭐ v2.71a: 색상 선택 초기화 (기본값 없음)
     const _cr = document.getElementById('color-row'); if(_cr) _cr.style.display = 'none';
     clearChecks();
     renderToday();
