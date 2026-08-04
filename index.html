@@ -1136,8 +1136,12 @@ window.addEventListener('DOMContentLoaded', function(){
           <label class="form-label">기종</label>
           <div style="display:flex;align-items:center;gap:8px;">
             <span id="model-auto" style="display:none;font-size:13px;font-weight:700;color:#fff;background:var(--accent);padding:3px 12px;border-radius:99px;"></span>
-            <input type="text" id="inp-model" placeholder="직접 입력 (예: S3)" style="width:130px;">
+            <input type="text" id="inp-model" placeholder="직접 입력 (예: S3)" style="width:130px;" oninput="updateColorRow()">
           </div>
+        </div>
+        <div class="form-group" id="color-row" style="display:none;">
+          <label class="form-label">색상 <span style="color:var(--text3);font-weight:400;">(S2 전용 · 화이트는 시리얼로 자동)</span></label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;" id="color-chips"></div>
         </div>
       </div>
       <div class="form-group" style="margin-bottom:16px;">
@@ -3370,9 +3374,36 @@ function openPromptModal(title, msg, placeholder, cb, okText='확인') {
 
 
 // 기종 자동 감지
+// ⭐ v2.71: S2 색상 구분 — 화이트는 시리얼 규칙(TO 없이 숫자4+영문1+숫자9, 예: 6100P220900001)으로
+//   자동 판별, 블랙/로즈골드는 등록 시 선택. 색상은 note 태그 [색상:X]로 저장 → 출고 후에도 보존됨.
+const S2_WHITE_RE = /^\d{4}[A-Z]\d{9}N?$/;
+const S2_COLORS = ['블랙', '로즈골드', '화이트'];
+function entryColor(e) {
+  const m = String(e && e.note || '').match(/\[색상:([^\]]+)\]/);
+  if(m) return m[1].trim();
+  if(S2_WHITE_RE.test(String(e && e.serial || '').toUpperCase().trim())) return '화이트';   // 구 등록건도 화이트는 자동 인식
+  return '';
+}
+window._regColor = '블랙';
+function updateColorRow(autoWhite) {
+  const row = document.getElementById('color-row');
+  if(!row) return;
+  const isS2 = normalizeModel(getModel()) === 'S2_N';
+  row.style.display = isS2 ? '' : 'none';
+  if(!isS2) { window._regColor = ''; return; }
+  if(autoWhite) window._regColor = '화이트';
+  if(!S2_COLORS.includes(window._regColor)) window._regColor = '블랙';
+  const CC = { '블랙': '#374151', '로즈골드': '#e07a8b', '화이트': '#6b7280' };
+  const chipsEl = document.getElementById('color-chips');
+  if(chipsEl) chipsEl.innerHTML = S2_COLORS.map(c => {
+    const on = window._regColor === c;
+    return `<button type="button" onclick="window._regColor='${c}';updateColorRow()" style="padding:6px 14px;border-radius:99px;font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid ${on ? CC[c] : 'var(--border)'};background:${on ? CC[c] : 'var(--surface)'};color:${on ? '#fff' : 'var(--text2)'};">${c}</button>`;
+  }).join('');
+}
 function detectModel(serial) {
   if(!serial) return '';
   const s = serial.toUpperCase();
+  if(S2_WHITE_RE.test(s)) return 'S2_N';   // ⭐ v2.71: S2 화이트 시리얼 (TO 접두 없음)
   // ⭐ v2.63b: 'TO'(영문 O)와 'T0'(숫자 0) 모두 허용 — 화면상 구분이 안 돼 입력이 섞여 들어옴
   if(!s.startsWith('TO') && !s.startsWith('T0')) return '';
   const num = parseInt(s.slice(2,6));
@@ -3405,6 +3436,7 @@ function autoDetectModel() {
     if(inp){ inp.checked = true; document.getElementById('wc-'+k).classList.add('checked'); renderPartQtys(k); }
   });
   try { renderDeductPreview(); } catch(e) {}   // ⭐ v2.70c: 기종 바뀌면 차감 미리보기도 갱신
+  try { updateColorRow(S2_WHITE_RE.test(serial.toUpperCase().trim())); } catch(e) {}   // ⭐ v2.71: S2면 색상 선택 표시, 화이트 시리얼이면 자동 선택
 }
 function getModel() {
   const auto = document.getElementById('model-auto').textContent;
@@ -4270,7 +4302,7 @@ function getShipItemsByDate(dateKey) {
     const model = normalizeModel(h.model || e?.model || '-');
     const works = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k) : String(h.works||'').split('|').filter(Boolean);
     const total = e ? Number(e.total||0) : Number(h.fee||0); // VAT 포함가
-    return { serial: h.serial, model, works, total };
+    return { serial: h.serial, model, works, total, color: entryColor(e || { serial: h.serial }) };   // ⭐ v2.71: 색상
   });
 }
 
@@ -4473,19 +4505,19 @@ function issueShipList(dateKey) {
   const items = getShipItemsByDate(dateKey);
   if(!items.length) { notify('해당 날짜의 출고 건이 없습니다.', 'error'); return; }
   let total = 0;
-  const aoa = [['No', '시리얼번호', '기종', '수리항목', '수리비용(VAT포함)']];
+  const aoa = [['No', '시리얼번호', '기종', '색상', '수리항목', '수리비용(VAT포함)']];   // ⭐ v2.71: 색상란 추가
   items.forEach((it, i) => {
     total += it.total;
-    aoa.push([i+1, it.serial, it.model, it.works.join(' / '), it.total]);
+    aoa.push([i+1, it.serial, it.model, it.color || '', it.works.join(' / '), it.total]);
   });
-  aoa.push(['', '', '', '합계', total]);
+  aoa.push(['', '', '', '', '합계', total]);
 
   if(typeof XLSX !== 'undefined') {
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{wch:5},{wch:20},{wch:12},{wch:30},{wch:16}];
+    ws['!cols'] = [{wch:5},{wch:20},{wch:12},{wch:10},{wch:30},{wch:16}];
     // 수리비용 열 숫자 포맷(#,##0)
     for(let r=1; r<aoa.length; r++){
-      const cell = ws[XLSX.utils.encode_cell({r, c:4})];
+      const cell = ws[XLSX.utils.encode_cell({r, c:5})];
       if(cell && typeof cell.v === 'number'){ cell.t='n'; cell.z='#,##0'; }
     }
     const wb = XLSX.utils.book_new();
@@ -9105,11 +9137,12 @@ function exportShippingXlsx() {
   const fmt2 = n => String(n).padStart(2,'0');
   const fmtDT2 = d => `${d.getFullYear()}.${fmt2(d.getMonth()+1)}.${fmt2(d.getDate())} ${fmt2(d.getHours())}:${fmt2(d.getMinutes())}`;
 
-  const rows = [['기종','시리얼번호','엔지니어','수리항목','공임비(원)','특이사항','수리등록시간']];
+  const rows = [['기종','색상','시리얼번호','엔지니어','수리항목','공임비(원)','특이사항','수리등록시간']];   // ⭐ v2.71: 색상란 추가
   ok.forEach(x => {
     const ws = parseWorks(x.entry.works);
     rows.push([
       x.entry.model||'-',
+      entryColor(x.entry),
       x.entry.serial,
       x.entry.worker,
       ws.map(k=>WORKS[k]?.label||k).join(' / '),
@@ -9118,10 +9151,10 @@ function exportShippingXlsx() {
       fmtDT2(x.repairDT)
     ]);
   });
-  rows.push(['합계','','','',ok.reduce((s,x)=>s+Number(x.entry.total),0),'','']);
+  rows.push(['합계','','','','',ok.reduce((s,x)=>s+Number(x.entry.total),0),'','']);
 
   const ws2 = XLSX.utils.aoa_to_sheet(rows);
-  ws2['!cols'] = [10,18,10,50,12,40,18].map(w=>({wch:w}));
+  ws2['!cols'] = [10,10,18,10,50,12,40,18].map(w=>({wch:w}));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws2, '출고목록');
   XLSX.writeFile(wb, `출고목록_${dateVal}.xlsx`);
@@ -10650,7 +10683,11 @@ async function addEntry() {
   const worker = document.getElementById('sel-worker').value;
   let serial = document.getElementById('inp-serial').value.trim();
   const works = getChecked();
-  const note = document.getElementById('inp-note').value.trim();
+  let note = document.getElementById('inp-note').value.trim();
+  // ⭐ v2.71: S2 색상 태그 — 색상 선택이 표시된 상태면 note에 [색상:X] 저장 (출고 엑셀 색상란의 재료)
+  if(document.getElementById('color-row')?.style.display !== 'none' && window._regColor) {
+    note = `${note} [색상:${window._regColor}]`.trim();
+  }
   if(!worker){ notify('엔지니어를 선택하세요.','error'); return; }
   if(!serial){ notify('시리얼 번호를 입력하세요.','error'); return; }
   if(!works.length){ notify('수리 항목을 하나 이상 선택하세요.','error'); return; }
@@ -10735,6 +10772,8 @@ async function addEntry() {
     document.getElementById('model-auto').textContent = '';
     document.getElementById('model-auto').style.display = 'none';
     document.getElementById('inp-model').style.display = 'block';
+    window._regColor = '블랙';   // ⭐ v2.71: 색상 선택 초기화
+    const _cr = document.getElementById('color-row'); if(_cr) _cr.style.display = 'none';
     clearChecks();
     renderToday();
     renderAll();
