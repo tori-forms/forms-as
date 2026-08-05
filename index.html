@@ -10716,12 +10716,19 @@ async function addEntry() {
   }
   const model = getModel() || detectedModel;
   // 시리얼 중복 체크 — ⭐ v2.64: 출고 완료된 건이면 '재인입(재전달)' 플로우로 전환
+  // ⭐ v2.71b: 판정 반전 — '진행 중 상태'일 때만 차단하고, 나머지(shipped·구형 빈 status 등)는
+  //   전부 재인입 플로우로. 상태 시스템 도입 전 출고된 구형 기록은 status가 'shipped'가 아니라
+  //   빈 값이라, 재작업 입고 기기가 "이미 등록된 시리얼"로 차단되던 문제 수정.
   const _reOk = window._reentryInfo && String(window._reentryInfo.serial) === String(serial);
-  const dup = entries.find(e => String(e.serial) === String(serial));
+  const dup = entries.find(e => normalizeSerial(e.serial) === normalizeSerial(serial));
   if(dup && !_reOk) {
-    if(String(dup.status) === 'shipped') { openReentryModal(serial, dup); return; }
-    notify(`⚠ 이미 등록된 시리얼 번호입니다! (${dup.worker} / ${fmtDT(dup.date)})`, 'error');
-    document.getElementById('inp-serial').focus();
+    const _IN_PROGRESS = [STATUS_AGING, STATUS_AGING_PASS, STATUS_DEFECT, STATUS_HOLD, STATUS_HOLD_AGING, STATUS_INSPECTED];
+    if(_IN_PROGRESS.includes(String(dup.status || ''))) {
+      notify(`⚠ 아직 진행 중인 수리가 있는 시리얼입니다! (${dup.worker} / ${fmtDT(dup.date)}) — 기존 건을 완료·삭제 후 등록하세요.`, 'error');
+      document.getElementById('inp-serial').focus();
+      return;
+    }
+    openReentryModal(serial, dup);   // 출고 완료(shipped)·구형(빈 status) → 재인입(재전달) 등록
     return;
   }
   // 교품 처리된 시리얼 체크
