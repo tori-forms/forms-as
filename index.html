@@ -10102,10 +10102,30 @@ function parseDefectTypes(v) {
 /* ⭐ v2.33: 변경 보호 메커니즘
    GAS 시트의 쓰기→읽기 lag 때문에 자동 동기화가 옛 데이터를 받아오는 문제 해결.
    로컬 변경 직후 3초간 그 변경 사항을 보호하여 자동 동기화가 덮어쓰지 못하게 함. */
-window._pendingChanges = window._pendingChanges || {
-  inspections: {}, // { qualityId: { type:'delete'|'update', expire, data } }
-  entries: {}     // { entryId: { type:'update', expire, data } }
-};
+// ⭐ v2.72a: 변경 보호를 localStorage에 보존 — 삭제/등록 직후 '새로고침'하면 메모리 보호가 날아가
+//   낡은 캐시(5~15분 지연)가 지운 건을 목록에 되살리던 문제 차단. 만료분은 로드 시 정리.
+window._pendingChanges = window._pendingChanges || (function(){
+  try {
+    const saved = JSON.parse(localStorage.getItem('fa_pending_ov') || 'null');
+    if(saved && typeof saved === 'object') {
+      const now = Date.now();
+      const out = { inspections: {}, entries: {} };
+      ['inspections','entries'].forEach(k => {
+        Object.entries(saved[k] || {}).forEach(([id, ch]) => {
+          if(ch && ch.expire > now) out[k][id] = ch;
+        });
+      });
+      return out;
+    }
+  } catch(e) {}
+  return {
+    inspections: {}, // { qualityId: { type:'delete'|'update', expire, data } }
+    entries: {}     // { entryId: { type:'update', expire, data } }
+  };
+})();
+function _savePendingOv() {
+  try { localStorage.setItem('fa_pending_ov', JSON.stringify(window._pendingChanges)); } catch(e) {}
+}
 
 /** 변경 보호 등록
  * @param {string} kind 'inspections' or 'entries'
@@ -10129,6 +10149,7 @@ function markPendingChange(kind, id, change, durationMs = 3000) {
     ...change,
     expire: Date.now() + durationMs
   };
+  _savePendingOv();   // ⭐ v2.72a: 새로고침 생존
   console.log(`[변경보호] ${kind}/${id} 보호 등록:`, change);
 }
 
@@ -10142,16 +10163,18 @@ function markPendingChange(kind, id, change, durationMs = 3000) {
 function applyPendingChanges(arr, kind, idKey) {
   const pending = window._pendingChanges[kind] || {};
   const now = Date.now();
+  let _dirtyOv = false;   // ⭐ v2.72a: 보호 목록이 바뀌면 localStorage에도 반영
 
   // 만료된 보호 항목 정리
   Object.keys(pending).forEach(id => {
     if(pending[id].expire < now) {
       delete pending[id];
+      _dirtyOv = true;
       console.log(`[변경보호] ${kind}/${id} 보호 해제 (만료)`);
     }
   });
 
-  if(Object.keys(pending).length === 0) return arr;
+  if(Object.keys(pending).length === 0) { if(_dirtyOv) _savePendingOv(); return arr; }
 
   // ⭐ v2.62c: 확인 기반 조기 해제 — 서버 데이터가 변경을 이미 반영했으면 보호 즉시 종료.
   //   (add: 이 건이 데이터에 등장 / delete: 데이터에서 소멸 → TTL 남았어도 해제)
@@ -10161,6 +10184,7 @@ function applyPendingChanges(arr, kind, idKey) {
     const inData = !!found;
     if((ch.type === 'add' && inData) || (ch.type === 'delete' && !inData)) {
       delete pending[id];
+      _dirtyOv = true;
       console.log(`[변경보호] ${kind}/${id} 보호 해제 (서버 확인: ${ch.type})`);
     }
     // ⭐ v2.65c: update도 서버 확인 해제 — 보호 중인 필드들이 서버 데이터에 전부 반영됐으면 종료
@@ -10170,10 +10194,12 @@ function applyPendingChanges(arr, kind, idKey) {
       });
       if(confirmed) {
         delete pending[id];
+        _dirtyOv = true;
         console.log(`[변경보호] ${kind}/${id} 보호 해제 (서버 확인: update)`);
       }
     }
   });
+  if(_dirtyOv) _savePendingOv();   // ⭐ v2.72a
   if(Object.keys(pending).length === 0) return arr;
 
   const result = arr
@@ -10868,6 +10894,40 @@ async function _verifySavedEntry(id, serial, attempt) {
     return _verifySavedEntry(id, serial, n + 1);
   } else {
     notifyPersist(`⚠ ${serial} 등록이 서버에서 확인되지 않았습니다 — 목록에서 사라지면 다시 등록해주세요.`, 'error');
+  }
+}
+
+// ⭐ v2.72a: 삭제 응답 유실 시 서버 시트 직접 확인 → 확정 통보.
+//   삭제 확인되면 그때 부품 복구 실행(요청 시) — "복구를 두 번" 하거나 "복구를 놓치는" 일 없이 정확히 1회.
+//   서버에 여전히 존재하면 삭제 실패로 판정하고 목록·보호를 원상 복구.
+async function _verifyDeletedEntry(e, restore, attempt) {
+  const n = attempt || 1;
+  await new Promise(r => setTimeout(r, n === 1 ? 15000 : 30000));
+  let exists = null;
+  try {
+    const r = await gasCall({ action: 'getEntryDetail', id: e.id });
+    if(r && r.ok !== undefined) exists = !!r.detail;
+  } catch(err) {}
+  if(exists === null) {   // 확인 요청 자체가 실패 — 한 번 더, 그래도 안 되면 동기화 수렴에 맡김
+    if(n < 2) return _verifyDeletedEntry(e, restore, n + 1);
+    return;
+  }
+  if(!exists) {
+    if(restore && stock.length) {
+      const restored = await restoreStockForEntry(e);
+      try { renderStock(); } catch(e2) {}
+      notifyPersist(`✅ ${e.serial} 삭제 확인 완료 · 부품 ${restored}개 재고 복구됨.`);
+    } else {
+      notifyPersist(`✅ ${e.serial} 삭제가 서버에서 확인되었습니다.`);
+    }
+  } else if(n < 2) {
+    return _verifyDeletedEntry(e, restore, n + 1);
+  } else {
+    // 서버에 여전히 존재 — 삭제 미반영 확정 → 목록 복원 + 보호 해제 + 재시도 안내
+    try { delete window._pendingChanges.entries[String(e.id)]; _savePendingOv(); } catch(e2) {}
+    if(!entries.some(x => String(x.id) === String(e.id))) entries.push(e);
+    renderToday(); renderAll();
+    notifyPersist(`⚠ ${e.serial} 삭제가 서버에 반영되지 않았습니다 — 다시 삭제해주세요.`, 'error');
   }
 }
 
@@ -12449,15 +12509,22 @@ function delEntry(id) {
     renderAll();
     notifyPersist('삭제 중...');   // 서버 반영 진행 표시 (응답 오면 아래에서 교체)
     try {
-      await gasCall({action:'delete', id});
-      if(restore && pc > 0 && stock.length) {
+      const _delRes = await gasCall({action:'delete', id});
+      // ⭐ v2.72a: found=false = 서버에 이미 없던 건(이전 삭제가 반영된 유령) → 부품 이중 복구 차단
+      if(_delRes && _delRes.found === false) {
+        notify('이미 삭제된 수리 내역입니다 (이전 삭제 반영) — 부품 재고 이중 복구는 건너뛰었습니다.');
+      } else if(restore && pc > 0 && stock.length) {
         const restored = await restoreStockForEntry(e);
         try { renderStock(); } catch(e){}
         notify(`삭제 완료 · 부품 ${restored}개 재고 복구됨.`);
       } else {
         notify('삭제되었습니다.');
       }
-    } catch { notify('응답 지연 — 삭제는 접수되었을 가능성이 높습니다. 잠시 후 자동 확인됩니다.','error'); }
+    } catch {
+      // ⭐ v2.72a: 추측형 안내 대신 서버 시트 직접 확인 → 확정 결과 통보 (+삭제 확인 시 부품 복구 실행)
+      notify('⏳ 서버 응답이 늦어 삭제 확인 중입니다 — 잠시 후 결과를 알려드릴게요.');
+      _verifyDeletedEntry(e, restore && pc > 0);
+    }
   };
   if(pc > 0 && stock.length) {
     openModal('수리 내역 삭제',
@@ -12480,15 +12547,22 @@ function delEntryH(id) {
     renderAll();
     notifyPersist('삭제 중...');
     try {
-      await gasCall({action:'delete', id});
-      if(restore && pc > 0 && stock.length) {
+      const _delRes = await gasCall({action:'delete', id});
+      // ⭐ v2.72a: found=false = 서버에 이미 없던 건(이전 삭제가 반영된 유령) → 부품 이중 복구 차단
+      if(_delRes && _delRes.found === false) {
+        notify('이미 삭제된 수리 내역입니다 (이전 삭제 반영) — 부품 재고 이중 복구는 건너뛰었습니다.');
+      } else if(restore && pc > 0 && stock.length) {
         const restored = await restoreStockForEntry(e);
         try { renderStock(); } catch(e){}
         notify(`삭제 완료 · 부품 ${restored}개 재고 복구됨.`);
       } else {
         notify('삭제되었습니다.');
       }
-    } catch { notify('응답 지연 — 삭제는 접수되었을 가능성이 높습니다. 잠시 후 자동 확인됩니다.','error'); }
+    } catch {
+      // ⭐ v2.72a: 추측형 안내 대신 서버 시트 직접 확인 → 확정 결과 통보 (+삭제 확인 시 부품 복구 실행)
+      notify('⏳ 서버 응답이 늦어 삭제 확인 중입니다 — 잠시 후 결과를 알려드릴게요.');
+      _verifyDeletedEntry(e, restore && pc > 0);
+    }
   };
   if(pc > 0 && stock.length) {
     openModal('수리 내역 삭제',
@@ -14801,15 +14875,21 @@ function delSearch(id) {
       markPendingChange('entries', id, { type: 'delete' });   // ⭐ v2.61a: 낡은 동기화가 이 건을 되살리지 못하게 보호
       renderToday(); doSearch();
       notifyPersist('삭제 중...');   // ⭐ v2.62b: 진행 표시 — 서버 반영이 끝나면 아래에서 완료로 교체
-      await gasCall({action:'delete', id});
-      if(pc > 0 && stock.length) {
+      const _delRes = await gasCall({action:'delete', id});
+      // ⭐ v2.72a: found=false = 서버에 이미 없던 건 → 부품 이중 복구 차단
+      if(_delRes && _delRes.found === false) {
+        notify('이미 삭제된 수리 내역입니다 (이전 삭제 반영) — 부품 재고 이중 복구는 건너뛰었습니다.');
+      } else if(pc > 0 && stock.length) {
         const restored = await restoreStockForEntry(e);
         try { renderStock(); } catch(e2){}
         notify(`삭제 완료 · 부품 ${restored}개 재고 복구됨.`);
       } else {
         notify('삭제되었습니다.');
       }
-    } catch { notify('응답 지연 — 삭제는 접수되었을 가능성이 높습니다. 잠시 후 자동 확인됩니다.','error'); }
+    } catch {
+      notify('⏳ 서버 응답이 늦어 삭제 확인 중입니다 — 잠시 후 결과를 알려드릴게요.');   // ⭐ v2.72a
+      _verifyDeletedEntry(e, pc > 0);
+    }
   });
 }
 
