@@ -2760,7 +2760,7 @@ function _gasCallJsonp(params, timeoutMs) {
     const qs = Object.entries({...params, callback:cb})
       .map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
     const s = document.createElement('script');
-    const timer = setTimeout(()=>{ cleanup(); reject(new Error('timeout')); }, timeoutMs || 90000);  // ⭐ v2.59i: 로드는 30초, 그 외 기본 90초
+    const timer = setTimeout(()=>{ cleanup(true); reject(new Error('timeout')); }, timeoutMs || 90000);  // ⭐ v2.59i: 로드는 30초, 그 외 기본 90초
     window[cb] = data => {
       cleanup();
       // ⭐ v2.59e: fmt=2 폴백 지원 — 압축 봉투면 해제 후 반환
@@ -2773,7 +2773,19 @@ function _gasCallJsonp(params, timeoutMs) {
     s.onerror = ()=>{ cleanup(); reject(new Error('error')); };
     s.src = GAS + '?' + qs;
     document.head.appendChild(s);
-    function cleanup(){ clearTimeout(timer); delete window[cb]; s.remove(); }
+    // ⭐ v2.71d: 타임아웃으로 포기한 뒤 늦게 도착한 응답이 콜백을 못 찾아
+    //   "Uncaught ReferenceError: __gas_... is not defined"를 콘솔에 던지던 문제 방지 —
+    //   즉시 지우는 대신 no-op 스텁을 2분간 남겨 늦은 응답을 조용히 흡수 (재전송이 이미 처리했으므로 무시가 정답).
+    function cleanup(late){
+      clearTimeout(timer);
+      if(late) {
+        window[cb] = function(){};
+        setTimeout(()=>{ try { delete window[cb]; } catch(e) {} }, 120000);
+      } else {
+        delete window[cb];
+      }
+      s.remove();
+    }
   });
 }
 
@@ -10573,6 +10585,7 @@ function syncExtraPart(workKey, id) {
   if(!partQtys[workKey]) partQtys[workKey] = {};
   const cur = partQtys[workKey]['__extra_'+id]||{name:'',qty:1};
   partQtys[workKey]['__extra_'+id] = {name, qty:cur.qty};
+  try { renderDeductPreview(); } catch(e) {}   // ⭐ v2.71d: 추가 부품도 차감 미리보기에 즉시 반영
 }
 function changeExtraQty(workKey, id, delta) {
   if(!partQtys[workKey]) partQtys[workKey] = {};
@@ -10581,10 +10594,12 @@ function changeExtraQty(workKey, id, delta) {
   partQtys[workKey]['__extra_'+id] = {name:cur.name, qty:newVal};
   const el = document.getElementById('extraqty-'+id);
   if(el) el.textContent = newVal;
+  try { renderDeductPreview(); } catch(e) {}   // ⭐ v2.71d: 추가 부품 수량 변경도 미리보기 갱신
 }
 function removeExtraPart(workKey, id) {
   document.getElementById(id)?.remove();
   if(partQtys[workKey]) delete partQtys[workKey]['__extra_'+id];
+  try { renderDeductPreview(); } catch(e) {}   // ⭐ v2.71d: 추가 부품 제거도 미리보기 갱신
 }
 
 function updatePP() {
@@ -12531,7 +12546,7 @@ async function fetchHolidays(year, month) {
     const cb = '__holi_' + Date.now();
     const url = `https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getHoliDeInfo?serviceKey=${HOLIDAY_KEY}&solYear=${year}&solMonth=${String(month).padStart(2,'0')}&_type=json&numOfRows=50&callback=${cb}`;
     const s = document.createElement('script');
-    const timer = setTimeout(()=>{ cleanup(); holidayCache[key]=[]; _mergeCompanyHolidays(); resolve([]); }, 5000);
+    const timer = setTimeout(()=>{ cleanup(true); holidayCache[key]=[]; _mergeCompanyHolidays(); resolve([]); }, 5000);
     window[cb] = (json) => {
       cleanup();
       try {
@@ -12552,7 +12567,13 @@ async function fetchHolidays(year, month) {
     s.onerror = ()=>{ cleanup(); holidayCache[key]=[]; _mergeCompanyHolidays(); resolve([]); };
     s.src = url;
     document.head.appendChild(s);
-    function cleanup(){ clearTimeout(timer); delete window[cb]; s.remove(); }
+    // ⭐ v2.71d: 늦은 응답 ReferenceError 방지 — 타임아웃 시 no-op 스텁 잔류
+    function cleanup(late){
+      clearTimeout(timer);
+      if(late) { window[cb] = function(){}; setTimeout(()=>{ try { delete window[cb]; } catch(e) {} }, 120000); }
+      else { delete window[cb]; }
+      s.remove();
+    }
   });
 }
 
