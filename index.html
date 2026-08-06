@@ -2719,7 +2719,8 @@ function gasCall(params) {
     addStockLog:1, saveCompanyHolidays:1, saveWorkParts:1, adjustStock:1, setPartInternal:1,   // ⭐ v2.64a: 서버 logId 멱등 확보 → 재전송 안전. 재고 이력 유실(수량만 줄고 이력 증발) 차단
     addExchange:1,   // ⭐ v2.70f: 서버 id 멱등 확보(Code.gs v2.70b) → 재전송 안전 — "저장 실패로 떴는데 실제론 저장됨" 해소
     addInspection:1, completeRework:1,   // ⭐ v2.70i: 서버 qualityId 멱등(Code.gs v2.70c) → 검수/재작업 처리 응답 유실 시 자동 재전송 (유실 = 검수대기 재등장의 원인 1)
-    adjustStockBatch:1   // ⭐ v2.72: 항목별 logId 멱등(Code.gs v2.72) → 재전송 안전
+    adjustStockBatch:1,   // ⭐ v2.72: 항목별 logId 멱등(Code.gs v2.72) → 재전송 안전
+    updateRepairStatusBulk:1   // ⭐ v2.72b: 같은 상태 재설정은 무해 → 자연 멱등
   };
   // ⭐ v2.62b: 멱등 액션은 첫 전송 25초로 짧게 — 응답 유실 시 재전송이 빨리 개입 (총 대기 최대 ~70초→~30초)
   let _pMut = _gasCallJsonp(params, _IDEMPOTENT_ACTIONS[_act] ? 25000 : undefined);
@@ -4306,16 +4307,19 @@ const MODEL_QUOTE = {
   'S2':      { code: '',      name: 'S2태블릿' }
 };
 
-function getShipItemsByDate(dateKey) {
+function getShipItemsByDate(dateKey, includeFree) {
   // ⭐ v2.70z: 무상 재작업 건은 견적서(청구) 대상에서 제외 — 수량·금액 모두 청구와 일치 유지
+  // ⭐ v2.72b: includeFree=true(출고리스트용) — 실물은 출고되므로 목록엔 싣되 free 플래그로 '무상' 표기.
+  //   견적서(issueQuote)는 인자 없이 호출 → 기존대로 청구 제외 유지.
   return (shipHistory||[]).filter(h => shipDateKey(h.shipDate) === dateKey)
-    .filter(h => { const e = findEntryBySerial(h.serial); return !(e && isFreeEntry(e)); })
+    .filter(h => { if(includeFree) return true; const e = findEntryBySerial(h.serial); return !(e && isFreeEntry(e)); })
     .map(h => {
     const e = findEntryBySerial(h.serial);
     const model = normalizeModel(h.model || e?.model || '-');
     const works = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k) : String(h.works||'').split('|').filter(Boolean);
-    const total = e ? Number(e.total||0) : Number(h.fee||0); // VAT 포함가
-    return { serial: h.serial, model, works, total, color: entryColor(e || { serial: h.serial }) };   // ⭐ v2.71: 색상
+    const free = !!(e && isFreeEntry(e));   // ⭐ v2.72b
+    const total = free ? 0 : (e ? Number(e.total||0) : Number(h.fee||0)); // VAT 포함가 (무상 = 0원 보증)
+    return { serial: h.serial, model, works, total, free, color: entryColor(e || { serial: h.serial }) };   // ⭐ v2.71: 색상
   });
 }
 
@@ -4515,13 +4519,14 @@ async function issueQuote(dateKey) {
 }
 
 function issueShipList(dateKey) {
-  const items = getShipItemsByDate(dateKey);
+  // ⭐ v2.72b: 무상 재작업 건도 목록에 포함 (실물은 출고됨) — 수리항목에 '무상 재작업' 명시, 비용 0원
+  const items = getShipItemsByDate(dateKey, true);
   if(!items.length) { notify('해당 날짜의 출고 건이 없습니다.', 'error'); return; }
   let total = 0;
   const aoa = [['No', '시리얼번호', '기종', '색상', '수리항목', '수리비용(VAT포함)']];   // ⭐ v2.71: 색상란 추가
   items.forEach((it, i) => {
     total += it.total;
-    aoa.push([i+1, it.serial, it.model, it.color || '', it.works.join(' / '), it.total]);
+    aoa.push([i+1, it.serial, it.model, it.color || '', (it.free ? '[무상 재작업] ' : '') + it.works.join(' / '), it.total]);
   });
   aoa.push(['', '', '', '', '합계', total]);
 
@@ -4829,16 +4834,38 @@ function moveSelectedToInspect(worker) {
   openModal('검수대기 이동', `선택한 ${targets.length}건을 검수대기로 이동할까요?`, async () => {
     let ok = 0, fail = 0;
     notifyPersist(`이동 중... 0/${targets.length}`);
-    for(const e of targets) {
-      try {
-        await gasCall({action:'updateRepairStatus', id: e.id, newStatus: STATUS_AGING_PASS});
-        const idx = entries.findIndex(x => String(x.id) === String(e.id));
-        if(idx === -1) entries.push({...e, status: STATUS_AGING_PASS});
-        else entries[idx].status = STATUS_AGING_PASS;
-        markPendingChange('entries', e.id, { type:'update', data:{ status: STATUS_AGING_PASS } }, 8000);
-        ok++;
-        notifyPersist(`이동 중... ${ok}/${targets.length}`);
-      } catch(err) { fail++; console.warn('[선택 검수대기] 실패', e.id, err); }
+    // ⭐ v2.72b: 건별 요청 N번(러시아워 회당 10~40초) → '한 요청·한 락' 일괄 처리.
+    //   stamp=1로 검수대기 진입 시각도 단건 이동과 동일하게 도장 (대기 시간 계산 일관성).
+    const _applyLocal = (e, iso) => {
+      const idx = entries.findIndex(x => String(x.id) === String(e.id));
+      const _data = { status: STATUS_AGING_PASS, ...(iso ? { agingStart: iso } : {}) };
+      if(idx === -1) entries.push({...e, ..._data});
+      else Object.assign(entries[idx], _data);
+      markPendingChange('entries', e.id, { type:'update', data:_data }, 8000);
+    };
+    let _bulkDone = false;
+    try {
+      const res = await gasCall({ action:'updateRepairStatusBulk', ids: JSON.stringify(targets.map(e => e.id)),
+        newStatus: STATUS_AGING_PASS, stamp:'1' });
+      if(res && res.ok && Array.isArray(res.results)) {
+        _bulkDone = true;
+        const iso = res.stampIso || new Date().toISOString();
+        res.results.forEach((r, i) => {
+          if(r && r.ok) { _applyLocal(targets[i], iso); ok++; }
+          else { fail++; console.warn('[선택 검수대기] 서버 미발견', targets[i] && targets[i].id); }
+        });
+      }
+    } catch(err) { console.warn('[선택 검수대기] 일괄 실패 → 건별 폴백', err); }
+    if(!_bulkDone) {
+      // 구버전 GAS(미배포) 또는 일괄 실패 → 기존 건별 처리 폴백
+      for(const e of targets) {
+        try {
+          await gasCall({action:'updateRepairStatus', id: e.id, newStatus: STATUS_AGING_PASS, stamp:'1'});
+          _applyLocal(e, new Date().toISOString());
+          ok++;
+          notifyPersist(`이동 중... ${ok}/${targets.length}`);
+        } catch(err) { fail++; console.warn('[선택 검수대기] 실패', e.id, err); }
+      }
     }
     notify(`검수대기로 ${ok}건 이동 완료${fail?` (${fail}건 실패)`:''}.`);
     renderAging();
@@ -9018,7 +9045,7 @@ function exportShipviewXlsx() {
       const fee = e ? Number(e.total) : 0;
       const partsFee = getPartsFeeForEntry(e);
       const worksArr = e ? parseWorks(e.works) : [];
-      const worksText = worksArr.map(k => WORKS[k]?.tag||k).join(' / ');
+      const worksText = (e && isFreeEntry(e) ? '[무상 재작업] ' : '') + worksArr.map(k => WORKS[k]?.tag||k).join(' / ');   // ⭐ v2.72b: 무상 명시
       totalFee += fee;
       totalParts += partsFee;
       // 제조년월 파싱
@@ -9158,7 +9185,7 @@ function exportShippingXlsx() {
       entryColor(x.entry),
       x.entry.serial,
       x.entry.worker,
-      ws.map(k=>WORKS[k]?.label||k).join(' / '),
+      (isFreeEntry(x.entry) ? '[무상 재작업] ' : '') + ws.map(k=>WORKS[k]?.label||k).join(' / '),   // ⭐ v2.72b: 무상 명시
       x.entry.total,
       x.entry.note||'',
       fmtDT2(x.repairDT)
