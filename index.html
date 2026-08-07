@@ -4419,16 +4419,16 @@ async function issueQuote(dateKey) {
     // ── A4(794px @96dpi) 흰 배경으로 렌더 — 앱 다크테마와 무관
     const TH = 'border:1px solid #000;background:#eee;font-weight:700;text-align:center;padding:6px 8px;';
     const TD = 'border:1px solid #000;padding:6px 8px;';
+    // ⭐ v2.72f: 품목코드 열 제거 (요청) — 품목명/수량/공급가액/부가세 4열
     const itemRows = modelRows.map(r => `
         <tr>
-          <td style="${TD}text-align:center;">${escapeHtml(r.code)}</td>
           <td style="${TD}">${escapeHtml(r.name)}</td>
           <td style="${TD}text-align:center;">${r.qty}</td>
           <td style="${TD}text-align:right;">${fmt(r.supply)}</td>
           <td style="${TD}text-align:right;">${fmt(r.vat)}</td>
         </tr>`).join('')
       + Array.from({length: Math.max(0, 10 - modelRows.length)}, () =>
-        `<tr><td style="${TD}">&nbsp;</td><td style="${TD}"></td><td style="${TD}"></td><td style="${TD}"></td><td style="${TD}"></td></tr>`).join('');
+        `<tr><td style="${TD}">&nbsp;</td><td style="${TD}"></td><td style="${TD}"></td><td style="${TD}"></td></tr>`).join('');
     holder = document.createElement('div');
     holder.style.cssText = 'position:fixed;left:-10000px;top:0;';
     holder.innerHTML = `
@@ -4470,9 +4470,9 @@ async function issueQuote(dateKey) {
         </table>
         <div style="height:10px;"></div>
         <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
-          <colgroup><col style="width:15%"><col style="width:35%"><col style="width:16%"><col style="width:17%"><col style="width:17%"></colgroup>
+          <colgroup><col style="width:44%"><col style="width:16%"><col style="width:20%"><col style="width:20%"></colgroup>
           <tr>
-            <td style="${TH}">품목코드</td><td style="${TH}">품목명(규격)</td><td style="${TH}">수량(단위포함)</td><td style="${TH}">공급가액</td><td style="${TH}">부가세</td>
+            <td style="${TH}">품목명(규격)</td><td style="${TH}">수량(단위포함)</td><td style="${TH}">공급가액</td><td style="${TH}">부가세</td>
           </tr>
           ${itemRows}
         </table>
