@@ -4155,7 +4155,7 @@ function renderShippingList() {
   Object.keys(groups).sort((a,b) => b.localeCompare(a)).forEach(date => {
     const gList = groups[date];
     const totalFee = gList.reduce((s, item) => {
-      const e = findEntryBySerial(item.h.serial);
+      const e = findEntryBySerial(item.h.serial, item.h.shipDate);
       return s + (e ? Number(e.total) : 0);
     }, 0);
     const groupId = 'shg-' + date.replace(/-/g,'');
@@ -4163,7 +4163,7 @@ function renderShippingList() {
     // 기종별 / 수리항목별 카운트
     const modelCount = {};
     gList.forEach(item => {
-      const e = findEntryBySerial(item.h.serial);
+      const e = findEntryBySerial(item.h.serial, item.h.shipDate);
       const model = normalizeModel(item.h.model || e?.model || '-');
       modelCount[model] = (modelCount[model]||0) + 1;
     });
@@ -4172,7 +4172,7 @@ function renderShippingList() {
     const modelBadges = Object.entries(modelCount).map(([m,c]) => {
       const mWorkCount = {};
       gList.forEach(item => {
-        const e = findEntryBySerial(item.h.serial);
+        const e = findEntryBySerial(item.h.serial, item.h.shipDate);
         const model = normalizeModel(item.h.model || e?.model || '-');
         if(model !== m) return;
         if(e) parseWorks(e.works).forEach(k => { mWorkCount[k] = (mWorkCount[k]||0)+1; });
@@ -4225,7 +4225,7 @@ function renderShippingList() {
       .forEach(item => {
         const h = item.h;
         const idx = item.idx;
-        const e = findEntryBySerial(h.serial);
+        const e = findEntryBySerial(h.serial, h.shipDate);
         const shipFmt = h.shipDate ? new Date(h.shipDate).toLocaleString('ko-KR', {hour:'2-digit',minute:'2-digit'}) : '-';
         const workerName = String(h.worker || e?.worker || '').split('::')[0];
         const model = normalizeModel(h.model || e?.model || '-');
@@ -4312,9 +4312,9 @@ function getShipItemsByDate(dateKey, includeFree) {
   // ⭐ v2.72b: includeFree=true(출고리스트용) — 실물은 출고되므로 목록엔 싣되 free 플래그로 '무상' 표기.
   //   견적서(issueQuote)는 인자 없이 호출 → 기존대로 청구 제외 유지.
   return (shipHistory||[]).filter(h => shipDateKey(h.shipDate) === dateKey)
-    .filter(h => { if(includeFree) return true; const e = findEntryBySerial(h.serial); return !(e && isFreeEntry(e)); })
+    .filter(h => { if(includeFree) return true; const e = findEntryBySerial(h.serial, h.shipDate); return !(e && isFreeEntry(e)); })
     .map(h => {
-    const e = findEntryBySerial(h.serial);
+    const e = findEntryBySerial(h.serial, h.shipDate);
     const model = normalizeModel(h.model || e?.model || '-');
     const works = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k) : String(h.works||'').split('|').filter(Boolean);
     const free = !!(e && isFreeEntry(e));   // ⭐ v2.72b
@@ -6991,8 +6991,15 @@ function renderShipping() {
 
   if(deadlineEl) deadlineEl.innerHTML = `🔍 <strong>검수완료</strong> 상태인 건만 출고 가능 (출고일: ${fmtDT2(shipDT)})`;
 
-  // 출고 완료된 시리얼
-  const shippedSerials = new Set(shipHistory.map(h => String(h.serial)));
+  // 출고 완료된 시리얼 — ⭐ v2.72c: '시리얼이 이력에 있으면 무조건 제외' → '마지막 출고 시각' 기록으로 변경.
+  //   재작업(재인입) 건은 1차 출고 때 시리얼이 이미 이력에 있어 영영 출고 목록에 못 오르던 문제 수정:
+  //   마지막 출고보다 '나중에 등록된' 수리 기록(=재인입 건)은 출고 대상으로 인정.
+  const lastShipBySerial = {};
+  shipHistory.forEach(h => {
+    const s = String(h.serial);
+    const t = new Date(h.shipDate).getTime() || 0;
+    if(!(s in lastShipBySerial) || t > lastShipBySerial[s]) lastShipBySerial[s] = t;
+  });
   // 교품 처리된 시리얼 (출고 목록에서 제외)
   const exchangedSerials = new Set((exchangeList||[]).map(x => String(x.serial)));
 
@@ -7003,7 +7010,11 @@ function renderShipping() {
   if(!window._shipOk) {
     const ok = [], hold = [], holdExcluded = [];
     entries.filter(e => {
-      if(shippedSerials.has(String(e.serial))) return false;
+      const lastShip = lastShipBySerial[String(e.serial)];
+      if(lastShip !== undefined) {
+        const regT = new Date(e.date).getTime() || 0;
+        if(regT <= lastShip) return false;   // 그 수리 건은 이미 출고됨 (재인입 건은 출고 후 등록이라 통과)
+      }
       if(exchangedSerials.has(String(e.serial))) return false;
       return true;
     }).forEach(e => {
@@ -7908,7 +7919,7 @@ function getFilteredShipHistory() {
   // AS유형 필터
   if(svTypeFilter && svTypeFilter !== 'all') {
     list = list.filter(h => {
-      const e = findEntryBySerial(h.serial);
+      const e = findEntryBySerial(h.serial, h.shipDate);
       const works = e ? parseWorks(e.works) : [];
       if(svTypeFilter === 'single')  return works.length === 1;
       if(svTypeFilter === 'multi')   return works.length >= 2;
@@ -7920,7 +7931,7 @@ function getFilteredShipHistory() {
   // 기종 필터
   if(svModelFilter && svModelFilter !== 'all') {
     list = list.filter(h => {
-      const e = findEntryBySerial(h.serial);
+      const e = findEntryBySerial(h.serial, h.shipDate);
       return e && e.model === svModelFilter;
     });
   }
@@ -7938,7 +7949,7 @@ function getFilteredShipHistory() {
   // 수리유형 필터 (세부) — 단일/복합 또는 개별 수리항목
   if(svRepairFilter && svRepairFilter !== 'all') {
     list = list.filter(h => {
-      const e = findEntryBySerial(h.serial);
+      const e = findEntryBySerial(h.serial, h.shipDate);
       const works = e ? parseWorks(e.works) : [];
       if(svRepairFilter === 'single') return works.length === 1;
       if(svRepairFilter === 'multi')  return works.length >= 2;
@@ -7967,7 +7978,7 @@ function renderShipDashboard(list) {
 
   // 각 항목에서 entries 매핑
   const mapped = list.map(x => {
-    const e = findEntryBySerial(x.serial);
+    const e = findEntryBySerial(x.serial, x.shipDate);
     // 출고 시점 금액 우선 사용 (단가 변경에 영향 없음)
     const fee = x.fee ? Number(x.fee) : (e ? Number(e.total) : 0);
     return { ...x, entry: e, fee, works: e ? parseWorks(e.works) : [] };
@@ -8310,7 +8321,7 @@ function renderShipAnalysis() {
 
   // entries 매핑
   const mapped = list.map(x => {
-    const e = findEntryBySerial(x.serial);
+    const e = findEntryBySerial(x.serial, x.shipDate);
     const works = e ? parseWorks(e.works) : [];
     const fee = x.fee ? Number(x.fee) : (e ? Number(e.total) : 0);
     return { ...x, entry: e, fee, works };
@@ -8789,7 +8800,7 @@ function renderShipview() {
   Object.keys(groups).sort((a,b) => b.localeCompare(a)).forEach(date => {
     const gList = groups[date];
     const totalFee = gList.reduce((s,x) => {
-      const e = findEntryBySerial(x.serial);
+      const e = findEntryBySerial(x.serial, x.shipDate);
       return s + (e ? Number(e.total) : 0);
     }, 0);
     const groupId = 'svg-' + date.replace(/-/g,'');
@@ -8798,7 +8809,7 @@ function renderShipview() {
     const modelCount = {};
     const wCount = {};
     gList.forEach(x => {
-      const e = findEntryBySerial(x.serial);
+      const e = findEntryBySerial(x.serial, x.shipDate);
       // ⭐ v2.24: 모델 정규화 (S2PRON → S2PRO_N)
       const model = normalizeModel(x.model || e?.model || '-');
       modelCount[model] = (modelCount[model]||0) + 1;
@@ -8809,7 +8820,7 @@ function renderShipview() {
       // 이 기종의 작업별 카운트
       const mWorkCount = {};
       gList.forEach(x => {
-        const e = findEntryBySerial(x.serial);
+        const e = findEntryBySerial(x.serial, x.shipDate);
         // ⭐ v2.24: 모델 정규화
         const model = normalizeModel(x.model || e?.model || '-');
         if(model !== m) return;
@@ -8868,7 +8879,7 @@ function renderShipview() {
               <th style="text-align:center;width:75px;">수리유형</th>
             </tr></thead>
             <tbody>${gList.map((x,i) => {
-              const e = findEntryBySerial(x.serial);
+              const e = findEntryBySerial(x.serial, x.shipDate);
               const fee = x.fee ? Number(x.fee) : (e ? Number(e.total) : 0);
               const works = e ? e.works : '[]';
               const svIdx = shipHistory.indexOf(x);
@@ -9041,7 +9052,7 @@ function exportShipviewXlsx() {
     const rows = [['No','기종','시리얼번호','수리항목','공임비(원)','부품비(원)','합계(원)','제조년월코드','제조년도','제조월','제조분기','제조년월','수리항목수','수리유형']];
     let totalFee = 0, totalParts = 0;
     list.forEach((x, i) => {
-      const e = findEntryBySerial(x.serial);
+      const e = findEntryBySerial(x.serial, x.shipDate);
       const fee = e ? Number(e.total) : 0;
       const partsFee = getPartsFeeForEntry(e);
       const worksArr = e ? parseWorks(e.works) : [];
@@ -10256,10 +10267,27 @@ function serialEquals(a, b) {
   return normalizeSerial(a) === normalizeSerial(b);
 }
 
-/* ⭐ v2.20: entries 배열에서 시리얼로 entry 찾기 (_ 무시) */
-function findEntryBySerial(serial) {
+/* ⭐ v2.20: entries 배열에서 시리얼로 entry 찾기 (_ 무시)
+ * ⭐ v2.72c: 재인입으로 같은 시리얼 수리 기록이 여러 개일 때의 선택 규칙 추가 —
+ *   refShipDate(출고일)를 주면 '그 출고일 이전에 등록된 가장 최근 수리'를 반환
+ *   (1차 출고 행은 1차 수리, 재출고 행은 재인입 수리와 정확히 짝지어져 금액·무상 표기가 안 섞임).
+ *   refShipDate가 없으면 최신 수리 기록 반환. 시리얼당 기록이 1개면 기존과 완전 동일. */
+function findEntryBySerial(serial, refShipDate) {
   const target = normalizeSerial(serial);
-  return entries.find(e => normalizeSerial(e.serial) === target);
+  const matches = entries.filter(e => normalizeSerial(e.serial) === target);
+  if(matches.length <= 1) return matches[0];
+  const byT = matches.slice().sort((a,b) => (new Date(a.date).getTime()||0) - (new Date(b.date).getTime()||0));
+  if(refShipDate) {
+    const shipDay = shipDateKey(refShipDate);
+    if(shipDay !== '미확인') {
+      for(let i = byT.length - 1; i >= 0; i--) {
+        const d = shipDateKey(byT[i].date);
+        if(d !== '미확인' && d <= shipDay) return byT[i];
+      }
+      return byT[0];   // 전부 출고일 이후 등록(데이터 이상) → 가장 오래된 기록
+    }
+  }
+  return byT[byT.length - 1];   // 기본: 최신 수리 기록
 }
 
 /* id에서 시간 추출 (id가 timestamp 기반이면) */
@@ -11861,7 +11889,7 @@ async function renderMyDash() {
     // 출고일이 이번 달인지
     if(!String(h.shipDate || '').startsWith(monthKey)) return false;
     // 이 시리얼의 entry에서 작업자가 본인인지
-    const entry = findEntryBySerial(h.serial);
+    const entry = findEntryBySerial(h.serial, h.shipDate);
     if(!entry) return false;
     const workerName = String(entry.worker || '').split('::')[0];
     return workerName === currentUser;
@@ -11871,7 +11899,7 @@ async function renderMyDash() {
   // 오늘 출고된 본인 건 (참고용)
   const myTodayShipped = (shipHistory||[]).filter(h => {
     if(!String(h.shipDate || '').startsWith(todayKey)) return false;
-    const entry = findEntryBySerial(h.serial);
+    const entry = findEntryBySerial(h.serial, h.shipDate);
     if(!entry) return false;
     const workerName = String(entry.worker || '').split('::')[0];
     return workerName === currentUser;
@@ -14018,7 +14046,7 @@ async function renderHistory() {
       const done = periodShipped.length;
       // 출고된 시리얼의 공임비 합계
       const monthShippedRev = periodShipped.reduce((s, h) => {
-        const e = findEntryBySerial(h.serial);
+        const e = findEntryBySerial(h.serial, h.shipDate);
         return s + (e ? Number(e.total || 0) : 0);
       }, 0);
 
@@ -14350,12 +14378,12 @@ async function renderReport() {
   // ⭐ KPI 집계는 출고 기준 — 해당 월에 출고된 건수
   // ⭐ v2.70z: 무상 재작업 출고는 월 실적·기여도·청구에서 제외 (이미 1차 출고로 계상된 기기의 재작업)
   const monthShippedAll = (shipHistory || []).filter(h => shipDateKey(h.shipDate).startsWith(monthVal));
-  const _freeSet = new Set(monthShippedAll.filter(h => { const en = findEntryBySerial(h.serial); return en && isFreeEntry(en); }));
+  const _freeSet = new Set(monthShippedAll.filter(h => { const en = findEntryBySerial(h.serial, h.shipDate); return en && isFreeEntry(en); }));
   const monthShipped = monthShippedAll.filter(h => !_freeSet.has(h));
   const _freeShippedCnt = _freeSet.size;
   const totalDone = monthShipped.length;
   const totalRev = monthShipped.reduce((s,h) => {
-    const en = findEntryBySerial(h.serial);
+    const en = findEntryBySerial(h.serial, h.shipDate);
     return s + Number(en?.total || h.fee || 0);
   }, 0);
   const pct = monthKPI ? Math.min(100, Math.round(totalDone/monthKPI*100)) : 0;
@@ -14400,11 +14428,11 @@ async function renderReport() {
   const contribByWorker = {};
   monthShipped.forEach(hs => {
     let wn = String(hs.worker || '').split('::')[0];
-    if(!wn) { const en = findEntryBySerial(hs.serial); wn = String(en?.worker || '').split('::')[0]; }
+    if(!wn) { const en = findEntryBySerial(hs.serial, hs.shipDate); wn = String(en?.worker || '').split('::')[0]; }
     if(!wn) wn = '(미상)';
     if(!contribByWorker[wn]) contribByWorker[wn] = { cnt: 0, rev: 0 };
     contribByWorker[wn].cnt++;
-    const en = findEntryBySerial(hs.serial);
+    const en = findEntryBySerial(hs.serial, hs.shipDate);
     contribByWorker[wn].rev += Number(en?.total || hs.fee || 0);
   });
   // 현재 단계 산정 기준일: 현재 달이면 오늘, 과거 달이면 그 달 말일
@@ -17015,7 +17043,7 @@ function renderShipExtraCharts() {
   };
 
   const mapped = list.map(x => {
-    const e = findEntryBySerial(x.serial);
+    const e = findEntryBySerial(x.serial, x.shipDate);
     const fee = x.fee ? Number(x.fee) : (e ? Number(e.total) : 0);
     return { ...x, entry: e, fee, works: e ? parseWorks(e.works) : [] };
   });
