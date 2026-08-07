@@ -5443,6 +5443,26 @@ function renderQualityDashboard() {
   // 시리얼 → entry 매핑 (엔지니어/모델 조회용)
   const entryBySerial = {};
   (entries || []).forEach(e => { entryBySerial[normalizeSerial(e.serial)] = e; });
+  // ⭐ v2.72d: 재인입으로 같은 시리얼 수리 기록이 여러 개면 위 맵은 '마지막 기록'만 남아,
+  //   1차 수리의 검수/불량이 재인입 담당 엔지니어에게 잘못 귀속되던 문제 수정 —
+  //   검수 시점(inspectedAt) 이전에 등록된 '가장 최근' 수리 기록으로 정확히 귀속.
+  const _entriesBySerialAll = {};
+  (entries || []).forEach(e => {
+    const k = normalizeSerial(e.serial);
+    (_entriesBySerialAll[k] = _entriesBySerialAll[k] || []).push(e);
+  });
+  Object.values(_entriesBySerialAll).forEach(list =>
+    list.sort((a,b) => (new Date(a.date).getTime()||0) - (new Date(b.date).getTime()||0)));
+  const entryForInsp = (insp) => {
+    const list = _entriesBySerialAll[normalizeSerial(insp.serial)];
+    if(!list || !list.length) return undefined;
+    if(list.length === 1) return list[0];
+    const t = new Date(insp.inspectedAt || 0).getTime() || 0;
+    for(let i = list.length - 1; i >= 0; i--) {
+      if((new Date(list[i].date).getTime() || 0) <= t) return list[i];
+    }
+    return list[0];
+  };
 
   // 이 기간에 검수 처리된 inspection (합격+불량, 검수일 기준)
   // ⭐ 삭제된 수리건(entries에 없는 시리얼)의 검수 이력은 제외 (유령 데이터 방지)
@@ -5455,13 +5475,24 @@ function renderQualityDashboard() {
   });
   const periodFailInsps = periodInsps.filter(i => i.result === 'fail');
 
+  // ⭐ v2.72e: '수리건' 기준 집계 — 품질팀 요청 반영.
+  //   같은 수리건의 재검수(불량→재작업→재검수)는 검수 1건·불량 1건으로만 카운트하고,
+  //   재인입(같은 시리얼의 새 수리 등록)은 '별도 수리건'이라 다시 카운트한다.
+  //   에피소드 키 = 수리 기록 id (entry 미발견 시 시리얼 폴백).
+  const _epKey = (insp) => { const e = entryForInsp(insp); return e ? 'e' + e.id : 's' + normalizeSerial(insp.serial); };
+  const _epAll = new Set(), _epFail = new Set();
+  periodInsps.forEach(i => { const k = _epKey(i); _epAll.add(k); if(i.result === 'fail') _epFail.add(k); });
+  const inspectedEp = _epAll.size, failEp = _epFail.size, passEp = inspectedEp - failEp;
+  const epFailRate = inspectedEp > 0 ? (failEp / inspectedEp * 100) : 0;
+
   // 불량 시리얼 (검수일 기준, 수리건당 1회)
   const defectSerials = new Set(periodFailInsps.map(i => normalizeSerial(i.serial)));
 
-  // 시리얼별 첫 불량 inspection (이 기간 내) — 유형 분포용
+  // 수리건별 첫 불량 inspection (이 기간 내) — 유형 분포용
+  // ⭐ v2.72e: 시리얼 → 수리건 키 (재인입 건의 불량은 별도 수리건으로 다시 카운트)
   const firstFailBySerial = {};
   periodFailInsps.forEach(insp => {
-    const sn = normalizeSerial(insp.serial);
+    const sn = _epKey(insp);
     if(!firstFailBySerial[sn]) {
       firstFailBySerial[sn] = insp;
     } else {
@@ -5504,31 +5535,34 @@ function renderQualityDashboard() {
     </div>
     <div class="card" style="padding:16px 18px;border-left:4px solid #8b5cf6;">
       <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">검수 처리</div>
-      <div style="font-size:28px;font-weight:700;color:#8b5cf6;">${fmt(inspectedInPeriod)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">${label} 검수한 건수</div>
+      <div style="font-size:28px;font-weight:700;color:#8b5cf6;">${fmt(inspectedEp)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">${label} 검수한 수리건 (재검수 중복 제외)</div>
     </div>
     <div class="card" style="padding:16px 18px;border-left:4px solid #10b981;">
       <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">✅ 합격</div>
-      <div style="font-size:28px;font-weight:700;color:#10b981;">${fmt(passInPeriod)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">검수완료 처리</div>
+      <div style="font-size:28px;font-weight:700;color:#10b981;">${fmt(passEp)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">불량 없이 통과한 수리건</div>
     </div>
     <div class="card" style="padding:16px 18px;border-left:4px solid #ef4444;">
       <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">❌ 불량 검출</div>
-      <div style="font-size:28px;font-weight:700;color:#ef4444;">${fmt(failInPeriod)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span> <span style="font-size:16px;font-weight:700;color:${periodFailRate>=10?'#ef4444':periodFailRate>=5?'#f59e0b':'#10b981'};margin-left:4px;">${periodFailRate.toFixed(1)}%</span></div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px;">불량 검출 / 검수 처리</div>
+      <div style="font-size:28px;font-weight:700;color:#ef4444;">${fmt(failEp)}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span> <span style="font-size:16px;font-weight:700;color:${epFailRate>=10?'#ef4444':epFailRate>=5?'#f59e0b':'#10b981'};margin-left:4px;">${epFailRate.toFixed(1)}%</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">불량 수리건 ÷ 검수 수리건 (수리건 기준)</div>
     </div>
   </div>`;
 
   // === 2. 엔지니어별 불량률 (검수일 기준: 이 기간 검수된 건 중 불량) ===
   const activeWorkerSet = new Set(workers || []);
   const byEngineer = {};
+  // ⭐ v2.72e: 수리건 기준 — 같은 수리건의 재검수는 검수 1·불량 1로만, 재인입 건은 별도 카운트
+  const _engSeenReg = new Set(), _engSeenDef = new Set();
   periodInsps.forEach(insp => {
-    const e = entryBySerial[normalizeSerial(insp.serial)];
+    const e = entryForInsp(insp);   // ⭐ v2.72d: 검수 시점 기준 귀속
     const eng = e ? (String(e.worker || '').split('::')[0] || '미정') : '미정';
     if(!activeWorkerSet.has(eng)) return; // 퇴사자 제외
+    const k = _epKey(insp);
     if(!byEngineer[eng]) byEngineer[eng] = { registered: 0, defects: 0 };
-    byEngineer[eng].registered++; // 이 기간 검수 처리된 건수
-    if(insp.result === 'fail') byEngineer[eng].defects++;
+    if(!_engSeenReg.has(k)) { _engSeenReg.add(k); byEngineer[eng].registered++; }   // 이 기간 검수된 수리건 수
+    if(insp.result === 'fail' && !_engSeenDef.has(k)) { _engSeenDef.add(k); byEngineer[eng].defects++; }
   });
   const engineerStats = Object.entries(byEngineer)
     .map(([name, stats]) => ({
@@ -5547,16 +5581,18 @@ function renderQualityDashboard() {
     const span = end - start;
     const prevStart = start - span, prevEnd = start;
     const prevByEng = {};
+    const _pSeenIns = new Set(), _pSeenDef = new Set();   // ⭐ v2.72e: 직전 기간도 수리건 기준
     (inspections || []).forEach(insp => {
       const t = new Date(insp.inspectedAt || 0).getTime();
       if(t < prevStart || t >= prevEnd) return;
       if(insp.result !== 'pass' && insp.result !== 'fail') return;
-      const e = entryBySerial[normalizeSerial(insp.serial)];
+      const e = entryForInsp(insp);   // ⭐ v2.72d
       const eng = e ? (String(e.worker || '').split('::')[0] || '미정') : '미정';
       if(!activeWorkerSet.has(eng)) return;
+      const k = _epKey(insp);
       if(!prevByEng[eng]) prevByEng[eng] = { ins: 0, def: 0 };
-      prevByEng[eng].ins++;
-      if(insp.result === 'fail') prevByEng[eng].def++;
+      if(!_pSeenIns.has(k)) { _pSeenIns.add(k); prevByEng[eng].ins++; }
+      if(insp.result === 'fail' && !_pSeenDef.has(k)) { _pSeenDef.add(k); prevByEng[eng].def++; }
     });
     Object.entries(prevByEng).forEach(([eng, v]) => {
       prevEngRate[eng] = v.ins > 0 ? (v.def / v.ins * 100) : 0;
@@ -5591,12 +5627,14 @@ function renderQualityDashboard() {
 
   // === 4. 모델별 불량 (검수일 기준: 이 기간 검수된 건 중 불량) ===
   const modelStats = {}; // {model: {registered, defects, items:[]}}
+  const _mSeenReg = new Set(), _mSeenDef = new Set();   // ⭐ v2.72e: 수리건 기준
   periodInsps.forEach(insp => {
-    const e = entryBySerial[normalizeSerial(insp.serial)];
+    const e = entryForInsp(insp);   // ⭐ v2.72d
     const m = normalizeModel(e ? (e.model || '-') : '-');
+    const k = m + '|' + _epKey(insp);
     if(!modelStats[m]) modelStats[m] = { registered: 0, defects: 0, items: [] };
-    modelStats[m].registered++;
-    if(insp.result === 'fail') modelStats[m].defects++;
+    if(!_mSeenReg.has(k)) { _mSeenReg.add(k); modelStats[m].registered++; }
+    if(insp.result === 'fail' && !_mSeenDef.has(k)) { _mSeenDef.add(k); modelStats[m].defects++; }
     modelStats[m].items.push({
       serial: insp.serial,
       worker: e ? (String(e.worker||'').split('::')[0]) : '미상',
@@ -5610,13 +5648,15 @@ function renderQualityDashboard() {
   Object.entries(modelStats).forEach(([m, s]) => { window._qdModelItems[m] = s.items; });
 
   // === 5. 월별 추이 (검수일 기준: 그 달 검수 처리 / 불량) ===
-  const monthlyStats = {}; // {YYYY-MM: {registered(=검수처리), defects}}
+  const monthlyStats = {}; // {YYYY-MM: {registered(=검수 수리건), defects}}
+  const _moSeenReg = new Set(), _moSeenDef = new Set();   // ⭐ v2.72e: 수리건 기준 (월별)
   periodInsps.forEach(insp => {
     const d = new Date(insp.inspectedAt || 0);
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const k = key + '|' + _epKey(insp);
     if(!monthlyStats[key]) monthlyStats[key] = { registered: 0, defects: 0 };
-    monthlyStats[key].registered++; // 그 달 검수 처리 건수
-    if(insp.result === 'fail') monthlyStats[key].defects++;
+    if(!_moSeenReg.has(k)) { _moSeenReg.add(k); monthlyStats[key].registered++; }   // 그 달 검수된 수리건
+    if(insp.result === 'fail' && !_moSeenDef.has(k)) { _moSeenDef.add(k); monthlyStats[key].defects++; }
   });
 
   // === HTML 조립 — 그리드 2×2 + 히트맵 ===
@@ -5774,7 +5814,7 @@ function renderQualityDashboard() {
 
     periodFailInsps.forEach(insp => {
       const serial = normalizeSerial(insp.serial);
-      const entry = entryBySerial[serial];
+      const entry = entryForInsp(insp);   // ⭐ v2.72d
       if(!entry) return;
       const eng = String(entry.worker || '').split('::')[0] || '미정';
       if(!heatmap[eng]) return; // 퇴사자/미정 제외
