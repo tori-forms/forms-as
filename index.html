@@ -2085,7 +2085,7 @@ window.addEventListener('DOMContentLoaded', function(){
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closePartModal()">취소</button>
-      <button class="btn btn-primary" onclick="savePart()">저장</button>
+      <button class="btn btn-primary" id="part-save-btn" onclick="savePart()">저장</button>
     </div>
   </div>
 </div>
@@ -2105,7 +2105,7 @@ window.addEventListener('DOMContentLoaded', function(){
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeStockInModal()">취소</button>
-      <button class="btn btn-primary" onclick="saveStockIn()">입고 등록</button>
+      <button class="btn btn-primary" id="stock-in-save-btn" onclick="saveStockIn()">입고 등록</button>
     </div>
   </div>
 </div>
@@ -11031,7 +11031,7 @@ async function _verifySavedEntry(id, serial, attempt) {
 // ⭐ v2.72a: 삭제 응답 유실 시 서버 시트 직접 확인 → 확정 통보.
 //   삭제 확인되면 그때 부품 복구 실행(요청 시) — "복구를 두 번" 하거나 "복구를 놓치는" 일 없이 정확히 1회.
 //   서버에 여전히 존재하면 삭제 실패로 판정하고 목록·보호를 원상 복구.
-async function _verifyDeletedEntry(e, restore, attempt) {
+async function _verifyDeletedEntry(e, restore, ops, attempt) {
   const n = attempt || 1;
   await new Promise(r => setTimeout(r, n === 1 ? 15000 : 30000));
   let exists = null;
@@ -11039,26 +11039,62 @@ async function _verifyDeletedEntry(e, restore, attempt) {
     const r = await gasCall({ action: 'getEntryDetail', id: e.id });
     if(r && r.ok !== undefined) exists = !!r.detail;
   } catch(err) {}
-  if(exists === null) {   // 확인 요청 자체가 실패 — 한 번 더, 그래도 안 되면 동기화 수렴에 맡김
-    if(n < 2) return _verifyDeletedEntry(e, restore, n + 1);
+  if(exists === null) {   // 확인 요청 자체가 실패 — 한 번 더, 그래도 안 되면 부팅 마커 회수가 정산
+    if(n < 2) return _verifyDeletedEntry(e, restore, ops, n + 1);
     return;
   }
   if(!exists) {
-    if(restore && stock.length) {
-      const restored = await restoreStockForEntry(e);
-      try { renderStock(); } catch(e2) {}
-      notifyPersist(`✅ ${e.serial} 삭제 확인 완료 · 부품 ${restored}개 재고 복구됨.`);
+    if(restore && ops && ops.length) {
+      _stockQPush(ops);   // ⭐ v2.74b: 내구 큐 경유 · 고정 logId — 이중 반영 불가
+      try { _stockQFlush(); } catch(e2) {}
+      _delQRemove(String(e.id));
+      notifyPersist(`✅ ${e.serial} 삭제 확인 완료 · 부품 ${ops.reduce((s2,o)=>s2+o.delta,0)}개 재고 복구 반영.`);
     } else {
       notifyPersist(`✅ ${e.serial} 삭제가 서버에서 확인되었습니다.`);
+      try { _delQRecover(); } catch(e2) {}   // 복구 마커가 남아 있으면(예: delSearch) 여기서 정산
     }
   } else if(n < 2) {
-    return _verifyDeletedEntry(e, restore, n + 1);
+    return _verifyDeletedEntry(e, restore, ops, n + 1);
   } else {
-    // 서버에 여전히 존재 — 삭제 미반영 확정 → 목록 복원 + 보호 해제 + 재시도 안내
+    // 서버에 여전히 존재 — 삭제 미반영 확정 → 목록 복원 + 보호·마커 해제 + 재시도 안내
+    try { _delQRemove(String(e.id)); } catch(e2) {}
     try { delete window._pendingChanges.entries[String(e.id)]; _savePendingOv(); } catch(e2) {}
     if(!entries.some(x => String(x.id) === String(e.id))) entries.push(e);
     renderToday(); renderAll();
     notifyPersist(`⚠ ${e.serial} 삭제가 서버에 반영되지 않았습니다 — 다시 삭제해주세요.`, 'error');
+  }
+}
+
+// ⭐ v2.74a: 수정 응답 유실 시 서버 시트 직접 확인 → 확정 통보.
+//   반영 확인되면 그때 재고 delta를 정확히 1회 정산 (로컬 parts가 이미 새 값이면 = 재저장 성공 = 정산 완료로 보고 건너뜀).
+async function _verifyEditedEntry(id, partsSafe, ctx, attempt) {
+  const n = attempt || 1;
+  await new Promise(r => setTimeout(r, n === 1 ? 15000 : 30000));
+  let got = false, detail = null;
+  try {
+    const r = await gasCall({ action: 'getEntryDetail', id });
+    if(r && r.ok !== undefined) { got = true; detail = r.detail; }
+  } catch(e) {}
+  if(!got) {
+    if(n < 2) return _verifyEditedEntry(id, partsSafe, ctx, n + 1);
+    return;   // 확인 자체가 계속 실패 — 동기화 수렴에 맡김 (틀린 단정보다 침묵이 안전)
+  }
+  const applied = !!(detail && String(detail.parts || '') === String(partsSafe));
+  if(applied) {
+    const idx = entries.findIndex(x => String(x.id) === String(id));
+    const partsAlready = idx > -1 && JSON.stringify(entries[idx].parts || {}) === JSON.stringify(ctx.newParts || {});
+    if(!partsAlready) {
+      try { await applyStockDelta(ctx.oldParts, ctx.newParts, ctx.model, ctx.serial); } catch(e) {}
+    }
+    const _data = { works: ctx.works, total: ctx.total, note: ctx.note, parts: ctx.newParts, serial: ctx.serial, model: ctx.model, ...(ctx.reJson ? { reentry: ctx.reJson } : {}) };
+    if(idx > -1) Object.assign(entries[idx], _data);
+    markPendingChange('entries', id, { type: 'update', data: _data }, 8000);
+    try { renderToday(); renderAll(); } catch(e) {}
+    notifyPersist(`✅ ${ctx.serial} 수정이 서버에 반영되었습니다${!partsAlready ? ' · 부품 재고 정산 완료' : ''}.`);
+  } else if(n < 2) {
+    return _verifyEditedEntry(id, partsSafe, ctx, n + 1);
+  } else {
+    notifyPersist(`⚠ ${ctx.serial} 수정이 서버에 반영되지 않았습니다 — 다시 저장해주세요.`, 'error');
   }
 }
 
@@ -12611,7 +12647,13 @@ async function saveEdit() {
         return;
       }
     } catch(e) {
-      notify('응답 지연 — 수정은 접수되었을 가능성이 높습니다. 잠시 후 자동 확인됩니다.','error');
+      // ⭐ v2.74a: 추측형 안내 대신 서버 시트 직접 확인 → 반영 확정 시 '재고 delta'까지 정확히 1회 정산.
+      //   (기존엔 응답 유실 시 서버 parts는 바뀌었는데 재고 증감은 유실되던 구멍이 있었음)
+      notify('⏳ 서버 응답이 늦어 수정 확인 중입니다 — 잠시 후 결과를 알려드릴게요.');
+      _verifyEditedEntry(String(editTargetId), partsSafe, {
+        oldParts: _oldParts, newParts: editPartsResult, model: newModel, serial: newSerial,
+        works, total, note, reJson: _newReJson
+      });
       btn.disabled=false; btn.textContent='저장';
       return;
     }
@@ -12645,22 +12687,29 @@ function delEntry(id) {
     renderToday();
     renderAll();
     notifyPersist('삭제 중...');   // 서버 반영 진행 표시 (응답 오면 아래에서 교체)
+    // ⭐ v2.74b: 삭제 전에 복구 연산(고정 logId)을 마커로 기록 — 어떤 실패·탭 닫힘에도 복구 유실 없음
+    const _doRestore = restore && pc > 0 && stock.length > 0;
+    const _rOps = _doRestore ? _buildRestoreOps(e) : [];
+    _delQSet({ id: String(id), serial: e.serial || '', restore: _doRestore && _rOps.length > 0, ops: _rOps, ts: Date.now() });
     try {
       const _delRes = await gasCall({action:'delete', id});
       // ⭐ v2.72a: found=false = 서버에 이미 없던 건(이전 삭제가 반영된 유령) → 부품 이중 복구 차단
       if(_delRes && _delRes.found === false) {
+        _delQRemove(String(id));
         notify('이미 삭제된 수리 내역입니다 (이전 삭제 반영) — 부품 재고 이중 복구는 건너뛰었습니다.');
-      } else if(restore && pc > 0 && stock.length) {
-        const restored = await restoreStockForEntry(e);
-        try { renderStock(); } catch(e){}
-        notify(`삭제 완료 · 부품 ${restored}개 재고 복구됨.`);
+      } else if(_doRestore && _rOps.length) {
+        _stockQPush(_rOps);   // 내구 큐 경유 — 확인된 것만 지워지고 실패 시 자동 재전송
+        _delQRemove(String(id));
+        try { _stockQFlush(); } catch(e2) {}
+        notify(`삭제 완료 · 부품 ${_rOps.reduce((s2,o)=>s2+o.delta,0)}개 재고 복구 반영.`);
       } else {
+        _delQRemove(String(id));
         notify('삭제되었습니다.');
       }
     } catch {
-      // ⭐ v2.72a: 추측형 안내 대신 서버 시트 직접 확인 → 확정 결과 통보 (+삭제 확인 시 부품 복구 실행)
+      // ⭐ v2.72a/74b: 서버 시트 직접 확인 → 확정 결과 통보 (+삭제 확인 시 복구를 내구 큐로 정산)
       notify('⏳ 서버 응답이 늦어 삭제 확인 중입니다 — 잠시 후 결과를 알려드릴게요.');
-      _verifyDeletedEntry(e, restore && pc > 0);
+      _verifyDeletedEntry(e, _doRestore && _rOps.length > 0, _rOps);
     }
   };
   if(pc > 0 && stock.length) {
@@ -12683,22 +12732,29 @@ function delEntryH(id) {
     renderHistory(); renderToday();
     renderAll();
     notifyPersist('삭제 중...');
+    // ⭐ v2.74b: 삭제 전에 복구 연산(고정 logId)을 마커로 기록 — 어떤 실패·탭 닫힘에도 복구 유실 없음
+    const _doRestore = restore && pc > 0 && stock.length > 0;
+    const _rOps = _doRestore ? _buildRestoreOps(e) : [];
+    _delQSet({ id: String(id), serial: e.serial || '', restore: _doRestore && _rOps.length > 0, ops: _rOps, ts: Date.now() });
     try {
       const _delRes = await gasCall({action:'delete', id});
       // ⭐ v2.72a: found=false = 서버에 이미 없던 건(이전 삭제가 반영된 유령) → 부품 이중 복구 차단
       if(_delRes && _delRes.found === false) {
+        _delQRemove(String(id));
         notify('이미 삭제된 수리 내역입니다 (이전 삭제 반영) — 부품 재고 이중 복구는 건너뛰었습니다.');
-      } else if(restore && pc > 0 && stock.length) {
-        const restored = await restoreStockForEntry(e);
-        try { renderStock(); } catch(e){}
-        notify(`삭제 완료 · 부품 ${restored}개 재고 복구됨.`);
+      } else if(_doRestore && _rOps.length) {
+        _stockQPush(_rOps);   // 내구 큐 경유 — 확인된 것만 지워지고 실패 시 자동 재전송
+        _delQRemove(String(id));
+        try { _stockQFlush(); } catch(e2) {}
+        notify(`삭제 완료 · 부품 ${_rOps.reduce((s2,o)=>s2+o.delta,0)}개 재고 복구 반영.`);
       } else {
+        _delQRemove(String(id));
         notify('삭제되었습니다.');
       }
     } catch {
-      // ⭐ v2.72a: 추측형 안내 대신 서버 시트 직접 확인 → 확정 결과 통보 (+삭제 확인 시 부품 복구 실행)
+      // ⭐ v2.72a/74b: 서버 시트 직접 확인 → 확정 결과 통보 (+삭제 확인 시 복구를 내구 큐로 정산)
       notify('⏳ 서버 응답이 늦어 삭제 확인 중입니다 — 잠시 후 결과를 알려드릴게요.');
-      _verifyDeletedEntry(e, restore && pc > 0);
+      _verifyDeletedEntry(e, _doRestore && _rOps.length > 0, _rOps);
     }
   };
   if(pc > 0 && stock.length) {
@@ -15012,20 +15068,27 @@ function delSearch(id) {
       markPendingChange('entries', id, { type: 'delete' });   // ⭐ v2.61a: 낡은 동기화가 이 건을 되살리지 못하게 보호
       renderToday(); doSearch();
       notifyPersist('삭제 중...');   // ⭐ v2.62b: 진행 표시 — 서버 반영이 끝나면 아래에서 완료로 교체
+      // ⭐ v2.74b: 삭제 전 복구 마커 기록 (탭 닫힘 대비)
+      const _doRestore = pc > 0 && stock.length > 0;
+      const _rOps = _doRestore ? _buildRestoreOps(e) : [];
+      _delQSet({ id: String(id), serial: e.serial || '', restore: _doRestore && _rOps.length > 0, ops: _rOps, ts: Date.now() });
       const _delRes = await gasCall({action:'delete', id});
       // ⭐ v2.72a: found=false = 서버에 이미 없던 건 → 부품 이중 복구 차단
       if(_delRes && _delRes.found === false) {
+        _delQRemove(String(id));
         notify('이미 삭제된 수리 내역입니다 (이전 삭제 반영) — 부품 재고 이중 복구는 건너뛰었습니다.');
-      } else if(pc > 0 && stock.length) {
-        const restored = await restoreStockForEntry(e);
-        try { renderStock(); } catch(e2){}
-        notify(`삭제 완료 · 부품 ${restored}개 재고 복구됨.`);
+      } else if(_doRestore && _rOps.length) {
+        _stockQPush(_rOps);
+        _delQRemove(String(id));
+        try { _stockQFlush(); } catch(e2) {}
+        notify(`삭제 완료 · 부품 ${_rOps.reduce((s2,o)=>s2+o.delta,0)}개 재고 복구 반영.`);
       } else {
+        _delQRemove(String(id));
         notify('삭제되었습니다.');
       }
     } catch {
       notify('⏳ 서버 응답이 늦어 삭제 확인 중입니다 — 잠시 후 결과를 알려드릴게요.');   // ⭐ v2.72a
-      _verifyDeletedEntry(e, pc > 0);
+      _verifyDeletedEntry(e, false, []);   // 복구 정산은 부팅 마커 회수(_delQRecover)가 전담 (catch 스코프 밖 변수 미참조)
     }
   });
 }
@@ -15518,6 +15581,23 @@ const STOCK_STATS_START = '2026-06-30';
 let _shFilter = 'all';
 let _shLimit = 300;
 function setStockHistFilter(f) { _shFilter = f; _shLimit = 300; renderStockHistory(); }
+
+// ⭐ v2.74c: 부호 있는 수량 — 구 renderStockHistory 내부에 있던 정의를 전역으로 복원
+//   (v2.73b 간소화 때 본체와 함께 지워졌는데 새 상세 이력 표가 계속 사용 → ReferenceError 회귀 수정)
+function _shSignedNum(l) {
+  const n = Number(l.qty||0);
+  if(!n) return 0;
+  const note = String(l.note||'');
+  const m = note.match(/\(([+-])\d+\)/);
+  const xy = note.match(/재고\s*([\d,]+)\s*→\s*([\d,]+)/);
+  let sign;
+  if(m) sign = m[1];
+  else if(xy) sign = (Number(xy[2].replace(/,/g,'')) >= Number(xy[1].replace(/,/g,''))) ? '+' : '-';
+  else if(_shCat(l) === 'out') sign = /복구/.test(note) ? '+' : '-';
+  else if(l.type === 'out') sign = '-';
+  else sign = '+';
+  return sign === '+' ? n : -n;
+}
 
 // ⭐ 이력 분류: 입고(구매입고·신규등록) / 사용·차감(수리 차감 + 수리 수정·삭제 원복) / 조정·변경(실사·임의수정·이름·기종·삭제)
 function _shCat(l) {
@@ -16530,6 +16610,12 @@ function openEditPartModal(id) {
 function closePartModal() { document.getElementById('part-modal').classList.remove('open'); }
 
 async function savePart() {
+  // ⭐ v2.74a: 연타 방어 — 신규 부품이 중복 생성되던 구멍 봉쇄
+  if(window._savePartBusy) { notify('처리 중입니다. 잠시만요.','error'); return; }
+  window._savePartBusy = true;
+  const _spbtn = document.getElementById('part-save-btn');
+  if(_spbtn) { _spbtn.disabled = true; _spbtn.textContent = '저장 중...'; }
+  try {
   const name = document.getElementById('part-name').value.trim();
   const category = document.getElementById('part-category').value.trim();
   const qty = Number(document.getElementById('part-qty').value) || 0;
@@ -16570,6 +16656,10 @@ async function savePart() {
   closePartModal();
   renderStock();
   notify(editPartId ? '수정되었습니다. (이력 기록됨)' : '부품이 추가되었습니다. (이력 기록됨)');
+  } finally {
+    window._savePartBusy = false;
+    if(_spbtn) { _spbtn.disabled = false; _spbtn.textContent = '저장'; }
+  }
 }
 
 function deletePart(id) {
@@ -16649,12 +16739,148 @@ document.addEventListener('wheel', (ev) => {
 
 // ⭐ v2.68: 부품 단위 원자 재고 연산 — 서버가 락 안에서 시트 현재값 기준으로 적용하고
 //   이력까지 기록(logId 멱등·재전송 안전). 반환된 수량으로 로컬을 맞춰 어떤 탭이 낡아도 정확.
+// ⭐ v2.74: 재고 연산 내구 큐 — "차감 유실 = 유령 재고"의 마지막 경로 봉쇄.
+//   전송 '전에' localStorage에 기록하고, 서버가 확인(ok)해준 것만 지운다.
+//   타임아웃·서버 불통·탭 닫힘 어떤 경우에도 큐에 남아 자동 재전송되고,
+//   같은 logId 재전송은 서버가 멱등 처리하므로 이중 반영은 불가능 → 사실상 정확히 1회 반영 보장.
+//   (실사(set) 연산은 제외 — 늦게 재생되면 더 새로운 실사값을 덮을 수 있어 즉시성만 유지)
+const _STOCKQ_KEY = 'fa_stock_q';
+const _STOCKQ_MAX_AGE = 24 * 3600 * 1000;   // 24시간 넘게 실패한 연산은 자동 반영 중단 (실사 체크로 확인 유도)
+function _stockQAll() { try { return JSON.parse(localStorage.getItem(_STOCKQ_KEY) || '[]'); } catch(e) { return []; } }
+function _stockQSave(arr) { try { localStorage.setItem(_STOCKQ_KEY, JSON.stringify(arr)); } catch(e) {} }
+function _stockQPush(items) {
+  const q = _stockQAll();
+  (items || []).forEach(it => {
+    if(it && it.logId && it.delta !== undefined && !q.some(x => x.logId === it.logId)) q.push({ ...it, _ts: Date.now() });
+  });
+  _stockQSave(q);
+}
+function _stockQRemove(logIds) {
+  if(!logIds || !logIds.length) return;
+  const set = new Set(logIds);
+  _stockQSave(_stockQAll().filter(x => !set.has(x.logId)));
+}
+let _stockQBusy = false;
+async function _stockQFlush() {
+  if(_stockQBusy) return;
+  let q = _stockQAll();
+  if(!q.length) return;
+  // 24시간 초과분 정리 (그 사이 실사로 이미 맞춰졌을 수 있어 늦은 자동 반영이 오히려 위험)
+  const expired = q.filter(x => Date.now() - (x._ts || 0) > _STOCKQ_MAX_AGE);
+  if(expired.length) {
+    _stockQRemove(expired.map(x => x.logId));
+    notifyPersist(`⚠ 재고 반영 실패 ${expired.length}건이 24시간을 넘겨 자동 반영을 중단했습니다 — 재고 이력 탭의 실사 체크로 확인해주세요.`, 'error');
+    q = _stockQAll();
+    if(!q.length) return;
+  }
+  _stockQBusy = true;
+  try {
+    for(let i = 0; i < q.length; i += 20) {
+      const chunk = q.slice(i, i + 20);
+      let res = null;
+      try {
+        res = await gasCall({ action: 'adjustStockBatch',
+          ops: JSON.stringify(chunk.map(it => { const { _ts, ...rest } = it; return rest; })),
+          worker: currentUser || '', date: new Date().toISOString() });
+      } catch(e) {}
+      if(res && res.ok && Array.isArray(res.results)) {
+        const done = [];
+        res.results.forEach((r, j) => {
+          if(r && (r.ok || r.error === 'part not found')) {   // 부품 삭제됨 = 재시도 무의미
+            done.push(chunk[j].logId);
+            if(r.ok && r.qty !== null && r.qty !== undefined) {
+              const sp = (stock || []).find(x => String(x.id) === String(chunk[j].partId));
+              if(sp) { sp.qty = Number(r.qty); try { _rememberStockQty(sp.id, sp.qty); } catch(e) {} }
+            }
+          }
+        });
+        if(done.length) { _stockQRemove(done); try { renderStock(); } catch(e) {} }
+      } else if(chunk.length === 1) {
+        // 구버전 GAS(배치 미지원) 폴백 — 같은 logId로 단건 재전송 (멱등)
+        try {
+          const r1 = await gasCall({ action: 'adjustStock', ...(() => { const { _ts, ...rest } = chunk[0]; return rest; })(), worker: currentUser || '', date: new Date().toISOString() });
+          if(r1 && (r1.ok || r1.error === 'part not found')) _stockQRemove([chunk[0].logId]);
+        } catch(e) {}
+        break;
+      } else { break; }   // 서버 불통 — 다음 주기에 재시도
+    }
+  } finally { _stockQBusy = false; }
+  const left = _stockQAll().length;
+  if(left) console.warn('[재고 내구 큐] 미확인 재고 연산 ' + left + '건 — 60초 후 자동 재전송');
+}
+setInterval(() => { try { _stockQFlush(); } catch(e) {} }, 60000);
+setTimeout(() => { try { _stockQFlush(); } catch(e) {} }, 12000);   // 부팅 12초 후 잔여분 재전송 (탭 닫힘 복구)
+
+// ⭐ v2.74b: 삭제-복구 내구화 — "삭제 응답 유실 + 탭 닫힘"의 이중 악조건에서도
+//   부품 복구가 유실되지 않게, 삭제 전에 복구 연산(고정 logId)을 마커로 기록해두고
+//   삭제가 확정된 시점에 재고 내구 큐로 넘긴다. (같은 logId 재투입은 큐·서버 양쪽에서 멱등)
+function _buildRestoreOps(e) {
+  if(!e || !(stock || []).length) return [];
+  const toRestore = {};
+  const pd = (e.parts && typeof e.parts === 'object') ? e.parts : {};
+  if(Object.keys(pd).length > 0) {
+    Object.entries(pd).forEach(([n, q]) => {
+      if(typeof isQualityFlagKey === 'function' && isQualityFlagKey(n)) return;
+      if(Number(q) > 0) toRestore[n] = (toRestore[n] || 0) + Number(q);
+    });
+  } else {
+    (e.works || []).forEach(k => getWorkParts(k, e.model || '').forEach(pt => {
+      toRestore[pt.name] = (toRestore[pt.name] || 0) + pt.qty;
+    }));
+  }
+  const curModel = normalizeModel(e.model || '');
+  const ops = [];
+  for(const [partName, qty] of Object.entries(toRestore)) {
+    if(qty <= 0) continue;
+    const nm = partName.trim().toLowerCase();
+    let idx = stock.findIndex(pt => pt.name.trim().toLowerCase() === nm && normalizeModel(pt.model || '공용') === curModel);
+    if(idx < 0) idx = stock.findIndex(pt => pt.name.trim().toLowerCase() === nm && (pt.model || '공용') === '공용');
+    if(idx < 0) idx = stock.findIndex(pt => pt.name.trim().toLowerCase() === nm);
+    if(idx < 0) continue;
+    ops.push({ logId: 'l' + Date.now() + '_' + (Math.random() * 1e6 | 0), partId: stock[idx].id, partName: stock[idx].name,
+      delta: qty, type: 'in', note: '수리 삭제 복구' + (e.serial ? ` [${String(e.serial).toUpperCase()}]` : '') });
+  }
+  return ops;
+}
+const _DELQ_KEY = 'fa_del_q';
+function _delQAll() { try { return JSON.parse(localStorage.getItem(_DELQ_KEY) || '[]'); } catch(e) { return []; } }
+function _delQSave(a) { try { localStorage.setItem(_DELQ_KEY, JSON.stringify(a)); } catch(e) {} }
+function _delQSet(m) { const q = _delQAll().filter(x => String(x.id) !== String(m.id)); q.push(m); _delQSave(q); }
+function _delQRemove(id) { _delQSave(_delQAll().filter(x => String(x.id) !== String(id))); }
+// 부팅 시 잔여 마커 회수 — 탭이 닫혔던 삭제 건의 최종 상태를 서버에서 확인해 정산
+async function _delQRecover() {
+  const q = _delQAll();
+  for(const m of q) {
+    if(Date.now() - (m.ts || 0) < 15000) continue;   // 방금 진행 중인 건은 본 플로우가 처리
+    let exists = null;
+    try {
+      const r = await gasCall({ action: 'getEntryDetail', id: m.id });
+      if(r && r.ok !== undefined) exists = !!r.detail;
+    } catch(e) {}
+    if(exists === null) continue;   // 확인 실패 — 다음 부팅에서 재시도
+    if(!exists) {
+      if(m.restore && Array.isArray(m.ops) && m.ops.length) {
+        _stockQPush(m.ops);   // 같은 logId — 이미 반영됐어도 큐·서버가 걸러줌
+        try { _stockQFlush(); } catch(e) {}
+        notifyPersist(`✅ ${m.serial || m.id} 이전 삭제 건의 부품 재고 복구를 마저 정산했습니다.`);
+      }
+      _delQRemove(m.id);
+    } else {
+      _delQRemove(m.id);
+      notifyPersist(`⚠ ${m.serial || m.id} 삭제가 서버에 반영되지 않았습니다 — 목록에서 다시 삭제해주세요.`, 'error');
+    }
+  }
+}
+setTimeout(() => { try { _delQRecover(); } catch(e) {} }, 15000);
+
 async function adjustStockOp(o) {   // o: { idx, delta? | set?, type, note }
   const sp = stock[o.idx]; if(!sp) return null;
   const logId = 'l' + Date.now() + '_' + (Math.random() * 1e6 | 0);
   const payload = { action: 'adjustStock', logId, partId: sp.id, partName: sp.name,
     ...(o.set !== undefined ? { set: o.set } : { delta: o.delta }),
     type: o.type || '', note: o.note || '', worker: currentUser || '', date: new Date().toISOString() };
+  // ⭐ v2.74: 전송 전 내구 큐 기록 (delta 연산만) — 실패·탭 닫힘에도 유실 없이 자동 재전송
+  if(o.set === undefined) _stockQPush([{ logId, partId: sp.id, partName: sp.name, delta: o.delta, type: o.type || '', note: o.note || '' }]);
   let res = await gasCall(payload);
   // ⭐ v2.70: 서버가 락을 못 잡으면 실행하지 않고 busy-lock을 돌려준다(백엔드 v2.70과 세트).
   //   같은 logId 재전송은 멱등이라 중복 위험 없음 — 2.5초 뒤 1회 재시도, 그래도 실패면 사용자에게 알림.
@@ -16662,8 +16888,9 @@ async function adjustStockOp(o) {   // o: { idx, delta? | set?, type, note }
     await new Promise(r => setTimeout(r, 2500));
     try { res = await gasCall(payload); } catch(e) {}
   }
-  if(res && !res.ok) notify(`재고 반영 실패: ${o.note || '재고 조정'} (${res.error || '서버 오류'}) — 재고 이력에서 확인 후 다시 시도하세요.`, 'error');
+  if(res && !res.ok) notify(`⏳ 재고 반영 지연: ${o.note || '재고 조정'} (${res.error || '서버 오류'}) — 자동으로 재전송됩니다.`, 'error');
   if(res && res.ok) {
+    _stockQRemove([logId]);   // ⭐ v2.74: 서버 확인 → 큐에서 제거
     const prev = Number(res.prev !== undefined ? res.prev : sp.qty);
     sp.qty = Number(res.qty);
     _rememberStockQty(sp.id, sp.qty);   // ⭐ v2.70b: 새로고침해도 10분간 내 값 유지 (낡은 캐시 방어)
@@ -16689,6 +16916,8 @@ async function adjustStockBatchOps(ops) {   // ops: [{idx, delta?|set?, type, no
     return { logId: 'l' + Date.now() + '_' + (Math.random() * 1e6 | 0), partId: sp.id, partName: sp.name,
       ...(o.set !== undefined ? { set: o.set } : { delta: o.delta }), type: o.type || '', note: o.note || '' };
   });
+  // ⭐ v2.74: 전송 전 내구 큐 기록 (delta 연산만)
+  _stockQPush(items.filter(it => it.delta !== undefined));
   let res = null;
   try {
     res = await gasCall({ action: 'adjustStockBatch', ops: JSON.stringify(items),
@@ -16696,10 +16925,14 @@ async function adjustStockBatchOps(ops) {   // ops: [{idx, delta?|set?, type, no
   } catch(e) {}
   if(!res || !res.ok || !Array.isArray(res.results)) {
     // 구버전 GAS(adjustStockBatch 미지원 → load 폴스루) 또는 busy-lock/실패 → 기존 개별 호출 폴백
+    // ⭐ v2.74: 폴백은 '새 logId'로 다시 실행되므로, 배치용 logId는 큐에서 제거 (이중 반영 방지)
+    _stockQRemove(items.map(it => it.logId));
     const out = [];
     for(const o of valid) { try { out.push(await adjustStockOp(o)); } catch(e) { out.push(null); } }
     return out;
   }
+  // 서버가 확인한 항목은 큐에서 제거
+  _stockQRemove(res.results.map((r, i) => (r && (r.ok || r.error === 'part not found')) ? items[i].logId : null).filter(Boolean));
   // 로컬 반영 — adjustStockOp의 성공 처리와 동일 규칙
   let anyChange = false;
   res.results.forEach((r, i) => {
@@ -16756,11 +16989,16 @@ function openStockInModal(partId) {
 function closeStockInModal() { document.getElementById('stock-in-modal').classList.remove('open'); }
 
 async function saveStockIn() {
+  // ⭐ v2.74a: 연타 방어 — 서버가 느릴 때 여러 번 눌러 입고가 중복 반영되던 구멍 봉쇄
+  if(window._stockInBusy) { notify('처리 중입니다. 잠시만요.','error'); return; }
   const qty = Number(document.getElementById('stock-in-qty').value);
   const note = document.getElementById('stock-in-note').value.trim();
   if(!qty || qty <= 0){ notify('수량을 입력하세요.','error'); return; }
   const idx = stock.findIndex(x=>x.id===stockInPartId);
   if(idx === -1) return;
+  window._stockInBusy = true;
+  const _sibtn = document.getElementById('stock-in-save-btn');
+  if(_sibtn) { _sibtn.disabled = true; _sibtn.textContent = '저장 중...'; }
   try {
     // ⭐ v2.68: 원자 연산 — 서버가 시트 기준으로 가산·이력 기록
     const r = await adjustStockOp({ idx, delta: qty, type: 'in', note: note ? `입고 · ${note}` : '입고' });
@@ -16769,6 +17007,10 @@ async function saveStockIn() {
     renderStock();
     notify(`${stock[idx].name} ${qty}개 입고 완료! (현재 ${r.qty}개)`);
   } catch { notify('저장 실패.','error'); }
+  finally {
+    window._stockInBusy = false;
+    if(_sibtn) { _sibtn.disabled = false; _sibtn.textContent = '입고 등록'; }
+  }
 }
 
 // 수리 등록 시 재고 자동 차감
