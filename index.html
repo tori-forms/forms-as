@@ -1152,6 +1152,14 @@ window.addEventListener('DOMContentLoaded', function(){
         <label class="form-label">특이사항 <span style="color:var(--text3);font-weight:400;">(선택)</span></label>
         <textarea id="inp-note" placeholder="특이사항을 입력하세요. 없으면 공란으로 두셔도 됩니다."></textarea>
       </div>
+      <!-- ⭐ v2.73: B급 제품 등급 — 체크 시 노트에 [B급] 태그 저장, 고객사 대시보드 출고 목록에 B급 배지 표기 -->
+      <div class="form-group" style="margin-bottom:16px;">
+        <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;padding:8px 12px;border:1px dashed #f59e0b88;border-radius:10px;background:rgba(245,158,11,.06);">
+          <input type="checkbox" id="inp-bgrade" style="accent-color:#f59e0b;width:16px;height:16px;">
+          <span style="font-size:13px;font-weight:700;color:#f59e0b;">🏷 B급 제품</span>
+          <span style="font-size:11.5px;color:var(--text3);">(외관 등급 — 고객사 대시보드 출고 목록에 표기됩니다)</span>
+        </label>
+      </div>
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <button class="btn btn-primary" id="btn-add" onclick="addEntry()">수리 등록</button>
         <span id="price-preview" style="font-size:13px;color:var(--text2);"></span>
@@ -1528,7 +1536,7 @@ window.addEventListener('DOMContentLoaded', function(){
         <button id="sh-f-out" onclick="setStockHistFilter('out')" class="btn btn-sm">사용/차감</button>
         <button id="sh-f-adj" onclick="setStockHistFilter('adj')" class="btn btn-sm">조정/변경</button>
         <input type="text" id="sh-search" placeholder="부품명·사유 검색" oninput="_shLimit=300;renderStockHistory()" style="height:32px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;width:200px;">
-        <button class="btn btn-sm" onclick="runStockAudit()" style="color:var(--accent);border-color:var(--accent);font-weight:700;">🔍 정합성 검사</button>
+        <button class="btn btn-sm" onclick="runStockAudit()" style="color:var(--accent);border-color:var(--accent);font-weight:700;">📋 재고 실사 체크</button>
         <span id="sh-count" style="font-size:12px;color:var(--text2);margin-left:auto;"></span>
       </div>
       <div id="stock-audit-result" style="display:none;"></div>
@@ -2168,6 +2176,14 @@ window.addEventListener('DOMContentLoaded', function(){
       <div class="form-group" style="margin-bottom:20px;">
         <label class="form-label">특이사항 <span style="color:var(--text3);font-weight:400;">(선택)</span></label>
         <textarea id="edit-note" placeholder="특이사항을 입력하세요."></textarea>
+      </div>
+      <!-- ⭐ v2.73: B급 제품 등급 수정 -->
+      <div class="form-group" style="margin-bottom:20px;">
+        <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;padding:8px 12px;border:1px dashed #f59e0b88;border-radius:10px;background:rgba(245,158,11,.06);">
+          <input type="checkbox" id="edit-bgrade" style="accent-color:#f59e0b;width:16px;height:16px;">
+          <span style="font-size:13px;font-weight:700;color:#f59e0b;">🏷 B급 제품</span>
+          <span style="font-size:11.5px;color:var(--text3);">(고객사 대시보드 출고 목록에 표기)</span>
+        </label>
       </div>
       <div id="edit-price-preview" style="font-size:13px;color:var(--text2);margin-bottom:16px;"></div>
       <div id="edit-parts-section" style="margin-bottom:8px;display:none;">
@@ -10831,6 +10847,10 @@ async function addEntry() {
   if(_colorVisible && window._regColor) {
     note = `${note} [색상:${window._regColor}]`.trim();
   }
+  // ⭐ v2.73: B급 제품 태그 — 고객사 대시보드 출고 목록 배지의 근거
+  if(document.getElementById('inp-bgrade')?.checked) {
+    note = `${note} [B급]`.trim();
+  }
   if(!worker){ notify('엔지니어를 선택하세요.','error'); return; }
   if(!serial){ notify('시리얼 번호를 입력하세요.','error'); return; }
   if(!works.length){ notify('수리 항목을 하나 이상 선택하세요.','error'); return; }
@@ -10942,6 +10962,7 @@ async function addEntry() {
     document.getElementById('inp-model').style.display = 'block';
     window._regColor = '';   // ⭐ v2.71a: 색상 선택 초기화 (기본값 없음)
     const _cr = document.getElementById('color-row'); if(_cr) _cr.style.display = 'none';
+    const _bg = document.getElementById('inp-bgrade'); if(_bg) _bg.checked = false;   // ⭐ v2.73: B급 체크 초기화
     clearChecks();
     renderToday();
     renderAll();
@@ -12275,6 +12296,9 @@ async function openEditModal(id) {
     </label>`;
   }).join('');
   document.getElementById('edit-note').value = e.note || '';
+  // ⭐ v2.73: B급 체크박스 동기화 (노트의 [B급] 태그 기준)
+  const _ebg = document.getElementById('edit-bgrade');
+  if(_ebg) _ebg.checked = String(e.note || '').includes('[B급]');
   // ⭐ v2.70w: 재인입 건이면 사유 변경 UI 표시 (등록 때 잘못 고른 분류를 수정 가능)
   const _reSec = document.getElementById('edit-reentry-section');
   if(_reSec) {
@@ -12485,7 +12509,10 @@ function updateEditPP() {
 }
 async function saveEdit() {
   const works = [...document.querySelectorAll('#edit-work-checks input:checked')].map(c=>c.value);
-  const note = document.getElementById('edit-note').value.trim();
+  // ⭐ v2.73: B급 체크 반영 — 기존 [B급] 태그를 정리한 뒤 체크 상태에 따라 다시 부착 (중복 방지)
+  let note = document.getElementById('edit-note').value.trim();
+  note = note.replace(/\s*\[B급\]/g, '').trim();
+  if(document.getElementById('edit-bgrade')?.checked) note = `${note} [B급]`.trim();
   if(!works.length){ notify('수리 항목을 하나 이상 선택하세요.','error'); return; }
   const btn = document.getElementById('edit-ok-btn');
   btn.disabled = true; btn.textContent = '저장 중...';
@@ -13818,7 +13845,7 @@ function renderExchangeList() {
     </tr></thead>
     <tbody>${sorted.map(x => {
       const worksArr = Array.isArray(x.works) ? x.works : (()=>{try{return JSON.parse(x.works||'[]');}catch{return[];}})();
-      const canAct = isAdmin || (currentUser && x.worker === currentUser);
+      const canAct = true;   // ⭐ v2.73a: 교품 원복은 전 엔지니어 가능 (요청)
       const workTagsInline = worksArr.map(k => {
         const w = WORKS[k]; if(!w) return '';
         return `<span style="display:inline-block;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:600;background:${w.tagBg};color:${w.tagColor};margin-right:2px;white-space:nowrap;">${w.tag}</span>`;
@@ -14321,7 +14348,7 @@ function doSearch() {
     html += foundExc.map(x => {
       const worksArr = Array.isArray(x.works) ? x.works : (()=>{try{return JSON.parse(x.works||'[]');}catch{return[];}})();
       const REASON_LABEL = { '비용초과':'비용 초과', '기타':'기타' };
-      const canAct = isAdmin || (currentUser && x.worker === currentUser);
+      const canAct = true;   // ⭐ v2.73a: 교품 원복은 전 엔지니어 가능 (요청)
       return `<div class="search-result-item" style="border-left:3px solid #f59e0b;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
           <div>
@@ -15536,30 +15563,37 @@ function runStockAudit() {
     return { name: g.name, total: g.logs.length, chained, breaks, lastTo: prevTo, cur, curMatch };
   }).sort((a, b) => (b.breaks.length - a.breaks.length) || ((a.curMatch === false ? 0 : 1) - (b.curMatch === false ? 0 : 1)));
 
-  const bad = results.filter(r => r.breaks.length || r.curMatch === false);
+  // ⭐ v2.73a: 출력 단순화 (요청) — 사슬 끊김/중복 기록 등 기술 상세 대신
+  //   "이 부품이 약 N개 틀어진 것 같으니 실사해보세요" 한 줄 요약만 보여준다.
+  //   부품별 어긋남 = 이력 없이 변동한 양의 합(끊김 gap 합) + (현재 재고 − 이력상 마지막 값).
+  const bad = results.filter(r => r.breaks.length || r.curMatch === false)
+    .map(r => {
+      const gapSum = r.breaks.reduce((s, b) => s + (Number(b.gap) || 0), 0);
+      const curDiff = (r.curMatch === false && r.cur !== undefined && r.lastTo !== null) ? (r.cur - r.lastTo) : 0;
+      return { ...r, drift: gapSum + curDiff };
+    })
+    .sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
   const okCnt = results.length - bad.length;
   const head = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
-      <span style="font-size:13.5px;font-weight:800;">🔍 정합성 검사 결과</span>
-      <span style="font-size:12px;font-weight:700;color:${bad.length ? '#ef4444' : 'var(--green)'};">${bad.length ? `⚠ 이상 ${bad.length}개 부품` : '✅ 전체 정상'}</span>
-      <span style="font-size:11.5px;color:var(--text3);">부품 ${results.length}종 · 정상 ${okCnt}종 · 사슬 검사 기준(X→Y 연속성 + 현재 재고 대조)</span>
+      <span style="font-size:13.5px;font-weight:800;">📋 재고 실사 체크</span>
+      <span style="font-size:12px;font-weight:700;color:${bad.length ? '#f59e0b' : 'var(--green)'};">${bad.length ? `실사 권장 ${bad.length}개 부품` : '✅ 전체 정상'}</span>
+      <span style="font-size:11.5px;color:var(--text3);">부품 ${results.length}종 검사 · 정상 ${okCnt}종</span>
       <button class="btn btn-sm" style="margin-left:auto;" onclick="document.getElementById('stock-audit-result').style.display='none'">닫기</button>
     </div>`;
   const badHtml = bad.map(r => {
-    const rows = r.breaks.slice(0, 8).map(b => `
-      <div style="font-size:11.5px;padding:5px 8px;border-radius:6px;background:var(--surface2);margin-bottom:3px;line-height:1.5;">
-        <b style="color:${b.dup ? '#f59e0b' : '#ef4444'};">${fmtT(b.at)} ${b.dup ? '🧬 중복 기록(동시 실행)' : '사슬 끊김'}</b> — 기대 <b>${b.expected}</b> → 실제 <b>${b.actual}</b> (<b style="color:${b.gap > 0 ? 'var(--green)' : '#ef4444'};">${b.gap > 0 ? '+' : ''}${b.gap}</b>개가 이력 없이 변동)${b.dup ? ' · <span style="color:#f59e0b;">같은 차감이 두 번 적힘 — 실제 반영은 1회(락 경합 의심)</span>' : ''}<br>
-        <span style="color:var(--text3);">직전: ${escapeHtml(b.prevNote || '-')} → 해당: ${escapeHtml(b.note || '-')}${b.worker ? ' · ' + escapeHtml(b.worker) : ''}</span>
-      </div>`).join('');
-    const curLine = r.curMatch === false ? `<div style="font-size:11.5px;color:#ef4444;font-weight:700;padding:4px 8px;">⚠ 현재 재고 ${r.cur} ≠ 이력상 마지막 값 ${r.lastTo} (${r.cur - r.lastTo > 0 ? '+' : ''}${r.cur - r.lastTo}개 무기록 변동)</div>` : '';
-    return `<div style="border:1px solid #ef444455;border-radius:10px;padding:10px 12px;margin-bottom:8px;">
-      <div style="font-weight:800;font-size:13px;margin-bottom:5px;">${escapeHtml(r.name)} <span style="font-size:11px;color:var(--text3);font-weight:600;">이력 ${r.total}건 (사슬 ${r.chained}건)${r.breaks.length > 8 ? ` · 끊김 ${r.breaks.length}건 중 8건 표시` : ''}</span></div>
-      ${rows}${curLine}
+    const d = r.drift;
+    const dTxt = d === 0
+      ? '이력 흐름이 매끄럽지 않음'
+      : `장부보다 약 <b>${Math.abs(d)}개 ${d > 0 ? '많은' : '부족한'}</b> 것 같음`;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border:1px solid #f59e0b55;border-radius:10px;margin-bottom:6px;background:rgba(245,158,11,.05);">
+      <span style="font-weight:800;font-size:13px;">${escapeHtml(r.name)}</span>
+      <span style="font-size:12.5px;color:var(--text2);">${dTxt} — <b style="color:#f59e0b;">실물 개수를 세서 재고 실사로 맞춰주세요</b></span>
     </div>`;
   }).join('');
-  box.innerHTML = `<div class="card" style="padding:14px 16px;margin-bottom:12px;border:1px solid ${bad.length ? '#ef444455' : 'var(--border)'};">
+  box.innerHTML = `<div class="card" style="padding:14px 16px;margin-bottom:12px;border:1px solid ${bad.length ? '#f59e0b55' : 'var(--border)'};">
     ${head}
-    ${bad.length ? badHtml : '<div style="font-size:12.5px;color:var(--green);padding:4px 2px;">모든 부품의 이력 사슬이 연속이고 현재 재고와 일치합니다 — 무기록 차감·유실 없음.</div>'}
-    <div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.55;">💡 사슬은 <b>시트 기록 순서</b>(=서버 실제 실행 순서)로 잇습니다 — 표시 시각이 뒤바뀌어 보여도 순서 문제로는 끊김 판정하지 않습니다. "사슬 끊김"은 <b>이력 없이 재고가 바뀐 흔적</b>(기록 유실·수동 시트 편집·과거 버그), "🧬 중복 기록"은 <b>동시 실행이 같은 잔고를 두 번 읽은 흔적</b>(차감 2회 의도 → 실제 1회 반영 = 재고 +N 부풀림)입니다. 초기 재고 설정 이전 구간과 X→Y 표기가 없는 구형 이력은 검사에서 제외됩니다.</div>
+    ${bad.length ? badHtml : '<div style="font-size:12.5px;color:var(--green);padding:4px 2px;">장부와 이력이 전부 일치합니다 — 실사가 필요한 부품이 없습니다.</div>'}
+    <div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.55;">💡 입출고 이력과 현재 재고 수량을 대조해 어긋난 부품만 추려서 보여줍니다. 실사 후 재고 현황에서 수량을 수정하면 그 시점부터 다시 깨끗하게 추적됩니다.</div>
   </div>`;
   box.style.display = '';
 }
@@ -15649,7 +15683,42 @@ function renderStockHistory() {
   const netBadge = (net) => net > 0
     ? '<span style="background:rgba(59,130,246,.12);color:#3b82f6;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">원복</span>'
     : '<span style="background:rgba(239,68,68,.12);color:#ef4444;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">차감</span>';
-  const toolbar = `
+  // ⭐ v2.73a: 일자별 입·출고 요약 (최근 14일) — "이날 입고 몇 개 · 차감 몇 개"를 최상단에서 한눈에.
+  //   수량 조정은 재고 현황에서 실제 수량을 바꾼 기록(실사·재고 수정)만 집계.
+  const _daily = {};
+  (stockLog || []).forEach(l => {
+    const d = new Date(l.date || 0);
+    if(isNaN(d)) return;
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    if(!_daily[key]) _daily[key] = { inQ: 0, outQ: 0, resQ: 0, adjC: 0 };
+    const cat = _shCat(l);
+    const sn = _shSignedNum(l);
+    if(cat === 'adj') { if(Number(l.qty) > 0) _daily[key].adjC++; }
+    else if(cat === 'in') _daily[key].inQ += Math.abs(sn || Number(l.qty) || 0);
+    else if(sn < 0) _daily[key].outQ += -sn;
+    else if(sn > 0) _daily[key].resQ += sn;
+  });
+  const _dKeys = Object.keys(_daily).sort().reverse().slice(0, 14);
+  const _dow = ['일','월','화','수','목','금','토'];
+  const dailyHtml = _dKeys.length ? `
+    <div class="card" style="padding:12px 16px;margin-bottom:10px;">
+      <div style="font-size:13px;font-weight:800;margin-bottom:8px;">📅 일자별 입·출고 요약 <span style="font-size:11px;color:var(--text3);font-weight:500;">최근 14일 · 이날 몇 개 들어오고 몇 개 썼는지</span></div>
+      <div style="overflow-x:auto;"><table class="table" style="width:100%;">
+        <thead><tr><th style="white-space:nowrap;">날짜</th><th style="text-align:center;">입고</th><th style="text-align:center;">차감(사용)</th><th style="text-align:center;">복구</th><th style="text-align:center;">수량 조정</th></tr></thead>
+        <tbody>${_dKeys.map(k => {
+          const v = _daily[k];
+          const dd = new Date(k + 'T00:00:00');
+          return `<tr>
+            <td style="white-space:nowrap;font-size:12.5px;">${k} (${_dow[dd.getDay()]})</td>
+            <td style="text-align:center;font-weight:700;color:${v.inQ ? '#10b981' : 'var(--text3)'};">${v.inQ ? '+' + v.inQ.toLocaleString() + '개' : '-'}</td>
+            <td style="text-align:center;font-weight:700;color:${v.outQ ? '#ef4444' : 'var(--text3)'};">${v.outQ ? '−' + v.outQ.toLocaleString() + '개' : '-'}</td>
+            <td style="text-align:center;font-weight:700;color:${v.resQ ? '#3b82f6' : 'var(--text3)'};">${v.resQ ? '+' + v.resQ.toLocaleString() + '개' : '-'}</td>
+            <td style="text-align:center;font-weight:700;color:${v.adjC ? '#d97706' : 'var(--text3)'};">${v.adjC ? v.adjC + '건' : '-'}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>
+    </div>` : '';
+  const toolbar = dailyHtml + `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
       <button class="btn btn-sm" onclick="window._shGrouped=!(window._shGrouped!==false);renderStockHistory();" style="font-weight:700;${grouped?'background:var(--accent);color:#fff;border-color:var(--accent);':''}">🔗 시리얼 묶음 보기</button>
       <span style="font-size:11px;color:var(--text3);">${grouped ? '같은 시리얼·부품의 반복 증감을 최종 1줄로 압축, 전량 복구(상쇄)건은 숨김' : '모든 이력을 원본 그대로 표시'}</span>
