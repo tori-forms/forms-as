@@ -4443,6 +4443,59 @@ async function issueQuote(dateKey) {
     return { code: mq.code||'', name: mq.name, qty: v.cnt, supply, vat };
   });
   const I = FORMS_INFO;
+  // ⭐ v2.75: PDF → 워드(.docx) 복귀 (요청: 발행 후 수정할 일이 종종 있음)
+  //   기존 OOXML 빌더(_docxCell/_docxRow/_docxTable/_buildDocx) 재사용 — 레이아웃은 PDF판과 동일.
+  try {
+    notify('견적서 워드 파일 생성 중…');
+    const H = { b: 1, a: 'center', shd: 'EEEEEE' };
+    // 상단 정보 표 (15/33/19/33%)
+    const infoGrid = [1446, 3180, 1831, 3181];
+    const infoRows = [
+      _docxRow([{...H, t:'일련번호', w:1446}, {t:`${serialYmd} -1`, w:3180}, {t:'Forms', b:1, a:'center', sz:42, span:2, w:5012}]),
+      _docxRow([{...H, t:'수 신', w:1446}, {t:I.receiver, w:3180}, {...H, t:'사업자등록번호', w:1831}, {t:I.bizNo, w:3181}]),
+      _docxRow([{...H, t:'참 조', w:1446}, {t:'', w:3180}, {...H, t:'회사명/대표', w:1831}, {t:I.company, w:3181}]),
+      _docxRow([{...H, t:'TEL/FAX', w:1446}, {t:'', w:3180}, {...H, t:'주 소', w:1831}, {t:I.addr, w:3181}]),
+      _docxRow([{...H, t:'결제조건', w:1446}, {t:'', w:3180}, {...H, t:'업태/종목', w:1831}, {t:I.bizType, w:3181}]),
+      _docxRow([{...H, t:'유효기간', w:1446}, {t:I.validity, w:3180}, {...H, t:'담당자', w:1831}, {t:I.manager, w:3181}]),
+      _docxRow([{t:'1. 귀사의 일익 번창하심을 기원합니다.\n2. 하기와 같이 견적드리오니 검토하기 바랍니다.', sz:18, span:2, w:4626}, {...H, t:'TEL/FAX', w:1831}, {t:I.tel, w:3181}]),
+      _docxRow([{t:`금 액 : ${numToKorean(gTotal)}원 정    (￦ ${fmt(gTotal)}원) / VAT포함`, b:1, sz:26, span:4, w:9638}])
+    ];
+    // 품목 표 (44/16/20/20%) — ⭐ v2.72f: 품목코드 열 없음
+    const itemGrid = [4241, 1542, 1927, 1928];
+    const itemRowsX = [
+      _docxRow([{...H, t:'품목명(규격)', w:4241}, {...H, t:'수량(단위포함)', w:1542}, {...H, t:'공급가액', w:1927}, {...H, t:'부가세', w:1928}]),
+      ...modelRows.map(r => _docxRow([
+        {t:r.name, w:4241}, {t:String(r.qty), a:'center', w:1542},
+        {t:fmt(r.supply), a:'right', w:1927}, {t:fmt(r.vat), a:'right', w:1928}
+      ])),
+      ...Array.from({length: Math.max(0, 10 - modelRows.length)}, () =>
+        _docxRow([{t:' ', w:4241}, {t:'', w:1542}, {t:'', w:1927}, {t:'', w:1928}]))
+    ];
+    // 합계 표 (8/13/11/19/8/15/8/18%)
+    const sumGrid = [771, 1253, 1060, 1831, 771, 1446, 771, 1735];
+    const sumRows = [_docxRow([
+      {...H, t:'수량', w:771}, {t:String(gQty), a:'right', w:1253},
+      {...H, t:'공급가액', w:1060}, {t:fmt(gSupply), a:'right', w:1831},
+      {...H, t:'VAT', w:771}, {t:fmt(gVat), a:'right', w:1446},
+      {...H, t:'합계', w:771}, {t:fmt(gTotal), a:'right', b:1, w:1735}
+    ])];
+    const body =
+      _docxPara('견  적  서', { b:1, sz:56, a:'center', spacing:160 }) +
+      _docxTable(infoRows, infoGrid) +
+      _docxPara(' ', { sz:10 }) +
+      _docxTable(itemRowsX, itemGrid) +
+      _docxPara(' ', { sz:10 }) +
+      _docxTable(sumRows, sumGrid);
+    const blob = await _buildDocx(body);
+    _downloadBlob(blob, `폼즈_AS견적서_${String(dateKey).replace(/-/g,'')}.docx`);
+    notify(`견적서 발행: ${dateKey} (${gQty}건 · ${fmt(gTotal)}원) — 워드(.docx) 다운로드 완료`);
+  } catch(err) {
+    console.error('[견적서] 생성 실패', err);
+    notify('견적서 생성 실패: ' + (err.message||err), 'error');
+  }
+  return;
+  // ── (구) PDF 생성 경로 — v2.75에서 워드로 복귀하며 미사용. 필요 시 위 return 제거로 복원 가능.
+  /* eslint-disable no-unreachable */
   let holder = null;
   try {
     notify('견적서 PDF 생성 중…');
