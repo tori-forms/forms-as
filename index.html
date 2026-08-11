@@ -1530,13 +1530,9 @@ window.addEventListener('DOMContentLoaded', function(){
       <div id="audit-content"></div>
     </div>
     <div id="stock-history-panel" style="display:none;">
+      <!-- ⭐ v2.73b: 재고 이력 = 실사 체크 중심으로 간소화 (탭 열면 자동 검사, 상세 이력은 접힘) -->
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
-        <button id="sh-f-all" onclick="setStockHistFilter('all')" class="btn btn-sm">전체</button>
-        <button id="sh-f-in" onclick="setStockHistFilter('in')" class="btn btn-sm">입고</button>
-        <button id="sh-f-out" onclick="setStockHistFilter('out')" class="btn btn-sm">사용/차감</button>
-        <button id="sh-f-adj" onclick="setStockHistFilter('adj')" class="btn btn-sm">조정/변경</button>
-        <input type="text" id="sh-search" placeholder="부품명·사유 검색" oninput="_shLimit=300;renderStockHistory()" style="height:32px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;width:200px;">
-        <button class="btn btn-sm" onclick="runStockAudit()" style="color:var(--accent);border-color:var(--accent);font-weight:700;">📋 재고 실사 체크</button>
+        <button class="btn btn-sm" onclick="runStockAudit()" style="color:var(--accent);border-color:var(--accent);font-weight:700;">🔄 다시 검사</button>
         <span id="sh-count" style="font-size:12px;color:var(--text2);margin-left:auto;"></span>
       </div>
       <div id="stock-audit-result" style="display:none;"></div>
@@ -2832,7 +2828,19 @@ function setSyncStatus(state) {
 /* 전체 로드 */
 let _syncInProgress = false;
 // ⭐ rawWorkers(::구분 문자열 배열) → 전역 맵 파싱 (syncData/캐시부팅 공용)
+// ⭐ v2.73b: 방금 저장한 작업자 명단 보호 — 새 계정 추가 직후 낡은 캐시(5~15분 지연)가
+//   명단을 되돌려 "등록했는데 엔지니어 관리에서 안 보임"이 되던 문제 차단. (12분, 서버 확인 시 조기 해제)
+function _rememberWorkers(rawArr) {
+  try { localStorage.setItem('fa_workers_ov', JSON.stringify({ raw: rawArr, ts: Date.now() })); } catch(e) {}
+}
 function __applyRawWorkers(rawWorkers) {
+  try {
+    const ov = JSON.parse(localStorage.getItem('fa_workers_ov') || 'null');
+    if(ov && Array.isArray(ov.raw) && (Date.now() - (ov.ts || 0)) < 720000) {
+      if(JSON.stringify(ov.raw) === JSON.stringify(rawWorkers)) localStorage.removeItem('fa_workers_ov');   // 서버 확인 → 해제
+      else rawWorkers = ov.raw;   // 낡은 응답 → 내 최신 명단 유지
+    }
+  } catch(e) {}
   workers = rawWorkers.map(w => String(w).split('::')[0]);
   tierMap = {}; partMap = {}; statusMap = {}; roleMap = {}; hireDateMap = {}; workerDailyTargets = {}; mentoringMap = {}; mentoringEndMap = {};
   rawWorkers.forEach(w => {
@@ -3034,6 +3042,14 @@ async function syncData(silent=false, force=false, _snapData=null) {
       const nk = String(k).trim();
       if(nk) window.PASSWORD_MAP[nk] = _rawPw[k];
     });
+    // ⭐ v2.73b: 방금 설정한 비밀번호 보호 — 낡은 캐시가 새 비번을 지워 "방금 설정했는데 틀렸다"가 되는 것 방지
+    try {
+      const _pov = JSON.parse(localStorage.getItem('fa_pw_ov') || 'null');
+      if(_pov && _pov.name && (Date.now() - (_pov.ts || 0)) < 720000) {
+        if(window.PASSWORD_MAP[_pov.name] === _pov.hash) localStorage.removeItem('fa_pw_ov');   // 서버 확인 → 해제
+        else window.PASSWORD_MAP[_pov.name] = _pov.hash;
+      }
+    } catch(e) {}
     // 출고 이력은 별도 로드 (noShip으로 빠르게 받았으므로). shipLog가 응답에 있으면 반영, 없으면 유지 후 백그라운드 로드
     if(data.shipLog && data.shipLog.length) {
       shipHistory = data.shipLog;
@@ -3732,16 +3748,15 @@ async function pwLoginSubmit() {
     if(pw1.length < 4) { errEl.textContent = '비밀번호는 4자 이상이어야 합니다.'; return; }
     if(pw1 !== pw2) { errEl.textContent = '비밀번호 확인이 일치하지 않습니다.'; return; }
     const newHash = await sha256(pw1);
-    try {
-      await gasCall({ action: 'savePassword', name: name, hash: newHash });
-      if(!window.PASSWORD_MAP) window.PASSWORD_MAP = {};
-      window.PASSWORD_MAP[name] = newHash;
-      setTimeout(() => notify('비밀번호가 설정되었습니다. 다음부터 이 비밀번호로 로그인하세요.'), 600);
-      loginAs(name);
-    } catch(e) {
-      errEl.textContent = '저장 실패. 잠시 후 다시 시도해주세요.';
-      console.error(e);
-    }
+    // ⭐ v2.73b: 낙관 입장 — 서버 저장(러시아워엔 10초+)을 기다리지 않고 즉시 입장.
+    //   비밀번호는 로컬에 먼저 반영·보호하고 백그라운드로 저장(멱등 재전송). 실패 시 명확히 알림.
+    if(!window.PASSWORD_MAP) window.PASSWORD_MAP = {};
+    window.PASSWORD_MAP[name] = newHash;
+    try { localStorage.setItem('fa_pw_ov', JSON.stringify({ name, hash: newHash, ts: Date.now() })); } catch(e) {}
+    loginAs(name);
+    setTimeout(() => notify('비밀번호가 설정되었습니다. 다음부터 이 비밀번호로 로그인하세요.'), 600);
+    gasCall({ action: 'savePassword', name: name, hash: newHash })
+      .catch(() => notifyPersist(`⚠ ${name}님 비밀번호가 서버에 저장되지 않았습니다 — 프로필의 '비밀번호 변경'에서 한 번 더 설정해주세요.`, 'error'));
   } else {
     // 기존 비번 검증
     const h = await sha256(pw1);
@@ -15052,7 +15067,7 @@ async function addWorker() {
   statusMap[n] = 'active'; // 기본 활동중 (퇴사 시 '비활동'으로 변경)
 
   try {
-    await gasCall({action:'saveWorkers', workers: serializeWorkers()});
+    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
     if(inp1) inp1.value = '';
     if(inp2) inp2.value = '';
     if(partSel1) partSel1.value = '';
@@ -15121,7 +15136,7 @@ function removeWorker(name) {
       delete hireDateMap[name];
       delete mentoringMap[name];
       try {
-        await gasCall({action:'saveWorkers', workers: serializeWorkers()});
+        const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
         renderWorkerSel(); renderWorkers(); notify(`${name} 삭제됨 (수리 기록은 보존)`);
       } catch { notify('삭제 실패.','error'); }
     });
@@ -15269,7 +15284,7 @@ async function saveTier(name, tier) {
   tierMap[name] = tier || undefined;
   if(!tier) delete tierMap[name];
   try {
-    await gasCall({action:'saveWorkers', workers: serializeWorkers()});
+    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
     renderWorkers();
     renderWorkerSel();
     notify(`${name} 직급이 ${tier||'없음'}으로 변경되었습니다.`);
@@ -15301,7 +15316,7 @@ async function saveWorkerDailyTarget(name, value) {
     workerDailyTargets[name] = v;
   }
   try {
-    await gasCall({action:'saveWorkers', workers: serializeWorkers()});
+    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
     renderWorkers();
     renderSummary();
     const nv = workerDailyTargets[name];
@@ -15328,7 +15343,7 @@ async function saveWorkerStatus(name, status) {
   const oldStatus = statusMap[name];
   statusMap[name] = status;
   try {
-    await gasCall({action:'saveWorkers', workers: serializeWorkers()});
+    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
     renderWorkers();
     renderWorkerSel();
     const label = STATUS_LABELS[status] || status;
@@ -15358,7 +15373,7 @@ async function saveWorkerPart(name, part) {
   partMap[name] = part || undefined;
   if(!part) delete partMap[name];
   try {
-    await gasCall({action:'saveWorkers', workers: serializeWorkers()});
+    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
     renderWorkers();
     notify(`${name} 파트가 ${PART_LABELS[part]||'없음'}으로 변경되었습니다.`);
   } catch {
@@ -15378,7 +15393,7 @@ async function saveWorkerRole(name, role) {
   const oldRole = roleMap[name];
   roleMap[name] = role || 'engineer';
   try {
-    await gasCall({action:'saveWorkers', workers: serializeWorkers()});
+    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
     renderWorkers();
     const roleLabel = {engineer:'🔧 엔지니어', inspector:'🔍 QC', both:'🔧+🔍 겸직'}[role] || '엔지니어';
     notify(`${name}의 역할이 ${roleLabel}(으)로 변경되었습니다.`);
@@ -15397,7 +15412,7 @@ async function saveWorkerHireDate(name, value) {
   const old = hireDateMap[name];
   if(value) hireDateMap[name] = value; else delete hireDateMap[name];
   try {
-    await gasCall({action:'saveWorkers', workers: serializeWorkers()});
+    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
     renderWorkers();
     notify(value ? `${name} 입사일: ${value} (주차별 목표 적용)` : `${name} 입사일 해제`);
   } catch {
@@ -15417,7 +15432,7 @@ async function saveMentoring(name, on) {
   if(on) { mentoringMap[name] = true; delete mentoringEndMap[name]; }   // ⭐ v2.63: 재교육 시작 → 해제일 초기화
   else { delete mentoringMap[name]; mentoringEndMap[name] = todayStr(); }  // ⭐ 해제일 기록 → 이전 날짜 미달 집계 제외
   try {
-    await gasCall({action:'saveWorkers', workers: serializeWorkers()});
+    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
     renderWorkers();
     notify(on ? `${name} 교육 중 ON (목표 면제, 실적은 집계)` : `${name} 교육 중 해제 — 해제일 ${mentoringEndMap[name]} 기록 (이전 날짜는 미달 집계 제외)`);
   } catch {
@@ -15570,7 +15585,16 @@ function runStockAudit() {
     .map(r => {
       const gapSum = r.breaks.reduce((s, b) => s + (Number(b.gap) || 0), 0);
       const curDiff = (r.curMatch === false && r.cur !== undefined && r.lastTo !== null) ? (r.cur - r.lastTo) : 0;
-      return { ...r, drift: gapSum + curDiff };
+      // ⭐ v2.73b: 왜 틀어진 것 같은지 — 이력 패턴으로 원인 추정
+      const reasons = [];
+      const dupN = r.breaks.filter(b => b.dup).length;
+      const posG = r.breaks.filter(b => !b.dup && b.gap > 0).reduce((s2, b) => s2 + b.gap, 0);
+      const negG = r.breaks.filter(b => !b.dup && b.gap < 0).reduce((s2, b) => s2 + b.gap, 0);
+      if(dupN) reasons.push(`동시 저장 충돌로 같은 차감이 두 번 기록된 흔적 ${dupN}회 → 그만큼 전산 재고가 실제보다 많게 남았을 수 있음`);
+      if(posG > 0) reasons.push(`기록 없이 재고가 +${posG}개 늘어난 구간 있음 → 구글시트 직접 수정 또는 입고 기록 누락 의심`);
+      if(negG < 0) reasons.push(`기록 없이 재고가 ${negG}개 줄어든 구간 있음 → 차감 기록이 저장 실패로 유실됐을 가능성`);
+      if(r.curMatch === false && curDiff !== 0) reasons.push(`마지막 기록 이후 재고가 ${curDiff > 0 ? '+' : ''}${curDiff}개 변동 → 최근 변경이 이력에 안 남음`);
+      return { ...r, drift: gapSum + curDiff, reasons };
     })
     .sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
   const okCnt = results.length - bad.length;
@@ -15584,10 +15608,16 @@ function runStockAudit() {
     const d = r.drift;
     const dTxt = d === 0
       ? '이력 흐름이 매끄럽지 않음'
-      : `장부보다 약 <b>${Math.abs(d)}개 ${d > 0 ? '많은' : '부족한'}</b> 것 같음`;
-    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border:1px solid #f59e0b55;border-radius:10px;margin-bottom:6px;background:rgba(245,158,11,.05);">
-      <span style="font-weight:800;font-size:13px;">${escapeHtml(r.name)}</span>
-      <span style="font-size:12.5px;color:var(--text2);">${dTxt} — <b style="color:#f59e0b;">실물 개수를 세서 재고 실사로 맞춰주세요</b></span>
+      : `전산 장부가 실제보다 약 <b>${Math.abs(d)}개 ${d > 0 ? '많게' : '적게'}</b> 잡혀 있을 것 같음`;
+    const reasonHtml = (r.reasons && r.reasons.length)
+      ? `<div style="margin-top:6px;">${r.reasons.map(x => `<div style="font-size:12px;color:var(--text2);line-height:1.55;">· ${x}</div>`).join('')}</div>`
+      : '';
+    return `<div style="padding:10px 12px;border:1px solid #f59e0b55;border-radius:10px;margin-bottom:6px;background:rgba(245,158,11,.05);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <span style="font-weight:800;font-size:13px;">${escapeHtml(r.name)}</span>
+        <span style="font-size:12.5px;color:var(--text2);">${dTxt} — <b style="color:#f59e0b;">실물 개수를 세서 재고 실사로 맞춰주세요</b></span>
+      </div>
+      ${reasonHtml}
     </div>`;
   }).join('');
   box.innerHTML = `<div class="card" style="padding:14px 16px;margin-bottom:12px;border:1px solid ${bad.length ? '#f59e0b55' : 'var(--border)'};">
@@ -15599,169 +15629,52 @@ function runStockAudit() {
 }
 
 function renderStockHistory() {
+  // ⭐ v2.73b: 간소화 (요청) — 탭을 열면 '재고 실사 체크'가 자동 실행되어 결과가 바로 보이고,
+  //   상세 이력은 참고용으로 접어둔다. (일자별 요약·시리얼 묶음 보기·필터 제거)
   const el = document.getElementById('stock-history-content');
   if(!el) return;
-  ['all','in','out','adj'].forEach(f => {
-    const b = document.getElementById('sh-f-' + f);
-    if(b) { const on = (_shFilter === f); b.style.background = on ? 'var(--accent)' : ''; b.style.color = on ? '#fff' : ''; }
-  });
-  const q = (document.getElementById('sh-search')?.value || '').trim().toLowerCase();
-  const rows = (stockLog || []).slice()
-    .filter(l => _shFilter === 'all' || _shCat(l) === _shFilter)
-    .filter(l => !q || String(l.partName||'').toLowerCase().includes(q) || String(l.note||'').toLowerCase().includes(q) || String(l.worker||'').toLowerCase().includes(q))
-    .sort((a,b) => new Date(b.date||0) - new Date(a.date||0));
-  // ⭐ v2.70l: 이력 노트에서 사용 제품 시리얼 추출 ("수리 자동 차감 [T023126B...]" 형식)
-  const _shSerial = (l) => {
-    const m = String(l.note||'').match(/\[([A-Z0-9\-_]{5,})\]/);
-    return m ? m[1] : '';
-  };
-  // 부호 있는 수량 (기존 signedQty와 동일 판정 — 숫자만)
-  const _shSignedNum = (l) => {
-    const n = Number(l.qty||0);
-    if(!n) return 0;
-    const note = String(l.note||'');
-    const m = note.match(/\(([+-])\d+\)/);
-    const xy = note.match(/재고\s*([\d,]+)\s*→\s*([\d,]+)/);
-    let sign;
-    if(m) sign = m[1];
-    else if(xy) sign = (Number(xy[2].replace(/,/g,'')) >= Number(xy[1].replace(/,/g,''))) ? '+' : '-';
-    else if(_shCat(l) === 'out') sign = /복구/.test(note) ? '+' : '-';
-    else if(l.type === 'out') sign = '-';
-    else sign = '+';
-    return sign === '+' ? n : -n;
-  };
-  const badge = l => {
-    const c = _shCat(l);
-    if(c === 'in') return '<span style="background:rgba(16,185,129,.12);color:#10b981;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">입고</span>';
-    if(c === 'out') return /복구/.test(String(l.note||''))
-      ? '<span style="background:rgba(59,130,246,.12);color:#3b82f6;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">원복</span>'
-      : '<span style="background:rgba(239,68,68,.12);color:#ef4444;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">차감</span>';
-    return '<span style="background:rgba(245,158,11,.14);color:#d97706;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">조정/변경</span>';
-  };
-  const fmtD = d => {   // ⭐ v2.64b: ISO(UTC) 그대로 잘라 9시간 어긋나던 표시 → 로컬(한국) 시간 변환
+  try { runStockAudit(); } catch(e) {}
+  const rows = (stockLog || []).slice().sort((a,b) => new Date(b.date||0) - new Date(a.date||0));
+  const cntEl = document.getElementById('sh-count');
+  if(cntEl) cntEl.textContent = `이력 ${rows.length.toLocaleString()}건 보관 중`;
+  const fmtD = d => {
     try {
       const dt = new Date(d);
       if(isNaN(dt)) return String(d).slice(0,16).replace('T',' ');
       return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
     } catch(e) { return d || '-'; }
   };
-  // ⭐ v2.70l: 시리얼 묶음 보기(기본) — 같은 시리얼+부품의 -1/+1 반복을 최종 순증감 1줄로 압축.
-  //   순증감 0(차감 후 전량 복구)은 목록에서 제외. 시리얼 없는 구형/일반(입고·실사 등) 행은 원본 유지.
-  const grouped = (window._shGrouped !== false);
-  let dispRows = rows, zeroHidden = 0, mergedCnt = 0;
-  if(grouped) {
-    const groups = new Map();   // key: serial|partKey → { rows:[], net, last }
-    const plain = [];
-    rows.forEach(l => {
-      const sn = _shSerial(l);
-      if(!sn) { plain.push({ raw: l }); return; }
-      const key = sn + '|' + String(l.partId || l.partName || '');
-      if(!groups.has(key)) groups.set(key, { serial: sn, partName: l.partName, rows: [], net: 0, last: l });
-      const g = groups.get(key);
-      g.rows.push(l);
-      g.net += _shSignedNum(l);
-      if(new Date(l.date||0) > new Date(g.last.date||0)) g.last = l;
-    });
-    const gRows = [];
-    groups.forEach(g => {
-      if(g.net === 0) { zeroHidden += g.rows.length; return; }   // 상쇄(사용 안 함) — 숨김
-      if(g.rows.length > 1) mergedCnt += g.rows.length - 1;
-      gRows.push({ grp: g });
-    });
-    dispRows = [...gRows, ...plain].sort((a,b) => {
-      const da = a.grp ? a.grp.last.date : a.raw.date;
-      const db = b.grp ? b.grp.last.date : b.raw.date;
-      return new Date(db||0) - new Date(da||0);
-    });
-  } else {
-    dispRows = rows.map(l => ({ raw: l }));
-  }
-  const cntEl = document.getElementById('sh-count');
-  if(cntEl) cntEl.textContent = `전체 ${dispRows.length.toLocaleString()}건 · ${Math.min(_shLimit, dispRows.length).toLocaleString()}건 표시${grouped && (mergedCnt || zeroHidden) ? ` (묶음 ${mergedCnt}건 · 상쇄 숨김 ${zeroHidden}건)` : ''}`;
-  const serialChip = (sn) => `<span onclick="viewSerialRepair('${escapeJs(sn)}')" title="클릭하면 이 시리얼의 수리 내역으로 이동" style="cursor:pointer;font-family:monospace;font-weight:700;font-size:12px;color:var(--accent);background:var(--accent-bg,rgba(45,212,191,.08));border:1px solid var(--accent);border-radius:8px;padding:2px 8px;">${escapeHtml(sn)}</span>`;
-  const netQtyHtml = (net) => `<span style="color:${net > 0 ? '#10b981' : '#ef4444'};">${net > 0 ? '+' : ''}${net.toLocaleString()}</span>`;
-  const netBadge = (net) => net > 0
-    ? '<span style="background:rgba(59,130,246,.12);color:#3b82f6;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">원복</span>'
-    : '<span style="background:rgba(239,68,68,.12);color:#ef4444;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">차감</span>';
-  // ⭐ v2.73a: 일자별 입·출고 요약 (최근 14일) — "이날 입고 몇 개 · 차감 몇 개"를 최상단에서 한눈에.
-  //   수량 조정은 재고 현황에서 실제 수량을 바꾼 기록(실사·재고 수정)만 집계.
-  const _daily = {};
-  (stockLog || []).forEach(l => {
-    const d = new Date(l.date || 0);
-    if(isNaN(d)) return;
-    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    if(!_daily[key]) _daily[key] = { inQ: 0, outQ: 0, resQ: 0, adjC: 0 };
-    const cat = _shCat(l);
-    const sn = _shSignedNum(l);
-    if(cat === 'adj') { if(Number(l.qty) > 0) _daily[key].adjC++; }
-    else if(cat === 'in') _daily[key].inQ += Math.abs(sn || Number(l.qty) || 0);
-    else if(sn < 0) _daily[key].outQ += -sn;
-    else if(sn > 0) _daily[key].resQ += sn;
-  });
-  const _dKeys = Object.keys(_daily).sort().reverse().slice(0, 14);
-  const _dow = ['일','월','화','수','목','금','토'];
-  const dailyHtml = _dKeys.length ? `
-    <div class="card" style="padding:12px 16px;margin-bottom:10px;">
-      <div style="font-size:13px;font-weight:800;margin-bottom:8px;">📅 일자별 입·출고 요약 <span style="font-size:11px;color:var(--text3);font-weight:500;">최근 14일 · 이날 몇 개 들어오고 몇 개 썼는지</span></div>
-      <div style="overflow-x:auto;"><table class="table" style="width:100%;">
-        <thead><tr><th style="white-space:nowrap;">날짜</th><th style="text-align:center;">입고</th><th style="text-align:center;">차감(사용)</th><th style="text-align:center;">복구</th><th style="text-align:center;">수량 조정</th></tr></thead>
-        <tbody>${_dKeys.map(k => {
-          const v = _daily[k];
-          const dd = new Date(k + 'T00:00:00');
-          return `<tr>
-            <td style="white-space:nowrap;font-size:12.5px;">${k} (${_dow[dd.getDay()]})</td>
-            <td style="text-align:center;font-weight:700;color:${v.inQ ? '#10b981' : 'var(--text3)'};">${v.inQ ? '+' + v.inQ.toLocaleString() + '개' : '-'}</td>
-            <td style="text-align:center;font-weight:700;color:${v.outQ ? '#ef4444' : 'var(--text3)'};">${v.outQ ? '−' + v.outQ.toLocaleString() + '개' : '-'}</td>
-            <td style="text-align:center;font-weight:700;color:${v.resQ ? '#3b82f6' : 'var(--text3)'};">${v.resQ ? '+' + v.resQ.toLocaleString() + '개' : '-'}</td>
-            <td style="text-align:center;font-weight:700;color:${v.adjC ? '#d97706' : 'var(--text3)'};">${v.adjC ? v.adjC + '건' : '-'}</td>
-          </tr>`;
-        }).join('')}</tbody>
-      </table></div>
-    </div>` : '';
-  const toolbar = dailyHtml + `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
-      <button class="btn btn-sm" onclick="window._shGrouped=!(window._shGrouped!==false);renderStockHistory();" style="font-weight:700;${grouped?'background:var(--accent);color:#fff;border-color:var(--accent);':''}">🔗 시리얼 묶음 보기</button>
-      <span style="font-size:11px;color:var(--text3);">${grouped ? '같은 시리얼·부품의 반복 증감을 최종 1줄로 압축, 전량 복구(상쇄)건은 숨김' : '모든 이력을 원본 그대로 표시'}</span>
-    </div>`;
-  if(!dispRows.length) {
-    el.innerHTML = toolbar + '<div style="text-align:center;color:var(--text2);padding:40px 0;">기록이 없습니다.</div>';
-    return;
-  }
-  el.innerHTML = toolbar + `
-    <div style="overflow-x:auto;">
-    <table class="table" style="width:100%;">
-      <thead><tr>
-        <th style="white-space:nowrap;">일시</th><th>부품명</th><th style="text-align:center;">유형</th>
-        <th style="text-align:center;">수량</th><th>사용 제품 시리얼 / 메모</th>
-      </tr></thead>
-      <tbody>
-        ${dispRows.slice(0, _shLimit).map(r => {
-          if(r.grp) {
-            const g = r.grp;
-            return `<tr>
-              <td style="white-space:nowrap;font-size:12px;color:var(--text2);">${fmtD(g.last.date)}</td>
-              <td style="font-weight:600;">${escapeHtml(g.partName||'-')}</td>
-              <td style="text-align:center;">${netBadge(g.net)}</td>
-              <td style="text-align:center;font-weight:700;">${netQtyHtml(g.net)}</td>
-              <td>${serialChip(g.serial)}${g.rows.length > 1 ? ` <span style="font-size:11px;color:var(--text3);">(${g.rows.length}회 변동 합산)</span>` : ''}</td>
-            </tr>`;
-          }
-          const l = r.raw;
-          const sn = _shSerial(l);
-          const noteDisp = grouped && sn ? '' : escapeHtml(l.note||'');
+  const badge = l => {
+    const c = _shCat(l);
+    if(c === 'in') return '<span style="background:rgba(16,185,129,.12);color:#10b981;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">입고</span>';
+    if(c === 'out') return /복구/.test(String(l.note||''))
+      ? '<span style="background:rgba(59,130,246,.12);color:#3b82f6;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">복구</span>'
+      : '<span style="background:rgba(239,68,68,.12);color:#ef4444;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">차감</span>';
+    return '<span style="background:rgba(245,158,11,.14);color:#d97706;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">조정/변경</span>';
+  };
+  const LIM = 300;
+  el.innerHTML = rows.length ? `
+    <details style="margin-top:6px;">
+      <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--text2);padding:10px 4px;">📜 상세 이력 펼쳐 보기 <span style="font-weight:500;color:var(--text3);">(참고용 · 최근 ${Math.min(LIM, rows.length)}건)</span></summary>
+      <div style="overflow-x:auto;margin-top:8px;">
+      <table class="table" style="width:100%;">
+        <thead><tr>
+          <th style="white-space:nowrap;">일시</th><th>부품명</th><th style="text-align:center;">유형</th>
+          <th style="text-align:center;">수량</th><th>메모</th>
+        </tr></thead>
+        <tbody>${rows.slice(0, LIM).map(l => {
+          const n = _shSignedNum(l);
           return `<tr>
             <td style="white-space:nowrap;font-size:12px;color:var(--text2);">${fmtD(l.date)}</td>
             <td style="font-weight:600;">${escapeHtml(l.partName||'-')}</td>
             <td style="text-align:center;">${badge(l)}</td>
-            <td style="text-align:center;font-weight:700;">${(() => { const n = _shSignedNum(l); return n === 0 ? '—' : netQtyHtml(n); })()}</td>
-            <td style="font-size:12.5px;">${sn ? serialChip(sn) + ' ' : ''}${grouped && sn ? '' : noteDisp}</td>
+            <td style="text-align:center;font-weight:700;">${n === 0 ? '—' : `<span style="color:${n > 0 ? '#10b981' : '#ef4444'};">${n > 0 ? '+' : ''}${n.toLocaleString()}</span>`}</td>
+            <td style="font-size:12.5px;">${escapeHtml(l.note||'')}</td>
           </tr>`;
-        }).join('')}
-      </tbody>
-    </table>
-    </div>
-    ${dispRows.length > _shLimit ? `<div style="text-align:center;margin-top:12px;"><button class="btn btn-sm" onclick="_shLimit += 300; renderStockHistory();" style="padding:8px 24px;">⬇ 더 보기 (${Math.min(300, dispRows.length - _shLimit)}건 추가 · 남은 ${(dispRows.length - _shLimit).toLocaleString()}건)</button></div>` : ''}
-    <div style="margin-top:10px;font-size:11.5px;color:var(--text2);">💡 서버에서 최근 3,000건까지 불러옵니다. 시리얼 표시는 새 버전 배포 이후 기록부터 자동으로 붙습니다. 그 이전 기록은 구글시트 '재고이력' 탭에서 확인하세요.</div>`;
+        }).join('')}</tbody>
+      </table></div>
+      <div style="margin-top:8px;font-size:11.5px;color:var(--text3);">서버에서 최근 3,000건까지 보관 · 그 이전 기록은 구글시트 '재고이력' 탭 참고</div>
+    </details>` : '<div style="text-align:center;color:var(--text2);padding:30px 0;">이력이 없습니다.</div>';
 }
 
 // ⭐ v2.70l: 재고 이력의 시리얼 클릭 → 시리얼 조회 탭에서 그 기기 수리 내역 바로 열기
