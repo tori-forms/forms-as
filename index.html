@@ -14650,6 +14650,37 @@ async function renderReport() {
     if(!wn) return;
     excByWorker[wn] = (excByWorker[wn] || 0) + 1;
   });
+  // ⭐ v2.75a: 그 달 엔지니어별 품질 실적 — 검수일 기준 · 수리건 단위 (품질대시보드와 동일 규칙:
+  //   재검수 반복은 1건, 재인입 건은 별도 카운트, 검수 시점 기준 담당자 귀속)
+  const _qByEng = {};
+  {
+    const _bySer = {};
+    (entries || []).forEach(e => { const k = normalizeSerial(e.serial); (_bySer[k] = _bySer[k] || []).push(e); });
+    Object.values(_bySer).forEach(l => l.sort((a, b) => (new Date(a.date).getTime()||0) - (new Date(b.date).getTime()||0)));
+    const _forInsp = (i) => {
+      const l = _bySer[normalizeSerial(i.serial)];
+      if(!l || !l.length) return undefined;
+      if(l.length === 1) return l[0];
+      const t = new Date(i.inspectedAt || 0).getTime() || 0;
+      for(let j = l.length - 1; j >= 0; j--) { if((new Date(l[j].date).getTime() || 0) <= t) return l[j]; }
+      return l[0];
+    };
+    const _sI = new Set(), _sD = new Set();
+    (inspections || []).forEach(insp => {
+      if(insp.result !== 'pass' && insp.result !== 'fail') return;
+      const d = new Date(insp.inspectedAt || 0);
+      if(isNaN(d)) return;
+      if(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` !== monthVal) return;
+      const en = _forInsp(insp);
+      if(!en) return;
+      const eng = String(en.worker || '').split('::')[0];
+      if(!eng) return;
+      const key = 'e' + en.id;
+      if(!_qByEng[eng]) _qByEng[eng] = { ins: 0, def: 0 };
+      if(!_sI.has(key)) { _sI.add(key); _qByEng[eng].ins++; }
+      if(insp.result === 'fail' && !_sD.has(key)) { _sD.add(key); _qByEng[eng].def++; }
+    });
+  }
   // ⭐ v2.70o: 공지·공휴일 데이터 준비 (미달 일수 집계용 — 실패해도 리포트는 뜸)
   try {
     await ensureHolidaysLoaded(new Date(y, m-1, 1).getTime(), Math.min(Date.now(), new Date(y, m, 0).getTime()), null);
@@ -14678,7 +14709,10 @@ async function renderReport() {
     const tw = tenureWeek(name, refDate);            // 입사 주차 (없으면 null)
     const daily = tenureDailyTarget(name, refDate);  // 그 시점 일 목표 (없으면 null)
     const manual = workerDailyTargets[name];
-    return { name, cnt, reg, rev, exc, excConv, kpiCnt, isCurrent, missDays: md.miss, noticedDays: md.noticed, tw, daily, manual, share: shareBase ? (kpiCnt/shareBase*100) : 0 };
+    const q = _qByEng[name] || { ins: 0, def: 0 };   // ⭐ v2.75a: 품질 실적
+    const qRate = q.ins > 0 ? (q.def / q.ins * 100) : 0;
+    return { name, cnt, reg, rev, exc, excConv, kpiCnt, isCurrent, missDays: md.miss, noticedDays: md.noticed, tw, daily, manual,
+      qIns: q.ins, qDef: q.def, qRate, share: shareBase ? (kpiCnt/shareBase*100) : 0 };
   }).sort((a, b) => b.kpiCnt - a.kpiCnt);
   const maxShare = rows.length ? Math.max(...rows.map(r => r.share)) : 0;
   const medals = ['🥇', '🥈', '🥉'];
@@ -14694,13 +14728,14 @@ async function renderReport() {
         <th style="text-align:right">교품 <span style="font-size:10px;color:var(--text3);font-weight:400;">(8:1 환산)</span></th>
         <th style="text-align:right">출고(실적)</th>
         <th style="text-align:center">미달 <span style="font-size:10px;color:var(--text3);font-weight:400;">(건)</span></th>
+        <th style="text-align:center">품질 <span style="font-size:10px;color:var(--text3);font-weight:400;">(검수·불량률)</span></th>
         <th style="min-width:130px;">기여도</th>
         <th style="text-align:right">공임비 합계</th>
       </tr></thead>
       <tbody>`;
 
   if(!rows.length) {
-    h += `<tr><td colspan="9" style="padding:24px;text-align:center;color:var(--text3);">표시할 엔지니어가 없습니다.</td></tr>`;
+    h += `<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--text3);">표시할 엔지니어가 없습니다.</td></tr>`;
   }
   rows.forEach((r, i) => {
     const rank = i + 1;
@@ -14732,6 +14767,9 @@ async function renderReport() {
       <td style="text-align:right;color:var(--text2);">${r.exc}<span style="font-size:11px;color:var(--text3);">건</span>${r.excConv > 0 ? ` <span style="font-size:11px;font-weight:700;color:#8b5cf6;">＋${r.excConv}</span>` : ''}</td>
       <td style="text-align:right;font-weight:700;font-size:15px;">${r.cnt}<span style="font-size:11px;color:var(--text2);font-weight:500;">건</span></td>
       <td style="text-align:center;">${!r.isCurrent ? '<span style="color:var(--text3);">—</span>' : r.missDays > 0 ? `<span style="font-weight:800;color:#ef4444;">${r.missDays}</span><span style="font-size:11px;color:var(--text3);">건</span>` : '<span style="color:var(--green);font-weight:700;">0</span>'}${r.isCurrent && r.noticedDays > 0 ? ` <span style="font-size:10px;color:#f59e0b;" title="특이사항 공지일 부족분 — 참작">📢${r.noticedDays}</span>` : ''}</td>
+      <td style="text-align:center;font-size:12.5px;white-space:nowrap;">${r.qIns > 0
+        ? `${r.qIns}<span style="font-size:10px;color:var(--text3);">건</span> · <span style="font-weight:800;color:${r.qRate >= 10 ? '#ef4444' : r.qRate >= 5 ? '#f59e0b' : '#10b981'};">${r.qRate.toFixed(1)}%</span>${r.qDef > 0 ? ` <span style="font-size:10px;color:var(--text3);">(불량 ${r.qDef})</span>` : ''}`
+        : '<span style="color:var(--text3);">—</span>'}</td>
       <td>
         <div style="display:flex;align-items:center;gap:8px;">
           <div style="flex:1;background:var(--surface2);border-radius:4px;height:8px;overflow:hidden;min-width:70px;">
@@ -14749,6 +14787,9 @@ async function renderReport() {
   const footExc = rows.reduce((s, r) => s + r.exc, 0);
   const footExcConv = rows.reduce((s, r) => s + r.excConv, 0);
   const footMiss = rows.reduce((s, r) => s + r.missDays, 0);
+  const footQIns = rows.reduce((s, r) => s + r.qIns, 0);   // ⭐ v2.75a
+  const footQDef = rows.reduce((s, r) => s + r.qDef, 0);
+  const footQRate = footQIns > 0 ? (footQDef / footQIns * 100) : 0;
   const footShare = shareBase ? Math.round((totalDone + footExcConv) / shareBase * 100) : 0;
   h += `</tbody>
     <tfoot><tr>
@@ -14759,6 +14800,7 @@ async function renderReport() {
       <td style="text-align:right;font-weight:700;color:var(--text2);">${footExc}건${footExcConv>0?` <span style="color:#8b5cf6;">＋${footExcConv}</span>`:''}</td>
       <td style="text-align:right;font-weight:700;">${totalDone}건</td>
       <td style="text-align:center;font-weight:700;color:${footMiss>0?'#ef4444':'var(--green)'};">${footMiss}건</td>
+      <td style="text-align:center;font-weight:700;">${footQIns > 0 ? `${footQIns}건 · <span style="color:${footQRate >= 10 ? '#ef4444' : footQRate >= 5 ? '#f59e0b' : '#10b981'};">${footQRate.toFixed(1)}%</span>` : '—'}</td>
       <td style="text-align:right;font-weight:700;color:var(--accent);padding-right:42px;">${footShare}%</td>
       <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);">${fmt(footRev)}원</td>
     </tr></tfoot>
