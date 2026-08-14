@@ -3053,7 +3053,7 @@ async function syncData(silent=false, force=false, _snapData=null) {
     } catch(e) {}
     // 출고 이력은 별도 로드 (noShip으로 빠르게 받았으므로). shipLog가 응답에 있으면 반영, 없으면 유지 후 백그라운드 로드
     if(data.shipLog && data.shipLog.length) {
-      shipHistory = data.shipLog;
+      shipHistory = _applyShipCancelOv(data.shipLog);   // ⭐ v2.75g: 취소 보호
     } else {
       // ⭐ v2.56: 출고이력 분리 로드 — 기본 로딩을 막지 않게 백그라운드로
       // ⭐ v2.59f: 스냅샷 부팅 시엔 생략 — 곧이어 오는 네트워크 동기화가 처리
@@ -4432,13 +4432,15 @@ async function _buildDocx(bodyXml){
 
 async function issueQuote(dateKey) {
   // ⭐ v2.70: 폼즈 AS견적서 양식 + PDF 다운로드 (docx → PDF 전환)
-  const items = getShipItemsByDate(dateKey);
+  // ⭐ v2.75g: 무상 건 포함(수량은 실물 출고와 일치) — 단, 금액은 유상만 합산 (무상 total=0)
+  //   별도 상계 라인 없이 해당 기종 행의 수량에 자연 합산 (요청)
+  const items = getShipItemsByDate(dateKey, true);
   if(!items.length) { notify('해당 날짜의 출고 건이 없습니다.', 'error'); return; }
   const byModel = {};
   items.forEach(it => {
     if(!byModel[it.model]) byModel[it.model] = { cnt:0, total:0 };
     byModel[it.model].cnt++;
-    byModel[it.model].total += it.total;
+    byModel[it.model].total += it.total;   // 무상 건은 total=0 → 금액 영향 없음
   });
   const serialYmd = String(dateKey).replace(/-/g,'/');
   let gSupply=0, gVat=0, gQty=0, gTotal=0;
@@ -4448,13 +4450,6 @@ async function issueQuote(dateKey) {
     const mq = MODEL_QUOTE[model] || { code:'', name: model+'태블릿' };
     return { code: mq.code||'', name: mq.name, qty: v.cnt, supply, vat };
   });
-  // ⭐ v2.75d: 무상 재작업 상계 라인 — 견적서 수량은 실물 출고 수량과 일치시키되 금액은 0원.
-  //   (기존엔 무상 건이 견적서에서 아예 빠져 물류 수량 대사 때 혼선이 있었음)
-  const _freeItems = getShipItemsByDate(dateKey, true).filter(it => it.free);
-  if(_freeItems.length) {
-    modelRows.push({ code: '', name: `무상 재작업 상계 (재수리 ${_freeItems.length}건)`, qty: _freeItems.length, supply: 0, vat: 0 });
-    gQty += _freeItems.length;
-  }
   const I = FORMS_INFO;
   // ⭐ v2.75: PDF → 워드(.docx) 복귀 (요청: 발행 후 수정할 일이 종종 있음)
   //   기존 OOXML 빌더(_docxCell/_docxRow/_docxTable/_buildDocx) 재사용 — 레이아웃은 PDF판과 동일.
@@ -9222,52 +9217,44 @@ async function cancelSelectedShip(groupId) {
     '출고 취소',
     `선택한 ${checked.length}건의 출고를 취소할까요? 출고 이력에서 삭제됩니다.`,
     async () => {
+      // ⭐ v2.75g: 취소 흐름 재설계 — "10분 뒤 반영" 문제 해결.
+      //   원인: ① 지원 여부 '테스트' 호출 1회 낭비(러시아워 10~40초) ② 취소 직후 강제 동기화가
+      //   낡은 캐시(재빌드 전) 출고이력을 받아 로컬 삭제를 '되살림'. → 화면 먼저 제거(즉시 반영),
+      //   보호 키 등록(12분, 낡은 페이로드 차단), 서버 삭제는 배치 1방, 강제 재동기화 제거.
       const idxs = checked.map(cb => parseInt(cb.dataset.idx)).sort((a,b) => b-a);
       const items = idxs.map(i => shipHistory[i]).filter(Boolean);
-
       const payload = items.map(it => ({ serial: it.serial, shipDate: it.shipDate }));
+      const removeKeys = items.map(it => String(it.serial) + '||' + String(it.shipDate));
 
-      // 1차 시도: bulkDeleteShipLog (Code.gs 신버전 필요)
-      const DEL_BATCH = 50;
-      const delTotalBatches = Math.ceil(payload.length / DEL_BATCH);
-      let useBulk = true;
-
-      // bulkDeleteShipLog 사용 가능 여부 먼저 테스트
-      try {
-        const testRes = await gasCall({ action: 'bulkDeleteShipLog', items: JSON.stringify([]) });
-        useBulk = !!(testRes && testRes.ok === true);
-      } catch(e) { useBulk = false; }
-
-      if (useBulk) {
-        // 신버전: 50건씩 배치
-        for (let b = 0; b < payload.length; b += DEL_BATCH) {
-          const delDone = Math.min(b + DEL_BATCH, payload.length);
-          notify(`취소 처리 중... ${delDone}/${payload.length}건 (배치 ${Math.floor(b/DEL_BATCH)+1}/${delTotalBatches})`, 'info');
-          await gasCall({ action: 'bulkDeleteShipLog', items: JSON.stringify(payload.slice(b, b + DEL_BATCH)) });
-        }
-      } else {
-        // 폴백: 기존 deleteShipLog 1건씩 (Code.gs 재배포 전까지)
-        notify(`취소 처리 중... (구버전 방식, ${payload.length}건 순차처리)`, 'info');
-        for (let i = 0; i < payload.length; i++) {
-          if (i % 10 === 0) notify(`취소 처리 중... ${i+1}/${payload.length}건`, 'info');
-          await gasCall({ action: 'deleteShipLog', serial: payload[i].serial, shipDate: payload[i].shipDate });
-        }
-      }
-
-      // 로컬에서 제거
-      const removeKeys = new Set(items.map(it => it.serial + '||' + it.shipDate));
+      // ① 화면 즉시 반영 + 보호 등록
+      _shipDelOvAdd(removeKeys);
+      const rmSet = new Set(removeKeys);
       for(let i = shipHistory.length - 1; i >= 0; i--) {
-        const key = shipHistory[i].serial + '||' + shipHistory[i].shipDate;
-        if(removeKeys.has(key)) shipHistory.splice(i, 1);
+        if(rmSet.has(String(shipHistory[i].serial) + '||' + String(shipHistory[i].shipDate))) shipHistory.splice(i, 1);
       }
       window._shipOk = null;
       window._shipHold = null;
-      await syncData(true);
-      notify(`${items.length}건 출고 취소되었습니다.`);
-      // ⭐ v2.9: 출고 현황 갱신 (출고 목록 = 출고 현황 DOM이므로 renderShipview만 호출)
       if(typeof renderShipview === 'function') renderShipview();
-      // 출고 처리 화면도 갱신 (출고 취소된 건이 다시 출고 가능 목록에 표시될 수 있음)
       if(typeof renderShipping === 'function') renderShipping();
+      notifyPersist(`출고 취소 반영 중... (${items.length}건)`);
+
+      // ② 서버 삭제 — 배치 1방 (bulkDeleteShipLog는 멱등 · 실패 시 건별 폴백)
+      const DEL_BATCH = 50;
+      let okAll = true;
+      try {
+        for (let b = 0; b < payload.length; b += DEL_BATCH) {
+          const r = await gasCall({ action: 'bulkDeleteShipLog', items: JSON.stringify(payload.slice(b, b + DEL_BATCH)) });
+          if(!(r && r.ok)) throw new Error('bulk 미지원/실패');
+        }
+      } catch(e) {
+        try {
+          for (let i = 0; i < payload.length; i++) {
+            await gasCall({ action: 'deleteShipLog', serial: payload[i].serial, shipDate: payload[i].shipDate });
+          }
+        } catch(e2) { okAll = false; }
+      }
+      if(okAll) notify(`${items.length}건 출고 취소 완료.`);
+      else notifyPersist('⚠ 일부 취소가 서버에 반영되지 않았을 수 있습니다 — 잠시 후 목록을 확인해주세요.', 'error');
     },
     '출고 취소',
     'btn-danger'
@@ -9860,6 +9847,32 @@ function loadPriceSettings() {
 /* Init */
 // 전역 변수 선언
 let shipHistory = [];
+// ⭐ v2.75g: 출고 취소 보호 — 취소한 (시리얼||출고일) 키를 12분간 기억해, 낡은 캐시 페이로드가
+//   취소된 행을 되살리는 것 차단 (등록/삭제의 변경 보호와 같은 원리). 서버가 삭제를 반영한
+//   페이로드가 오면 자동 조기 해제. 새로고침에도 유지(localStorage).
+function _shipDelOvAll() { try { return JSON.parse(localStorage.getItem('fa_shipdel_ov') || '{}'); } catch(e) { return {}; } }
+function _shipDelOvAdd(keys) {
+  try {
+    const m = _shipDelOvAll();
+    keys.forEach(k => { m[k] = Date.now(); });
+    localStorage.setItem('fa_shipdel_ov', JSON.stringify(m));
+  } catch(e) {}
+}
+function _applyShipCancelOv(list) {
+  try {
+    const m = _shipDelOvAll();
+    const ids = Object.keys(m);
+    if(!ids.length) return list;
+    const now = Date.now();
+    let dirty = false;
+    ids.forEach(k => { if(now - m[k] > 720000) { delete m[k]; dirty = true; } });   // 만료 정리
+    const inData = new Set((list || []).map(h => String(h.serial) + '||' + String(h.shipDate)));
+    Object.keys(m).forEach(k => { if(!inData.has(k)) { delete m[k]; dirty = true; } });   // 서버 확인 → 해제
+    if(dirty) localStorage.setItem('fa_shipdel_ov', JSON.stringify(m));
+    const act = new Set(Object.keys(m));
+    return act.size ? (list || []).filter(h => !act.has(String(h.serial) + '||' + String(h.shipDate))) : list;
+  } catch(e) { return list; }
+}
 let _shipHistoryLoaded = false;
 let _shipHistoryLoading = false;
 // ⭐ v2.56: 출고이력 별도 로드 (기본 load는 noShip으로 가볍게, 출고이력은 백그라운드/탭진입 시)
@@ -9873,7 +9886,7 @@ async function loadShipHistory(force) {
     try { r = await _loadFromGitHub('shiplog.json'); }
     catch(eGh) { r = await gasCall({action:'loadShipLog'}); }
     if(r && Array.isArray(r.shipLog)) {
-      shipHistory = r.shipLog;
+      shipHistory = _applyShipCancelOv(r.shipLog);   // ⭐ v2.75g: 취소 보호
       _shipHistoryLoaded = true;
       window._shipOk = null; window._shipHold = null;
       // 출고 관련 화면이 열려 있으면 재렌더
