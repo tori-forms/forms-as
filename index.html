@@ -4248,6 +4248,7 @@ function renderShippingList() {
             <th>엔지니어</th>
             <th>수리 항목</th>
             <th>출고 시각</th>
+            <th style="text-align:right;white-space:nowrap;">공임 · 무상</th>
           </tr></thead>
           <tbody>`;
 
@@ -4268,6 +4269,10 @@ function renderShippingList() {
           <td>${escapeHtml(workerName)}</td>
           <td style="font-size:12px;color:var(--text2);">${works}</td>
           <td style="font-size:12px;">${shipFmt}</td>
+          <td style="text-align:right;white-space:nowrap;font-size:12px;">${e
+            ? `${fmt(Number(e.total||0))}원${isFreeEntry(e) ? ' <span style="font-size:10px;font-weight:800;background:#10b9811a;color:#10b981;border:1px solid #10b98155;padding:1px 6px;border-radius:99px;">무상</span>' : ''}
+               <button class="btn btn-sm" onclick="event.stopPropagation();toggleFreeShip('${escapeJs(String(h.serial||''))}','${escapeJs(String(h.shipDate||''))}')" style="height:24px;padding:0 8px;font-size:11px;color:#10b981;border-color:#10b981;font-weight:700;margin-left:4px;">${isFreeEntry(e) ? '해제' : '🆓 무상'}</button>`
+            : '-'}</td>
         </tr>`;
       });
 
@@ -4442,6 +4447,13 @@ async function issueQuote(dateKey) {
     const mq = MODEL_QUOTE[model] || { code:'', name: model+'태블릿' };
     return { code: mq.code||'', name: mq.name, qty: v.cnt, supply, vat };
   });
+  // ⭐ v2.75d: 무상 재작업 상계 라인 — 견적서 수량은 실물 출고 수량과 일치시키되 금액은 0원.
+  //   (기존엔 무상 건이 견적서에서 아예 빠져 물류 수량 대사 때 혼선이 있었음)
+  const _freeItems = getShipItemsByDate(dateKey, true).filter(it => it.free);
+  if(_freeItems.length) {
+    modelRows.push({ code: '', name: `무상 재작업 상계 (재수리 ${_freeItems.length}건)`, qty: _freeItems.length, supply: 0, vat: 0 });
+    gQty += _freeItems.length;
+  }
   const I = FORMS_INFO;
   // ⭐ v2.75: PDF → 워드(.docx) 복귀 (요청: 발행 후 수정할 일이 종종 있음)
   //   기존 OOXML 빌더(_docxCell/_docxRow/_docxTable/_buildDocx) 재사용 — 레이아웃은 PDF판과 동일.
@@ -7475,6 +7487,13 @@ async function freeSelected() {
   }, '진행', 'btn-primary');
 }
 
+// ⭐ v2.75d: 출고 이력 행에서 바로 무상 전환/해제 — 그 출고 행에 해당하는 수리 건을 날짜로 정확히 짝지어 처리
+function toggleFreeShip(serial, shipDate) {
+  const e = findEntryBySerial(serial, shipDate);
+  if(!e) { notify('이 출고 건의 수리 기록을 찾을 수 없습니다.', 'error'); return; }
+  toggleFreeEntry(e.id);
+}
+
 // ⭐ v2.75c: 개별 무상 전환/해제 — 시리얼 조회에서 '이미 출고 완료된 재수리건'도 처리 가능.
 //   출고관리의 일괄 무상 처리와 동일한 규칙(공임 0원, note 태그로 원공임 보존, 부품·일일 카운트 유지).
 async function toggleFreeEntry(id) {
@@ -7507,7 +7526,8 @@ async function toggleFreeEntry(id) {
       window._shipOk = null;
       try { doSearch(); } catch(x) {}
       try { renderToday(); renderAll(); } catch(x) {}
-      notify(wasFree ? `무상 해제 완료 — 공임 ${fmt(newTotal)}원 복원.` : '🆓 무상 재작업 전환 완료 — 청구·월 KPI에서 제외됩니다.');
+      try { renderShipHistory(); } catch(x) {}   // ⭐ v2.75d: 출고 이력 화면도 즉시 갱신
+      notify(wasFree ? `무상 해제 완료 — 공임 ${fmt(newTotal)}원 복원.` : '🆓 무상 재작업 전환 완료 — 견적서에서 0원 상계 처리됩니다.');
     } catch(err) { console.warn('[무상 토글]', err); notify('처리 실패. 다시 시도해주세요.', 'error'); }
   }, wasFree ? '해제' : '무상 전환', 'btn-primary');
 }
