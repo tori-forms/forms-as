@@ -3053,7 +3053,7 @@ async function syncData(silent=false, force=false, _snapData=null) {
     } catch(e) {}
     // 출고 이력은 별도 로드 (noShip으로 빠르게 받았으므로). shipLog가 응답에 있으면 반영, 없으면 유지 후 백그라운드 로드
     if(data.shipLog && data.shipLog.length) {
-      shipHistory = _applyShipCancelOv(data.shipLog);   // ⭐ v2.75g: 취소 보호
+      shipHistory = _dedupShipRows(_applyShipCancelOv(data.shipLog));   // ⭐ v2.75g/76: 취소 보호 + 중복 제거
     } else {
       // ⭐ v2.56: 출고이력 분리 로드 — 기본 로딩을 막지 않게 백그라운드로
       // ⭐ v2.59f: 스냅샷 부팅 시엔 생략 — 곧이어 오는 네트워크 동기화가 처리
@@ -7668,6 +7668,8 @@ async function moveExcludedToOk(i) {
 }
 
 function completeShipping() {
+  // ⭐ v2.76: 재실행 방어 — 처리 중 다시 실행되면 출고 이력이 2배로 적히던 사고 차단
+  if(window._shipCompleteBusy) { notify('출고 처리가 진행 중입니다. 완료될 때까지 기다려주세요.', 'error'); return; }
   const allOk = window._shipOk || [];
   if(!allOk.length) { notify('출고 가능 목록이 없습니다.', 'error'); return; }
 
@@ -7698,6 +7700,10 @@ function completeShipping() {
     `${isAllMode ? '전체' : '선택한'} ${targets.length}건을 ${shipLabel} 출고 완료 처리할까요?` +
       (_freeCount > 0 ? `\n\n⚠️ 이 중 무상 재출고 ${_freeCount}건은 공임 0원으로 청구에서 제외됩니다.` : ''),
     async () => {
+      if(window._shipCompleteBusy) return;   // ⭐ v2.76: 이중 실행 차단
+      window._shipCompleteBusy = true;
+      const _scBtn = document.getElementById('shipping-complete-btn');
+      if(_scBtn) { _scBtn.disabled = true; _scBtn.textContent = '⏳ 출고 처리 중...'; }
       try {
         // ⭐ 무상 재출고 체크된 시리얼 수집 (공임 0원·청구 제외)
         const freeSerials = new Set(
@@ -7719,16 +7725,19 @@ function completeShipping() {
         const SHIP_BATCH = 20; // 20건×269자=5680자 (안전)
         const totalBatches = Math.ceil(shipData.length / SHIP_BATCH);
         const startTime = Date.now();
+        let _dupSkipped = 0;   // ⭐ v2.76: 서버가 걸러낸 중복(이미 그날 출고된 시리얼) 집계
         for (let b = 0; b < shipData.length; b += SHIP_BATCH) {
           const batchNum = Math.floor(b / SHIP_BATCH) + 1;
           const done = Math.min(b + SHIP_BATCH, shipData.length);
           notify(`출고 처리 중... ${done}/${shipData.length}건 (배치 ${Math.floor(b/SHIP_BATCH)+1}/${totalBatches})`, 'info');
-          await gasCall({
+          const _bRes = await gasCall({
             action: 'addShipLogBulk',
             shipDate: shipDTStr,
             items: JSON.stringify(shipData.slice(b, b + SHIP_BATCH))
           });
+          if(_bRes && _bRes.skipped) _dupSkipped += Number(_bRes.skipped) || 0;
         }
+        if(_dupSkipped > 0) notify(`ℹ 이미 오늘 출고 처리된 ${_dupSkipped}건은 중복 방지로 건너뛰었습니다.`);
 
         // ⭐ 무상 재출고 건: 해당 수리건(entries)의 공임을 0으로 수정
         //   → voltales 청구(e.total 기준)에서도 제외됨. 작업 기록(works)은 유지.
@@ -7785,6 +7794,11 @@ function completeShipping() {
         notify(`${validTargets.length}건 출고 완료!`);
       } catch(err) {
         notify('저장 실패: ' + (err.message || err), 'error');
+      } finally {
+        // ⭐ v2.76: 재실행 방어 해제
+        window._shipCompleteBusy = false;
+        const _scBtn2 = document.getElementById('shipping-complete-btn');
+        if(_scBtn2) { _scBtn2.disabled = false; _scBtn2.textContent = '✅ 출고 완료 처리'; }
       }
     },
     '출고 완료',
@@ -9858,6 +9872,19 @@ function _shipDelOvAdd(keys) {
     localStorage.setItem('fa_shipdel_ov', JSON.stringify(m));
   } catch(e) {}
 }
+// ⭐ v2.76: 출고 표시 중복 제거 — 같은 시리얼이 같은 날짜에 2행 이상이면(이중 처리 사고 잔재) 첫 행만 사용.
+//   시트 정리(dedupeShipLog) 전에도 화면·견적서·집계가 즉시 정상 건수로 보이게 하는 안전망.
+function _dedupShipRows(list) {
+  try {
+    const seen = new Set(); const out = [];
+    (list || []).forEach(h => {
+      const k = String(h.serial) + '||' + shipDateKey(h.shipDate);
+      if(seen.has(k)) return;
+      seen.add(k); out.push(h);
+    });
+    return out;
+  } catch(e) { return list; }
+}
 function _applyShipCancelOv(list) {
   try {
     const m = _shipDelOvAll();
@@ -9886,7 +9913,7 @@ async function loadShipHistory(force) {
     try { r = await _loadFromGitHub('shiplog.json'); }
     catch(eGh) { r = await gasCall({action:'loadShipLog'}); }
     if(r && Array.isArray(r.shipLog)) {
-      shipHistory = _applyShipCancelOv(r.shipLog);   // ⭐ v2.75g: 취소 보호
+      shipHistory = _dedupShipRows(_applyShipCancelOv(r.shipLog));   // ⭐ v2.75g/76: 취소 보호 + 중복 제거
       _shipHistoryLoaded = true;
       window._shipOk = null; window._shipHold = null;
       // 출고 관련 화면이 열려 있으면 재렌더
