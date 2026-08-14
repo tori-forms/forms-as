@@ -1779,6 +1779,7 @@ window.addEventListener('DOMContentLoaded', function(){
       <span class="section-title">📦 출고 현황</span>
       <div style="display:flex;gap:8px;align-items:center;">
         <button id="sv-theme-btn" class="btn btn-sm" onclick="toggleSvTheme()" style="font-size:16px;padding:0 10px;height:34px;display:none;" title="라이트/다크 모드">🌙</button>
+        <button class="btn btn-sm" onclick="fixMisappliedFree()" style="color:#f59e0b;border-color:#f59e0b;font-weight:700;" title="과거(청구 완료) 출고건에 잘못 적용된 무상을 복원하고 재수리건으로 옮깁니다">🛠 무상 오적용 정리</button>
         <button class="btn btn-sm btn-primary" onclick="exportShipviewXlsx()">엑셀 내보내기</button>
       </div>
     </div>
@@ -7487,6 +7488,63 @@ async function freeSelected() {
   }, '진행', 'btn-primary');
 }
 
+// ⭐ v2.75f: 무상 오적용 정리 — 구버전 무상 버튼이 재수리건 대신 '같은 시리얼의 이전(이미 청구된) 출고 기록'을
+//   0원으로 만들던 사고의 복구 도구. 규칙: 무상 태그가 있는데 같은 시리얼에 더 최신 수리 기록이 있으면
+//   = 1차에 잘못 적용된 것 → ① 이전 건 원공임 복원(과거 견적서 금액 일치 회복) ② 최신 재수리건을 무상 전환.
+async function fixMisappliedFree() {
+  const bySer = {};
+  (entries || []).forEach(e => { const k = normalizeSerial(e.serial); (bySer[k] = bySer[k] || []).push(e); });
+  const fixes = [];
+  Object.values(bySer).forEach(l => {
+    if(l.length < 2) return;
+    l.sort((a, b) => new Date(a.date) - new Date(b.date));
+    const latest = l[l.length - 1];
+    l.slice(0, -1).forEach(old => { if(isFreeEntry(old)) fixes.push({ old, latest }); });
+  });
+  if(!fixes.length) { notify('잘못 적용된 무상 건이 없습니다 — 전부 정상입니다.'); return; }
+  const lines = fixes.map(f => {
+    const m = String(f.old.note).match(FREE_TAG_RE);
+    return `· ${f.old.serial} — 이전 출고건 ${m ? m[1] : '?'}원 복원${isFreeEntry(f.latest) ? '' : ' + 재수리건 무상 전환'}`;
+  });
+  const _nl = String.fromCharCode(10);
+  openModal('무상 오적용 정리',
+    '과거(이미 청구된) 출고건에 잘못 적용된 무상 ' + fixes.length + '건을 찾았습니다.' + _nl +
+    '이전 건의 공임을 복원해 과거 견적서 금액과 다시 일치시키고, 무상은 그 시리얼의 최신 재수리건으로 옮깁니다.' + _nl + _nl +
+    lines.slice(0, 12).join(_nl) + (fixes.length > 12 ? _nl + '… 외 ' + (fixes.length - 12) + '건' : '') + _nl + _nl +
+    '진행할까요?', async () => {
+    notifyPersist(`정리 중... 0/${fixes.length}`);
+    const saveEntryEdit = async (e, newTotal, newNote) => {
+      const partsSafe2 = Object.entries(e.parts && typeof e.parts === 'object' ? e.parts : {})
+        .map(([k, v]) => encodeURIComponent(k) + '=' + v).join('|');
+      const r = await gasCall({ action: 'edit', id: String(e.id), works: JSON.stringify(parseWorks(e.works)),
+        total: newTotal, note: newNote, parts: partsSafe2, serial: e.serial, model: e.model || '' });
+      if(r && r.ok === false) return false;
+      e.total = newTotal; e.note = newNote;
+      markPendingChange('entries', e.id, { type: 'update', data: { total: newTotal, note: newNote } }, 8000);
+      return true;
+    };
+    let done = 0, fail = 0;
+    for(const f of fixes) {
+      try {
+        const m = String(f.old.note).match(FREE_TAG_RE);
+        const amt = m ? (Number(m[1].replace(/,/g, '')) || 0) : 0;
+        const ok1 = await saveEntryEdit(f.old, amt, String(f.old.note).replace(FREE_TAG_RE, '').trim());
+        let ok2 = true;
+        if(ok1 && !isFreeEntry(f.latest)) {
+          ok2 = await saveEntryEdit(f.latest, 0, `${String(f.latest.note || '').trim()} [무상 재작업·원공임 ${fmt(Number(f.latest.total || 0))}원]`.trim());
+        }
+        if(ok1 && ok2) done++; else fail++;
+        notifyPersist(`정리 중... ${done}/${fixes.length}`);
+      } catch(err) { fail++; console.warn('[무상 정리]', f.old.serial, err); }
+    }
+    window._shipOk = null;
+    try { renderShipview(); } catch(x) {}
+    try { renderShipHistory(); renderToday(); renderAll(); } catch(x) {}
+    notify(`무상 오적용 정리 완료: ${done}/${fixes.length}건${fail ? ` (실패 ${fail}건 — 다시 실행하면 이어서 처리)` : ''} — 이전 출고 금액 복원 + 재수리건 무상 이동.`);
+    setTimeout(() => { try { syncData(true); } catch(x) {} }, 500);
+  }, '정리 실행', 'btn-primary');
+}
+
 // ⭐ v2.75d: 출고 이력 행에서 바로 무상 전환/해제 — 그 출고 행에 해당하는 수리 건을 날짜로 정확히 짝지어 처리
 function toggleFreeShip(serial, shipDate) {
   const e = findEntryBySerial(serial, shipDate);
@@ -7527,6 +7585,7 @@ async function toggleFreeEntry(id) {
       try { doSearch(); } catch(x) {}
       try { renderToday(); renderAll(); } catch(x) {}
       try { renderShipHistory(); } catch(x) {}   // ⭐ v2.75d: 출고 이력 화면도 즉시 갱신
+      try { renderShipview(); } catch(x) {}      // ⭐ v2.75e: 출고 현황(견적서 화면)도 즉시 갱신
       notify(wasFree ? `무상 해제 완료 — 공임 ${fmt(newTotal)}원 복원.` : '🆓 무상 재작업 전환 완료 — 견적서에서 0원 상계 처리됩니다.');
     } catch(err) { console.warn('[무상 토글]', err); notify('처리 실패. 다시 시도해주세요.', 'error'); }
   }, wasFree ? '해제' : '무상 전환', 'btn-primary');
@@ -9061,6 +9120,7 @@ function renderShipview() {
               <th style="text-align:center;width:100px;">제조년월</th>
               <th style="text-align:center;width:70px;">수리항목수</th>
               <th style="text-align:center;width:75px;">수리유형</th>
+              ${!clientMode ? '<th style="text-align:center;width:96px;">무상</th>' : ''}
             </tr></thead>
             <tbody>${gList.map((x,i) => {
               const e = findEntryBySerial(x.serial, x.shipDate);
@@ -9102,6 +9162,7 @@ function renderShipview() {
                 <td style="text-align:center;font-size:12px;white-space:nowrap;">${mfgLabel}</td>
                 <td style="text-align:center;font-size:12px;">${wCount}</td>
                 <td style="text-align:center;white-space:nowrap;"><span style="font-size:11px;padding:2px 8px;border-radius:99px;background:${wType==='복합수리'?'#fef9c3':'#f0fdf4'};color:${wType==='복합수리'?'#854d0e':'#166534'};">${wType}</span></td>
+                ${!clientMode ? `<td style="text-align:center;white-space:nowrap;">${e && isFreeEntry(e) ? '<span style="font-size:10px;font-weight:800;background:#10b9811a;color:#10b981;border:1px solid #10b98155;padding:1px 6px;border-radius:99px;">무상</span> ' : ''}${e ? `<button class="btn btn-sm" onclick="event.stopPropagation();toggleFreeShip('${escapeJs(String(x.serial||''))}','${escapeJs(String(x.shipDate||''))}')" style="height:22px;padding:0 7px;font-size:10.5px;color:#10b981;border-color:#10b981;font-weight:700;">${isFreeEntry(e) ? '해제' : '🆓 무상'}</button>` : '-'}</td>` : ''}
               </tr>`;
             }).join('')}</tbody>
             <tfoot><tr>
@@ -9111,6 +9172,7 @@ function renderShipview() {
               <td style="text-align:center;font-weight:700;font-family:'JetBrains Mono',monospace;">${(()=>{const tp=gList.reduce((s,x)=>{const e2=entries.find(en=>String(en.serial)===String(x.serial));return s+getPartsFeeForEntry(e2);},0);return tp?fmt(tp)+' 원':'<span style=\"color:var(--text3)\">-</span>';})()}</td>
               <td style="text-align:center;font-weight:700;font-family:'JetBrains Mono',monospace;">${(()=>{const tp=gList.reduce((s,x)=>{const e2=entries.find(en=>String(en.serial)===String(x.serial));return s+getPartsFeeForEntry(e2);},0);return fmt(totalFee+tp)+' 원';})()}</td>
               <td colspan="7"></td>
+              ${!clientMode ? '<td></td>' : ''}
             </tr></tfoot>
           </table></div>
         </div>
