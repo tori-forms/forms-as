@@ -14794,8 +14794,12 @@ async function renderReport() {
   const _freeSet = new Set(monthShippedAll.filter(h => { const en = findEntryBySerial(h.serial, h.shipDate); return en && isFreeEntry(en); }));
   const monthShipped = monthShippedAll.filter(h => !_freeSet.has(h));
   const _freeShippedCnt = _freeSet.size;
-  const totalDone = monthShipped.length;
-  const totalRev = monthShipped.reduce((s,h) => {
+  // ⭐ v2.77a: 출고 수량은 무상 재작업 포함 전체 합산 (수량 분리 표기가 더 헷갈림) —
+  //   금액은 무상 = 0원이라 그대로이고, '총 공임비' 카드에 무상 건수를 별도 표기.
+  //   엔지니어별 KPI 기여도는 기존대로 무상 제외(이미 1차 출고로 기여 계상된 기기의 재작업).
+  const totalDone = monthShippedAll.length;
+  const totalRev = monthShippedAll.reduce((s,h) => {
+    if(_freeSet.has(h)) return s;   // 무상 = 0원
     const en = findEntryBySerial(h.serial, h.shipDate);
     return s + Number(en?.total || h.fee || 0);
   }, 0);
@@ -14819,7 +14823,6 @@ async function renderReport() {
       <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
         <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">출고 완료</div>
         <div style="font-size:18px;font-weight:700;color:var(--accent);">${fmt(totalDone)}<span style="font-size:11px;color:var(--text2);">대</span></div>
-        ${_freeShippedCnt ? `<div style="font-size:10px;color:#10b981;font-weight:700;margin-top:2px;">🆓 무상 재작업 ${_freeShippedCnt}건 별도</div>` : ''}
       </div>
       <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
         <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">남은 건수</div>
@@ -14828,6 +14831,7 @@ async function renderReport() {
       <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
         <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">총 공임비</div>
         <div style="font-size:16px;font-weight:700;">${fmt(totalRev)}<span style="font-size:10px;color:var(--text2);">원</span></div>
+        ${_freeShippedCnt ? `<div style="font-size:10px;color:#10b981;font-weight:700;margin-top:2px;">🆓 무상 재작업 ${_freeShippedCnt}건 · 0원</div>` : ''}
       </div>
       <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
         <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">평일 수</div>
