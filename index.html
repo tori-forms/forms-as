@@ -12655,7 +12655,10 @@ async function openEditModal(id) {
   updateEditPP();
   document.getElementById('edit-modal').classList.add('open');
 }
-function closeEditModal() { document.getElementById('edit-modal').classList.remove('open'); editTargetId = null; }
+// ⭐ v2.77c: 수정 모달을 닫을 때 부품 수량표(partQtys) 초기화 — 등록 화면과 전역을 공유하는 구조라,
+//   초기화 없이 닫으면 직전 수정 건의 부품 수량이 다음 '수리 등록'에 그대로 유입되어
+//   부품(액정 등)이 몰래 2~3개씩 차감·저장되던 오염 경로를 차단. (2026-08-26 액정 재고 사고 원인)
+function closeEditModal() { document.getElementById('edit-modal').classList.remove('open'); editTargetId = null; try { initPartQtys(); } catch(e) {} }
 function renderEditParts(ws) {
   // ⭐ 수정 중인 entry의 model 사용
   const origEntry = entries.find(x => String(x.id) === String(editTargetId));
