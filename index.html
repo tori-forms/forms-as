@@ -1102,7 +1102,7 @@ window.addEventListener('DOMContentLoaded', function(){
   <button class="nav-btn" onclick="switchTab('search',this)">🔍 시리얼 조회</button>
   <button class="nav-btn" onclick="switchTab('docs',this)">📚 교육 자료</button>
   <button class="nav-btn" onclick="switchTab('shipping',this)">🚚 출고 관리</button>
-  <button class="nav-btn" onclick="switchTab('t2n',this)">📱 T2N 현황</button>
+  <button class="nav-btn" onclick="switchTab('t2n',this)">📉 불량 데이터</button>
   <button class="nav-btn" id="nav-stock" onclick="switchTab('stock',this)" style="display:none;">📦 재고 관리</button>
   <button class="nav-btn admin-only-tab" id="nav-admin" onclick="switchTab('admin',this)" style="display:none;border-left:1px solid var(--border);">⚙️ 관리자</button>
 </nav>
@@ -1144,12 +1144,12 @@ window.addEventListener('DOMContentLoaded', function(){
           <label class="form-label">색상 <span style="color:var(--text3);font-weight:400;">(S2 전용 · 화이트는 시리얼로 자동)</span></label>
           <div style="display:flex;gap:6px;flex-wrap:wrap;" id="color-chips"></div>
         </div>
-        <!-- ⭐ v2.78: T2N 입고 불량증상 재현 확인 — TN 시리얼 감지 시 필수 -->
-        <div class="form-group" id="t2n-row" style="display:none;">
-          <label class="form-label">입고 불량증상 재현 여부 <span style="color:#ef4444;font-weight:700;">(T2N 필수)</span></label>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;" id="t2n-chips"></div>
-          <textarea id="t2n-symptom" placeholder="재현된 불량증상을 구체적으로 적어주세요 (예: 전원 인가 시 부팅 로고에서 멈춤)" style="display:none;margin-top:8px;"></textarea>
-        </div>
+      </div>
+      <!-- ⭐ v2.78a: T2N 입고 불량증상 재현 확인 — 가로 전체 폭 블록 (기존: form-row 안에 끼어 레이아웃 깨짐) -->
+      <div class="form-group" id="t2n-row" style="display:none;margin-bottom:16px;padding:12px 14px;border:1px dashed #ef444488;border-radius:10px;background:rgba(239,68,68,.05);">
+        <label class="form-label">입고 불량증상 재현 여부 <span style="color:#ef4444;font-weight:700;">(T2N 필수)</span></label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px;" id="t2n-chips"></div>
+        <textarea id="t2n-symptom" placeholder="재현된 불량증상을 구체적으로 적어주세요 (예: 전원 인가 시 부팅 로고에서 멈춤)" style="display:none;margin-top:10px;width:100%;min-height:60px;"></textarea>
       </div>
       <div class="form-group" style="margin-bottom:16px;">
         <label class="form-label">수리 항목 (복수 선택 가능)</label>
@@ -1914,8 +1914,8 @@ window.addEventListener('DOMContentLoaded', function(){
   <!-- ⭐ v2.78: T2N 현황 — 신제품(T2N) AS 인입·불량증상 재현 집계 -->
   <div id="tab-t2n" class="section">
     <div class="section-header">
-      <span class="section-title">📱 T2N 현황</span>
-      <span style="font-size:12px;color:var(--text3);">신제품 AS 인입 · 불량증상 재현 집계 (TN 시리얼 자동 분류)</span>
+      <span class="section-title">📉 불량 데이터</span>
+      <span style="font-size:12px;color:var(--text3);">T2N 신제품 AS 인입 · 불량증상 재현 집계 (TN 시리얼 자동 분류)</span>
     </div>
     <div id="t2n-content"><div class="empty">데이터 불러오는 중...</div></div>
   </div>
