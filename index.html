@@ -2289,7 +2289,9 @@ const WORKS = {
     ] },
   board:  { label:'메인보드 부분 수리 (충전단자 포함)',     price:10450, tag:'MB수리',   tagColor:'#7c3aed', tagBg:'#ede9fe',
     parts: [] },
-  nonbat: { label:'논배터리 작업',                         price:18700, tag:'논배터리',   tagColor:'#ea580c', tagBg:'#ffedd5',
+  // ⭐ v2.79: 단가 개편 (2026-08-28 단가표) — 기존 논배터리 18,700을 '논배터리 10,800 + 백커버 교체 7,900'으로 분리.
+  //   백커버까지 교체하면 두 작업 모두 체크(합 18,700 = 기존과 동일), 커버 재사용이면 논배터리만(10,800).
+  nonbat: { label:'논배터리 작업 (백커버 교체 미포함)',      price:10800, tag:'논배터리',   tagColor:'#ea580c', tagBg:'#ffedd5',
     parts: [
       // 두 모델 공용 부품 (FPC보드, 케이블정리테이프, 서브보드필름, 와이어, 강화유리필름, 후면보호필름)
       {name:'FPC보드(S2_N&S2pro_N)',          qty:1},
@@ -2306,13 +2308,16 @@ const WORKS = {
       {name:'백커버(S2pro_N)',    qty:1, modelOnly:'S2PRO_N'},
       {name:'전원버튼(S2Pro_N)',  qty:1, modelOnly:'S2PRO_N'},
     ] },
-  battery: { label:'배터리 교체',                          price:0,     tag:'배터리',     tagColor:'#0891b2', tagBg:'#cffafe',
-    // 공임/부품 미정 (추후 책정)
+  // ⭐ v2.79: 백커버 교체 — 논배터리에서 분리된 신규 작업. 부품(후면 커버·후면 필름)은
+  //   관리자 → 부품 매핑에서 논배터리로부터 옮겨 설정 (매핑 전까지는 부품 자동 차감 없음).
+  cover: { label:'백커버 교체',                             price:7900,  tag:'백커버',     tagColor:'#d97706', tagBg:'#fef3c7',
     parts: [] },
-  // ⭐ v2.70u: 기타 작업 — 재작업(재인입) 등 부품 없이 처리되는 건 (펌웨어 재설치·재조립·점검 등).
-  //   공임 0원 · 부품 차감 없음 · 일반 흐름(에이징→검수→출고) 그대로 탐. 이 항목 덕에
-  //   "작업 미선택으로 등록 불가"였던 부품 미사용 건도 정상 등록 가능.
-  etc: { label:'기타 작업 (펌웨어·재조립 등 부품 미사용)',  price:0,     tag:'기타작업',   tagColor:'#6b7280', tagBg:'#f3f4f6',
+  battery: { label:'배터리 교체',                          price:12800, tag:'배터리',     tagColor:'#0891b2', tagBg:'#cffafe',   // ⭐ v2.79: 0 → 12,800
+    parts: [] },
+  // ⭐ v2.70u/v2.79: 기타 작업 — 위 항목에 포함되지 않는 작업 (와이파이·스피커·SW 설치·검수 등).
+  //   공임 3,500원. 부품은 정해져 있지 않음 — 체크하면 열리는 [+ 부품 추가]로 엔지니어가 직접 선택,
+  //   선택하지 않으면 부품 미사용(SW 설치·검수만)으로 처리.
+  etc: { label:'기타 작업 (와이파이·스피커·SW 설치 등 — 부품은 직접 추가)', price:3500, tag:'기타작업', tagColor:'#6b7280', tagBg:'#f3f4f6',
     parts: [] },
 };
 
@@ -3061,7 +3066,13 @@ async function syncData(silent=false, force=false, _snapData=null) {
       if(ps.pcb)    WORKS.pcb.price    = ps.pcb;
       if(ps.panel)  WORKS.panel.price  = ps.panel;
       if(ps.board)  WORKS.board.price  = ps.board;
-      if(ps.nonbat) WORKS.nonbat.price = ps.nonbat;
+      // ⭐ v2.79: 단가 개편 — 서버 단가 설정이 아직 구단가(논배 18,700)면 무시하고 새 단가 체계 유지.
+      //   (구단가 18,700은 '논배터리+백커버 통합' 시절 값 — 분리 후엔 10,800이 맞음.
+      //    관리자 → 단가 설정에서 논배터리를 10,800으로 바꾸면 그 값을 그대로 따름)
+      if(ps.nonbat && Number(ps.nonbat) !== 18700) WORKS.nonbat.price = ps.nonbat;
+      if(ps.cover)   WORKS.cover.price   = ps.cover;
+      if(ps.battery) WORKS.battery.price = ps.battery;
+      if(ps.etc)     WORKS.etc.price     = ps.etc;
     }
     // 서버에 없으면 localStorage 폴백 (관리자 기기에서 설정된 값)
     if(!window.PARTS_PRICE) loadPriceSettings();
@@ -8662,9 +8673,9 @@ function renderShipAnalysis() {
   });
 
   const fmt = n => Number(n).toLocaleString();
-  const WORK_LABELS = { pcb:'PCB 교체', panel:'LCD 교체', board:'MB수리', nonbat:'논배터리', etc:'기타작업' };   // ⭐ v2.70u
-  const WORK_COLORS = { pcb:'#60a5fa', panel:'#34d399', board:'#c084fc', nonbat:'#fb923c', etc:'#9ca3af' };
-  const WORK_DARK   = { pcb:'#3b82f6', panel:'#10b981', board:'#a855f7', nonbat:'#f97316', etc:'#6b7280' };
+  const WORK_LABELS = { pcb:'PCB 교체', panel:'LCD 교체', board:'MB수리', nonbat:'논배터리', cover:'백커버', battery:'배터리', etc:'기타작업' };   // ⭐ v2.79
+  const WORK_COLORS = { pcb:'#60a5fa', panel:'#34d399', board:'#c084fc', nonbat:'#fb923c', cover:'#fbbf24', battery:'#22d3ee', etc:'#9ca3af' };
+  const WORK_DARK   = { pcb:'#3b82f6', panel:'#10b981', board:'#a855f7', nonbat:'#f97316', cover:'#d97706', battery:'#0891b2', etc:'#6b7280' };
   const WORK_KEYS   = ['nonbat','pcb','panel','board','etc'];
 
   // ① 수리항목별 발생 현황
@@ -9549,6 +9560,7 @@ const WORKPARTS_JOBS = [
   { key:'panel',  label:'패널(LCD) 교체', color:'#16a34a', bg:'#dcfce7' },
   { key:'board',  label:'메인보드 수리',  color:'#7c3aed', bg:'#ede9fe' },
   { key:'nonbat', label:'논배터리 작업',  color:'#ea580c', bg:'#ffedd5' },
+  { key:'cover',  label:'백커버 교체',    color:'#d97706', bg:'#fef3c7' },   // ⭐ v2.79
   { key:'battery',label:'배터리 교체',    color:'#0891b2', bg:'#cffafe' },
 ];
 let _workPartsDraft = null;   // 편집 중 임시본
@@ -11008,9 +11020,9 @@ async function _autoRefreshOnTabSwitch(name) {
 
 /* 체크박스 */
 // ⭐ v2.5: 수리 항목 표시 순서 (논배터리/배터리 먼저, 그 다음 PCB/패널/메인보드)
-const WORK_DISPLAY_ORDER = ['nonbat', 'battery', 'pcb', 'panel', 'board', 'etc'];   // ⭐ v2.70u: 기타 작업 추가
+const WORK_DISPLAY_ORDER = ['nonbat', 'cover', 'battery', 'pcb', 'panel', 'board', 'etc'];   // ⭐ v2.79: 백커버 추가
 // ⭐ v2.6: 행 분리 (1행: 논배터리/배터리, 2행: PCB/패널/메인보드/기타)
-const WORK_ROW1 = ['nonbat', 'battery'];
+const WORK_ROW1 = ['nonbat', 'cover', 'battery'];   // ⭐ v2.79: 백커버 추가
 const WORK_ROW2 = ['pcb', 'panel', 'board', 'etc'];
 
 // ⭐ 작업 k의 부품 목록 반환 — 매핑(WORK_PARTS_MAP) 우선, 없으면 WORKS 폴백
