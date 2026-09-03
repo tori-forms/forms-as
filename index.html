@@ -1554,12 +1554,12 @@ window.addEventListener('DOMContentLoaded', function(){
           <!-- ⭐ v2.79e: 신규 단가 체계 전체(논배 2종·백커버·배터리·기타 포함) 편집 가능 -->
           <div style="display:grid;gap:8px;" id="labor-price-list">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ffedd5;color:#c2410c;padding:2px 8px;border-radius:99px;">논배터리+커버</span><span style="font-size:12px;color:var(--text2);">논배터리 작업 (백커버 교체 포함)</span></div>
-              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-nonbat_full" value="18700" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;">논배터리</span><span style="font-size:12px;color:var(--text2);">논배터리 작업 (백커버 교체 포함)</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-nonbat" value="18700" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;">논배터리</span><span style="font-size:12px;color:var(--text2);">논배터리 작업 (백커버 교체 미포함)</span></div>
-              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-nonbat" value="10800" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ffedd5;color:#c2410c;padding:2px 8px;border-radius:99px;">논배터리(커버X)</span><span style="font-size:12px;color:var(--text2);">논배터리 작업 (백커버 교체 미포함)</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-nonbat_nc" value="10800" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
               <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#cffafe;color:#0891b2;padding:2px 8px;border-radius:99px;">배터리</span><span style="font-size:12px;color:var(--text2);">배터리 교체</span></div>
@@ -1590,11 +1590,11 @@ window.addEventListener('DOMContentLoaded', function(){
 
         <!-- ⭐ v2.79f: 단가 개편 이행 도구 -->
         <div style="margin-bottom:24px;padding:14px;border:1px dashed var(--border2);border-radius:10px;">
-          <div style="font-size:13px;font-weight:700;margin-bottom:6px;">⚡ 단가 개편 이행 도구 — 논배터리(미포함) 오등록 일괄 전환</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:6px;">⚡ 단가 개편 이행 도구 — 9/3 논배터리 등록 어긋남 일괄 복구</div>
           <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;">
-            개편 이후 '논배터리 (백커버 교체 미포함)'으로 등록됐지만 실제로는 백커버까지 교체한 작업을 찾아
-            <b>'백커버 교체 포함'(+7,900원)</b>으로 한 번에 바꿔요. 부품·재고는 건드리지 않아요.
-            커버를 정말 재사용한 건이 섞여 있으면 전환 후 그 건만 수정에서 되돌리세요.</div>
+            개편일(9/3)에 어긋난 논배터리 건을 원상 복구해요 — 임시 키를 원래 '논배터리(백커버 포함, 18,700원)'로 되돌리고,
+            미포함가(10,800원)로 저장됐거나 구버전 수정으로 깨진 금액을 재계산하고, 목록에서 빠진 논배터리 작업을 복원해요.
+            과거(9/2 이전) 데이터와 부품·재고는 절대 건드리지 않아요.</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <button class="btn" onclick="scanNbMigration()">🔍 대상 검색</button>
             <button class="btn btn-primary" id="nbmig-run-btn" onclick="runNbMigration()" style="display:none;">⚡ 일괄 전환 실행</button>
@@ -1673,12 +1673,12 @@ window.addEventListener('DOMContentLoaded', function(){
         <!-- ⭐ v2.79e: 신규 단가 반영(백커버/기타 추가) + 등록 화면과 동일한 3행 배치. 가격 텍스트는 excUpdatePreview()가 WORKS 기준으로 자동 갱신 -->
         <div id="exc-works-wrap">
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:8px;margin-bottom:10px;">
-            <label class="work-check exc-wc" id="exc-wc-nonbat_full" style="cursor:pointer;">
-              <input type="checkbox" value="nonbat_full" checked="" style="margin-top:4px;accent-color:#c2410c;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="nbExclusive('nonbat_full','exc-wc-');excUpdatePreview()">
+            <label class="work-check exc-wc" id="exc-wc-nonbat" style="cursor:pointer;">
+              <input type="checkbox" value="nonbat" checked="" style="margin-top:4px;accent-color:#ea580c;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="nbExclusive('nonbat','exc-wc-');excUpdatePreview()">
               <div style="flex:1;min-width:0;"><div class="work-check-name">논배터리 작업 (백커버 교체 포함)</div><div class="work-check-price">18,700원</div></div>
             </label>
-            <label class="work-check exc-wc" id="exc-wc-nonbat" style="cursor:pointer;">
-              <input type="checkbox" value="nonbat" style="margin-top:4px;accent-color:#ea580c;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="nbExclusive('nonbat','exc-wc-');excUpdatePreview()">
+            <label class="work-check exc-wc" id="exc-wc-nonbat_nc" style="cursor:pointer;">
+              <input type="checkbox" value="nonbat_nc" style="margin-top:4px;accent-color:#c2410c;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="nbExclusive('nonbat_nc','exc-wc-');excUpdatePreview()">
               <div style="flex:1;min-width:0;"><div class="work-check-name">논배터리 작업 (백커버 교체 미포함)</div><div class="work-check-price">10,800원</div></div>
             </label>
             <label class="work-check exc-wc" id="exc-wc-battery" style="cursor:pointer;">
@@ -2250,13 +2250,13 @@ const WORKS = {
     ] },
   board:  { label:'메인보드 부분 수리 (충전단자 포함)',     price:10450, tag:'MB수리',   tagColor:'#7c3aed', tagBg:'#ede9fe',
     parts: [] },
-  // ⭐ v2.79: 단가 개편 (2026-08-28 단가표) — 기존 논배터리 18,700을 '논배터리 10,800 + 백커버 7,900' 체계로 개편.
-  // ⭐ v2.79e: '논배터리 작업 (백커버 교체 포함)'을 독립 작업(nonbat_full, 18,700)으로 신설 —
-  //   두 작업을 자동 동시선택하면 작업별 통계·백커버 단독교체 구분이 흐려지고 금액 표시도 혼란스러워서,
-  //   데이터에도 1개 작업으로 기록되도록 별도 항목으로 분리. 부품 매핑도 논배 2종을 각각 설정.
-  nonbat_full: { label:'논배터리 작업 (백커버 교체 포함)',    price:18700, tag:'논배터리+커버', tagColor:'#c2410c', tagBg:'#ffedd5',
+  // ⭐ v2.79h: 키 의미 원복 — 'nonbat'은 처음부터 지금까지의 실제 의미인 '논배터리 작업 (백커버 교체 포함, 18,700)'.
+  //   과거 1,945건이 전부 백커버 포함 작업이었으므로 키를 바꾸지 않고 역사와 일치시킨다 (데이터 이관 불필요).
+  //   2026-08-28 단가표의 신설 항목 '백커버 교체 미포함(10,800)'은 새 키 nonbat_nc 로 분리.
+  //   (한때 쓰던 nonbat_full 키는 아래 legacy 항목 — 이행 도구가 nonbat으로 되돌린다)
+  nonbat: { label:'논배터리 작업 (백커버 교체 포함)',        price:18700, tag:'논배터리',   tagColor:'#ea580c', tagBg:'#ffedd5',
     parts: [
-      // 기존 논배터리 풀 작업과 동일한 부품 구성 (백커버·후면보호필름 포함)
+      // 풀 작업 부품 구성 (백커버·후면보호필름 포함) — 기존 서버 부품 매핑과 동일
       {name:'FPC보드(S2_N&S2pro_N)',          qty:1},
       {name:'케이블정리테이프(논배터리전환용)', qty:1},
       {name:'서브보드필름(논배터리전환용)',     qty:1},
@@ -2270,9 +2270,9 @@ const WORKS = {
       {name:'백커버(S2pro_N)',    qty:1, modelOnly:'S2PRO_N'},
       {name:'전원버튼(S2Pro_N)',  qty:1, modelOnly:'S2PRO_N'},
     ] },
-  nonbat: { label:'논배터리 작업 (백커버 교체 미포함)',      price:10800, tag:'논배터리',   tagColor:'#ea580c', tagBg:'#ffedd5',
+  nonbat_nc: { label:'논배터리 작업 (백커버 교체 미포함)',   price:10800, tag:'논배터리(커버X)', tagColor:'#c2410c', tagBg:'#ffedd5',
     parts: [
-      // ⭐ v2.79e: 백커버 미포함 — 백커버·후면보호필름은 기본 부품에서 제외 (cover/nonbat_full 쪽에 있음)
+      // 백커버 미포함(커버 재사용) — 백커버·후면보호필름 제외
       {name:'FPC보드(S2_N&S2pro_N)',          qty:1},
       {name:'케이블정리테이프(논배터리전환용)', qty:1},
       {name:'서브보드필름(논배터리전환용)',     qty:1},
@@ -2283,6 +2283,10 @@ const WORKS = {
       {name:'서브보드(S2pro_N)',  qty:1, modelOnly:'S2PRO_N'},
       {name:'전원버튼(S2Pro_N)',  qty:1, modelOnly:'S2PRO_N'},
     ] },
+  // (legacy) 2026-09-03 하루 동안 쓰인 임시 키 — 이행 도구가 전부 nonbat으로 되돌린 뒤엔 데이터에 남지 않음.
+  //   렌더링·수정 호환을 위해 정의만 유지 (등록 화면에는 노출 안 됨)
+  nonbat_full: { label:'(구) 논배터리 작업 (백커버 교체 포함)', price:18700, tag:'논배터리', tagColor:'#ea580c', tagBg:'#ffedd5',
+    parts: [] },
   // ⭐ v2.79: 백커버 교체 — 논배터리에서 분리된 신규 작업.
   // ⭐ v2.79e: 기본 부품으로 백커버(기종별)·후면보호필름 지정 (관리자 부품 매핑이 있으면 매핑 우선)
   cover: { label:'백커버 교체',                             price:7900,  tag:'백커버',     tagColor:'#d97706', tagBg:'#fef3c7',
@@ -2965,6 +2969,22 @@ async function syncData(silent=false, force=false, _snapData=null) {
     });
     // ⭐ v2.33: 변경 보호 적용 (status 변경 등 보호)
     entries = applyPendingChanges(entries, 'entries', 'id');
+    // ⭐ v2.79g: 구버전 페이지 감지 — 데이터에 이 화면이 모르는 작업 키가 있으면(=신버전이 배포됨)
+    //   상단에 새로고침 배너를 띄운다. 구버전으로 수리건을 수정하면 금액·작업이 깨지기 때문.
+    try {
+      const _unk = new Set();
+      entries.forEach(e => parseWorks(e.works).forEach(k => { if(!WORKS[k]) _unk.add(k); }));
+      let _vb = document.getElementById('ver-stale-banner');
+      if(_unk.size) {
+        if(!_vb) {
+          _vb = document.createElement('div');
+          _vb.id = 'ver-stale-banner';
+          _vb.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#dc2626;color:#fff;font-size:13px;font-weight:700;text-align:center;padding:10px 14px;box-shadow:0 2px 10px rgba(0,0,0,.3);';
+          _vb.innerHTML = '⚠ 전산 새 버전이 배포되었습니다 — 이 화면은 구버전이라 수리건 수정 시 금액이 깨질 수 있어요. 지금 새로고침해주세요. <button onclick="location.reload(true)" style="margin-left:10px;padding:4px 14px;border:none;border-radius:6px;background:#fff;color:#dc2626;font-weight:800;cursor:pointer;">🔄 새로고침</button>';
+          document.body.appendChild(_vb);
+        }
+      } else if(_vb) { _vb.remove(); }
+    } catch(e) {}
     // workers: 'name::T2::part::status::dailyTarget::role::hireDate' 형식 지원
     const rawWorkers = data.workers || [];
     __applyRawWorkers(rawWorkers);
@@ -3047,11 +3067,12 @@ async function syncData(silent=false, force=false, _snapData=null) {
       if(ps.pcb)    WORKS.pcb.price    = ps.pcb;
       if(ps.panel)  WORKS.panel.price  = ps.panel;
       if(ps.board)  WORKS.board.price  = ps.board;
-      // ⭐ v2.79: 단가 개편 — 서버 단가 설정이 아직 구단가(논배 18,700)면 무시하고 새 단가 체계 유지.
-      //   (구단가 18,700은 '논배터리+백커버 통합' 시절 값 — 분리 후엔 10,800이 맞음.
-      //    관리자 → 단가 설정에서 논배터리를 10,800으로 바꾸면 그 값을 그대로 따름)
-      if(ps.nonbat && Number(ps.nonbat) !== 18700) WORKS.nonbat.price = ps.nonbat;
-      if(ps.nonbat_full) WORKS.nonbat_full.price = ps.nonbat_full;   // ⭐ v2.79e: 백커버 포함 논배 (독립 작업)
+      // ⭐ v2.79h: nonbat = 백커버 포함(18,700) 원복 — 논배 단가 오버라이드는
+      //   신 체계로 저장된 설정(ps.nonbat_nc 존재)일 때만 신뢰 (과도기의 10,800 잔존값 무시)
+      if(ps.nonbat_nc) {
+        if(ps.nonbat) WORKS.nonbat.price = ps.nonbat;
+        WORKS.nonbat_nc.price = ps.nonbat_nc;
+      }
       if(ps.cover)   WORKS.cover.price   = ps.cover;
       if(ps.battery) WORKS.battery.price = ps.battery;
       if(ps.etc)     WORKS.etc.price     = ps.etc;
@@ -8255,7 +8276,7 @@ function getFilteredShipHistory() {
       const works = e ? parseWorks(e.works) : [];
       if(svTypeFilter === 'single')  return works.length === 1;
       if(svTypeFilter === 'multi')   return works.length >= 2;
-      if(svTypeFilter === 'nonbat')  return works.includes('nonbat') || works.includes('nonbat_full');   // ⭐ v2.79e
+      if(svTypeFilter === 'nonbat')  return works.includes('nonbat') || works.includes('nonbat_nc') || works.includes('nonbat_full');   // ⭐ v2.79h
       return true;
     });
   }
@@ -8340,7 +8361,7 @@ function renderShipDashboard(list) {
   const workCount = { pcb:0, panel:0, board:0, nonbat:0 };
   mapped.forEach(x => {
     // ⭐ v2.79e: 논배터리(백커버 포함)도 이 차트에서는 '논배터리'로 합산
-    const usedKeys = new Set(x.works.map(k => k === 'nonbat_full' ? 'nonbat' : k));
+    const usedKeys = new Set(x.works.map(k => (k === 'nonbat_full' || k === 'nonbat_nc') ? 'nonbat' : k));   // ⭐ v2.79h: 논배 계열 합산
     usedKeys.forEach(k => { if(workCount[k]!==undefined) workCount[k]++; });
   });
   // 도넛차트: 논배터리 제외 (항상 100%라 의미 없음)
@@ -8525,16 +8546,17 @@ function renderShipDashboard(list) {
 
   // ─── 절감 효과 1: 논배터리 공임비+부품비 vs 새제품 ───
   // 논배터리 공임비 단가
-  // ⭐ v2.79e: 논배 2종(백커버 포함/미포함) 각각의 단가로 계산
+  // ⭐ v2.79h: 논배 2종(포함 nonbat=18,700 / 미포함 nonbat_nc=10,800) 각각의 단가로 계산
   const PP_NB = window.PARTS_PRICE || {};
-  const nonbatMapped = mapped.filter(x => x.works.includes('nonbat') || x.works.includes('nonbat_full'));
+  const _isNbWork = ws => ws.includes('nonbat') || ws.includes('nonbat_nc') || ws.includes('nonbat_full');
+  const nonbatMapped = mapped.filter(x => _isNbWork(x.works));
   const nonbatCount = nonbatMapped.length;
   const totalNonbatRepair = nonbatMapped.reduce((s, x) => {
     const modelParts = PP_NB.modelParts?.[x.model] || {};
-    const isFull = x.works.includes('nonbat_full');
-    const laborPer = isFull ? (WORKS.nonbat_full?.price || 18700) : (WORKS.nonbat?.price || 10800);
+    const isNc = x.works.includes('nonbat_nc') && !x.works.includes('nonbat') && !x.works.includes('nonbat_full');
+    const laborPer = isNc ? (WORKS.nonbat_nc?.price || 10800) : (WORKS.nonbat?.price || 18700);
     // 논배터리 항목의 부품비만
-    const nbPartsAmt = modelParts[isFull ? 'nonbat_full' : 'nonbat'] || modelParts['nonbat'] || 0;
+    const nbPartsAmt = modelParts['nonbat'] || 0;
     return s + laborPer + nbPartsAmt;
   }, 0);
   const totalNew2 = nonbatCount * NEW_PRODUCT_PRICE;
@@ -8662,10 +8684,10 @@ function renderShipAnalysis() {
   });
 
   const fmt = n => Number(n).toLocaleString();
-  const WORK_LABELS = { pcb:'PCB 교체', panel:'LCD 교체', board:'MB수리', nonbat_full:'논배터리+커버', nonbat:'논배터리', cover:'백커버', battery:'배터리', etc:'기타작업' };   // ⭐ v2.79e
-  const WORK_COLORS = { pcb:'#60a5fa', panel:'#34d399', board:'#c084fc', nonbat_full:'#fdba74', nonbat:'#fb923c', cover:'#fbbf24', battery:'#22d3ee', etc:'#9ca3af' };
-  const WORK_DARK   = { pcb:'#3b82f6', panel:'#10b981', board:'#a855f7', nonbat_full:'#c2410c', nonbat:'#f97316', cover:'#d97706', battery:'#0891b2', etc:'#6b7280' };
-  const WORK_KEYS   = ['nonbat_full','nonbat','battery','pcb','panel','board','cover','etc'];   // ⭐ v2.79e: 논배 2종·배터리·백커버 각각 집계
+  const WORK_LABELS = { pcb:'PCB 교체', panel:'LCD 교체', board:'MB수리', nonbat:'논배터리', nonbat_nc:'논배터리(커버X)', nonbat_full:'논배터리', cover:'백커버', battery:'배터리', etc:'기타작업' };   // ⭐ v2.79h
+  const WORK_COLORS = { pcb:'#60a5fa', panel:'#34d399', board:'#c084fc', nonbat:'#fb923c', nonbat_nc:'#fdba74', nonbat_full:'#fb923c', cover:'#fbbf24', battery:'#22d3ee', etc:'#9ca3af' };
+  const WORK_DARK   = { pcb:'#3b82f6', panel:'#10b981', board:'#a855f7', nonbat:'#f97316', nonbat_nc:'#c2410c', nonbat_full:'#f97316', cover:'#d97706', battery:'#0891b2', etc:'#6b7280' };
+  const WORK_KEYS   = ['nonbat','nonbat_nc','battery','pcb','panel','board','cover','etc'];   // ⭐ v2.79h: 논배 포함/미포함·배터리·백커버 각각 집계
 
   // ① 수리항목별 발생 현황
   const workCount = {}; const workFee = {}; const workParts = {};
@@ -8673,15 +8695,13 @@ function renderShipAnalysis() {
   // 기종별 부품비 조회용
   const PP_WORK = window.PARTS_PRICE || {};
   mapped.forEach(x => {
-    const usedKeys = new Set(x.works);
+    // ⭐ v2.79h: 임시 키(nonbat_full)는 nonbat으로 합산 — nonbat=18,700(백커버 포함)이라 과거·현재 단가가 동일
+    const usedKeys = new Set(x.works.map(k => k === 'nonbat_full' ? 'nonbat' : k));
     const modelParts = PP_WORK.modelParts?.[x.model] || {};
     usedKeys.forEach(k => {
       if(workCount[k]!==undefined) {
         workCount[k]++;
-        // 해당 항목 공임비 단가 — ⭐ v2.79e: 현재 WORKS 단가 기준.
-        //   단, 단가 개편(2026-09) 이전의 'nonbat' 단독 기록은 구단가 18,700 시절 건이므로 18,700으로 집계
-        const _legacyNb = (k === 'nonbat' && String(x.shipDate || x.date || '') < '2026-09-03');
-        workFee[k] += _legacyNb ? 18700 : (WORKS[k]?.price || 0);
+        workFee[k] += WORKS[k]?.price || 0;
         // 해당 항목 부품비 (기종별)
         workParts[k] += modelParts[k] || 0;
       }
@@ -8757,8 +8777,9 @@ function renderShipAnalysis() {
   });
   const combos = Object.entries(comboMap).sort((a,b) => {
     // '논배터리 단일 작업' 조합만 최상단 고정, 나머지는 건수 내림차순
-    const aIsNonbatOnly = a[1].works.length === 1 && (a[1].works[0] === 'nonbat' || a[1].works[0] === 'nonbat_full') ? 1 : 0;   // ⭐ v2.79e
-    const bIsNonbatOnly = b[1].works.length === 1 && (b[1].works[0] === 'nonbat' || b[1].works[0] === 'nonbat_full') ? 1 : 0;
+    const _nbOnly = w => w.length === 1 && ['nonbat','nonbat_nc','nonbat_full'].includes(w[0]);   // ⭐ v2.79h
+    const aIsNonbatOnly = _nbOnly(a[1].works) ? 1 : 0;
+    const bIsNonbatOnly = _nbOnly(b[1].works) ? 1 : 0;
     if(aIsNonbatOnly !== bIsNonbatOnly) return bIsNonbatOnly - aIsNonbatOnly;
     return b[1].count - a[1].count;
   });
@@ -8807,8 +8828,8 @@ function renderShipAnalysis() {
   mapped.forEach(x => {
     const ws = x.works || [];
     // ⭐ v2.79e: 논배 2종 모두 논배터리화로 집계 — 백커버·기타는 '다른 수리'로 치지 않음
-    const NB_SET = ['nonbat', 'nonbat_full', 'cover'];
-    if(!ws.includes('nonbat') && !ws.includes('nonbat_full')) return;
+    const NB_SET = ['nonbat', 'nonbat_nc', 'nonbat_full', 'cover'];   // ⭐ v2.79h
+    if(!ws.includes('nonbat') && !ws.includes('nonbat_nc') && !ws.includes('nonbat_full')) return;
     const hasOther = ws.some(k => !NB_SET.includes(k));
     if(hasOther) repairNonbat++; else simpleNonbat++;
   });
@@ -9548,9 +9569,9 @@ function exportShippingXlsx() {
 /* ===== ⭐ 작업별 부품 매핑 설정 ===== */
 // 수리 작업 목록 (WORKS 키 + 라벨)
 const WORKPARTS_JOBS = [
-  // ⭐ v2.79e: 논배터리 2종(백커버 포함/미포함)을 각각 매핑 — 포함은 백커버·후면필름까지, 미포함은 제외하고 설정
-  { key:'nonbat_full', label:'논배터리 작업 (백커버 포함)', color:'#c2410c', bg:'#ffedd5' },
-  { key:'nonbat', label:'논배터리 작업 (백커버 미포함)', color:'#ea580c', bg:'#ffedd5' },
+  // ⭐ v2.79h: nonbat = 백커버 포함(기존 매핑 그대로 유효) / nonbat_nc = 미포함(백커버·후면필름 제외 구성)
+  { key:'nonbat', label:'논배터리 작업 (백커버 포함)', color:'#ea580c', bg:'#ffedd5' },
+  { key:'nonbat_nc', label:'논배터리 작업 (백커버 미포함)', color:'#c2410c', bg:'#ffedd5' },
   { key:'battery',label:'배터리 교체',    color:'#0891b2', bg:'#cffafe' },
   { key:'pcb',    label:'PCB 교체',     color:'#2563eb', bg:'#dbeafe' },
   { key:'panel',  label:'패널(LCD) 교체', color:'#16a34a', bg:'#dcfce7' },
@@ -9866,67 +9887,94 @@ function removeModelFromPrice(model) {
   notify(`${model} 삭제됨`);
 }
 
-/* ⭐ v2.79f: 단가 개편 이행 도구 — 개편 이후 '논배(미포함)'으로 잘못 등록된 건을
-   '논배(백커버 포함)'으로 일괄 전환. 판정: works에 nonbat만 있고(cover/nonbat_full 없음),
-   저장 공임이 신단가 합계와 정확히 일치(= 신단가 체계로 저장됨)하며, 개편일(2026-09-03) 이후 등록. */
+/* ⭐ v2.79h: 단가 개편 이행 도구 */
+/* ⭐ v2.79h: 이행 도구 — 목표 상태는 '개편 이전과 동일한 nonbat(백커버 포함, 18,700) 표기'.
+   9/3 하루 동안 생긴 어긋남을 전부 원상 복구한다 (개편일 이후, 무상 0원 제외):
+   · 키정리   works에 임시 키(nonbat_full)가 있음            → nonbat으로 되돌리고 총액 = 신단가 합계 (금액 변동 없음이 정상)
+   · 금액복구 논배 건인데 총액이 미포함가(−7,900) 또는
+              구버전 중복추가(+10,800)로 어긋남               → 총액만 신단가 합계로 재계산
+   · 작업복원 총액 = 합계 + 18,700 (논배가 목록에서 빠진 흔적) → works에 nonbat 복원 (총액 유지)
+   그 외 불일치는 자동 수정 없이 '수동 확인' 목록으로만 표시 */
 function _nbMigScan() {
   const NEWP = k => WORKS[k]?.price || 0;
-  return (entries || []).filter(e => {
+  const out = [];
+  (entries || []).forEach(e => {
+    if(String(e.date) < '2026-09-03') return;
     const ws = parseWorks(e.works);
-    if(!ws.includes('nonbat') || ws.includes('cover') || ws.includes('nonbat_full')) return false;
-    if(String(e.date) < '2026-09-03') return false;
-    const newSum = ws.reduce((s,k) => s + NEWP(k), 0);
-    return Number(e.total) === newSum;
+    const t = Number(e.total);
+    if(!ws.length || t === 0) return;   // 무상 재작업(0원) 등 제외
+    // 임시 키 정리: nonbat_full → nonbat (중복 제거)
+    let tgtWorks = [];
+    ws.forEach(k => { const nk = (k === 'nonbat_full') ? 'nonbat' : k; if(!tgtWorks.includes(nk)) tgtWorks.push(nk); });
+    const renamed = JSON.stringify(tgtWorks) !== JSON.stringify(ws);
+    const newSum = tgtWorks.reduce((s,k) => s + NEWP(k), 0);
+    let type = null, tgtTotal = t;
+    if(renamed) {
+      type = '키정리'; tgtTotal = newSum;
+    } else if(t !== newSum) {
+      const hasNb = tgtWorks.includes('nonbat');
+      const D = NEWP('nonbat') - NEWP('nonbat_nc');   // 7,900
+      if(hasNb && (t === newSum - D || t === newSum + NEWP('nonbat_nc'))) {
+        type = '금액복구'; tgtTotal = newSum;          // 미포함가 저장 / 구버전 중복추가
+      } else if(!hasNb && !tgtWorks.includes('nonbat_nc') && t === newSum + NEWP('nonbat')) {
+        type = '작업복원'; tgtWorks = ['nonbat', ...tgtWorks];   // 목록에서 빠진 논배 복원
+      } else {
+        type = 'MANUAL';
+      }
+    }
+    if(type && !(type !== 'MANUAL' && tgtTotal === t && JSON.stringify(tgtWorks) === JSON.stringify(ws)))
+      out.push({ e, type, ws, t, tgtWorks, tgtTotal });
   });
+  return out;
 }
+const _NBMIG_TYPE_KO = { '키정리':'키정리', '금액복구':'금액복구', '작업복원':'작업복원', MANUAL:'⚠ 수동 확인' };
 function scanNbMigration() {
   if(!isFullAdmin()) { notify('마스터만 실행할 수 있습니다.','error'); return; }
-  const list = _nbMigScan();
-  window._nbMigList = list;
+  if(!window._dataLoaded) { notify('데이터 로딩이 끝난 뒤 다시 검색해주세요.','error'); return; }
+  const all = _nbMigScan();
+  const fixable = all.filter(x => x.type !== 'MANUAL');
+  window._nbMigList = fixable;
   const st = document.getElementById('nbmig-status');
   const box = document.getElementById('nbmig-list');
   const runBtn = document.getElementById('nbmig-run-btn');
-  if(!list.length) {
-    st.textContent = '전환 대상이 없습니다. ✅';
+  if(!all.length) {
+    st.textContent = '전환·복구 대상이 없습니다. ✅';
     box.innerHTML = ''; runBtn.style.display = 'none';
     return;
   }
-  const diff = (WORKS.nonbat_full?.price || 18700) - (WORKS.nonbat?.price || 10800);
-  st.textContent = `대상 ${list.length}건 · 전환 시 공임 +${fmt(diff * list.length)}원 (건당 +${fmt(diff)}원)`;
-  box.innerHTML = list.map(e => `<div>${escapeHtml(String(e.serial))} · ${String(e.date).slice(5,16).replace('T',' ')} · ${escapeHtml(String(e.worker||'').split('::')[0])} · ${parseWorks(e.works).join('+')} · ${fmt(e.total)}원 → ${fmt(Number(e.total)+diff)}원</div>`).join('');
-  runBtn.style.display = '';
+  const totDelta = fixable.reduce((s,x) => s + (x.tgtTotal - x.t), 0);
+  st.textContent = `자동 처리 ${fixable.length}건 (공임 ${totDelta>=0?'+':''}${fmt(totDelta)}원)` + (all.length>fixable.length ? ` · 수동 확인 ${all.length-fixable.length}건` : '');
+  box.innerHTML = all.map(x => `<div>[${_NBMIG_TYPE_KO[x.type]}] ${escapeHtml(String(x.e.serial))} · ${String(x.e.date).slice(5,16).replace('T',' ')} · ${escapeHtml(String(x.e.worker||'').split('::')[0])} · ${x.ws.join('+')} ${fmt(x.t)}원${x.type!=='MANUAL' ? ` → ${x.tgtWorks.join('+')} ${fmt(x.tgtTotal)}원` : ' — 목록과 총액이 규칙에 안 맞음, 수리 이력에서 직접 확인'}</div>`).join('');
+  runBtn.style.display = fixable.length ? '' : 'none';
 }
 async function runNbMigration() {
   if(!isFullAdmin()) { notify('마스터만 실행할 수 있습니다.','error'); return; }
   const list = window._nbMigList || [];
   if(!list.length) { notify('먼저 [대상 검색]을 눌러주세요.','error'); return; }
-  const diff = (WORKS.nonbat_full?.price || 18700) - (WORKS.nonbat?.price || 10800);
-  if(!confirm(`${list.length}건을 '논배터리 (백커버 교체 포함)'으로 전환합니다.\n공임이 건당 +${fmt(diff)}원 (총 +${fmt(diff*list.length)}원) 조정됩니다.\n부품·재고는 변경되지 않습니다. 진행할까요?`)) return;
+  const totDelta = list.reduce((s,x) => s + (x.tgtTotal - x.t), 0);
+  if(!confirm(`${list.length}건을 전환·복구합니다.\n공임 조정 합계: ${totDelta>=0?'+':''}${fmt(totDelta)}원\n부품·재고는 변경되지 않습니다. 진행할까요?`)) return;
   const st = document.getElementById('nbmig-status');
   const runBtn = document.getElementById('nbmig-run-btn');
   runBtn.disabled = true;
   let ok = 0, fail = [];
   for(let i = 0; i < list.length; i++) {
-    const e = list[i];
-    st.textContent = `전환 중... ${i+1}/${list.length}`;
+    const x = list[i];
+    st.textContent = `처리 중... ${i+1}/${list.length}`;
     try {
-      const ws = parseWorks(e.works).map(k => k === 'nonbat' ? 'nonbat_full' : k);
-      const newTotal = Number(e.total) + diff;
-      // parts는 그대로 재전송 (재고 delta 없음)
-      const partsSafe = Object.entries((e.parts && typeof e.parts === 'object') ? e.parts : {})
+      const partsSafe = Object.entries((x.e.parts && typeof x.e.parts === 'object') ? x.e.parts : {})
         .map(([k,v]) => encodeURIComponent(k) + '=' + v).join('|');
-      const r = await gasCall({ action:'edit', id:String(e.id), works:JSON.stringify(ws), total:newTotal,
-        note:String(e.note||''), parts:partsSafe, serial:String(e.serial||''), model:String(e.model||'') });
-      if(r && r.ok === false) { fail.push(e.serial); continue; }
-      e.works = ws; e.total = newTotal;   // 로컬 즉시 반영
+      const r = await gasCall({ action:'edit', id:String(x.e.id), works:JSON.stringify(x.tgtWorks), total:x.tgtTotal,
+        note:String(x.e.note||''), parts:partsSafe, serial:String(x.e.serial||''), model:String(x.e.model||'') });
+      if(r && r.ok === false) { fail.push(x.e.serial); continue; }
+      x.e.works = x.tgtWorks; x.e.total = x.tgtTotal;   // 로컬 즉시 반영
       ok++;
-    } catch(err) { fail.push(e.serial); }
+    } catch(err) { fail.push(x.e.serial); }
   }
   runBtn.disabled = false; runBtn.style.display = 'none';
   window._nbMigList = [];
-  st.textContent = `완료: ${ok}건 전환${fail.length ? ` · 실패 ${fail.length}건 (${fail.slice(0,5).join(', ')}${fail.length>5?' 외':''}) — [대상 검색]으로 재확인 후 다시 실행하세요` : ' ✅'}`;
+  st.textContent = `완료: ${ok}건 처리${fail.length ? ` · 실패 ${fail.length}건 (${fail.slice(0,5).join(', ')}${fail.length>5?' 외':''}) — [대상 검색]으로 재확인 후 다시 실행하세요` : ' ✅'}`;
   try { renderAll(); } catch(err) {}
-  notify(fail.length ? `⚠ ${ok}건 전환, ${fail.length}건 실패 — 다시 검색해 재실행하세요.` : `✅ ${ok}건 전환 완료 (+${fmt(diff*ok)}원)`);
+  notify(fail.length ? `⚠ ${ok}건 처리, ${fail.length}건 실패 — 다시 검색해 재실행하세요.` : `✅ ${ok}건 전환·복구 완료`);
 }
 
 function savePriceSettings() {
@@ -9940,8 +9988,8 @@ function savePriceSettings() {
   const panel  = Number(document.getElementById('price-panel')?.value)  || WORKS.panel.price;
   const board  = Number(document.getElementById('price-board')?.value)  || WORKS.board.price;
   const nonbat = Number(document.getElementById('price-nonbat')?.value) || WORKS.nonbat.price;
-  // ⭐ v2.79e: 신규 단가 체계 항목 (논배 백커버포함/배터리/백커버/기타)
-  const nonbat_full = Number(document.getElementById('price-nonbat_full')?.value) || WORKS.nonbat_full.price;
+  // ⭐ v2.79h: 신규 단가 체계 항목 (논배 미포함/배터리/백커버/기타)
+  const nonbat_nc   = Number(document.getElementById('price-nonbat_nc')?.value)   || WORKS.nonbat_nc.price;
   const battery     = Number(document.getElementById('price-battery')?.value)     || WORKS.battery.price;
   const cover       = Number(document.getElementById('price-cover')?.value)       || WORKS.cover.price;
   const etc         = Number(document.getElementById('price-etc')?.value)         || WORKS.etc.price;
@@ -9951,7 +9999,7 @@ function savePriceSettings() {
   WORKS.panel.price  = panel;
   WORKS.board.price  = board;
   WORKS.nonbat.price = nonbat;
-  WORKS.nonbat_full.price = nonbat_full;
+  WORKS.nonbat_nc.price = nonbat_nc;
   WORKS.battery.price = battery;
   WORKS.cover.price   = cover;
   WORKS.etc.price     = etc;
@@ -9979,7 +10027,7 @@ function savePriceSettings() {
 
   window.PARTS_PRICE = { modelParts };
 
-  const settingsObj = { pcb, panel, board, nonbat, nonbat_full, battery, cover, etc, newProduct: np, modelParts };   // ⭐ v2.79e
+  const settingsObj = { pcb, panel, board, nonbat, nonbat_nc, battery, cover, etc, newProduct: np, modelParts };   // ⭐ v2.79h
   const saved = JSON.parse(localStorage.getItem('formsPriceSettings') || '{}');
   localStorage.setItem('formsPriceSettings', JSON.stringify({ ...saved, ...settingsObj }));
 
@@ -10008,8 +10056,11 @@ function loadPriceSettings() {
     if(saved.pcb)    { WORKS.pcb.price    = saved.pcb;    const el=document.getElementById('price-pcb');    if(el) el.value=saved.pcb; }
     if(saved.panel)  { WORKS.panel.price  = saved.panel;  const el=document.getElementById('price-panel');  if(el) el.value=saved.panel; }
     if(saved.board)  { WORKS.board.price  = saved.board;  const el=document.getElementById('price-board');  if(el) el.value=saved.board; }
-    if(saved.nonbat && Number(saved.nonbat) !== 18700) { WORKS.nonbat.price = saved.nonbat; const el=document.getElementById('price-nonbat'); if(el) el.value=saved.nonbat; }   // ⭐ v2.79e: 구단가 18,700 잔존값 무시
-    if(saved.nonbat_full) { WORKS.nonbat_full.price = saved.nonbat_full; const el=document.getElementById('price-nonbat_full'); if(el) el.value=saved.nonbat_full; }
+    // ⭐ v2.79h: 논배 단가는 신 체계 설정(saved.nonbat_nc 존재)일 때만 적용 — 과도기 10,800 잔존값 무시
+    if(saved.nonbat_nc) {
+      if(saved.nonbat) { WORKS.nonbat.price = saved.nonbat; const el=document.getElementById('price-nonbat'); if(el) el.value=saved.nonbat; }
+      { WORKS.nonbat_nc.price = saved.nonbat_nc; const el=document.getElementById('price-nonbat_nc'); if(el) el.value=saved.nonbat_nc; }
+    }
     if(saved.battery)     { WORKS.battery.price = saved.battery;         const el=document.getElementById('price-battery');     if(el) el.value=saved.battery; }
     if(saved.cover)       { WORKS.cover.price = saved.cover;             const el=document.getElementById('price-cover');       if(el) el.value=saved.cover; }
     if(saved.etc)         { WORKS.etc.price = saved.etc;                 const el=document.getElementById('price-etc');         if(el) el.value=saved.etc; }
@@ -10875,7 +10926,7 @@ async function syncDataForEngrave() {
     if(data.agingDurationMs) agingDurationMs = Number(data.agingDurationMs);
 
     console.log('[ENGRAVE] entries 파싱 완료:', entries.length, '건 · inspections:', inspections.length, '건');
-    const nonbatCount = entries.filter(e => Array.isArray(e.works) && (e.works.includes('nonbat') || e.works.includes('nonbat_full'))).length;   // ⭐ v2.79e
+    const nonbatCount = entries.filter(e => Array.isArray(e.works) && (e.works.includes('nonbat') || e.works.includes('nonbat_nc') || e.works.includes('nonbat_full'))).length;   // ⭐ v2.79h
     console.log('[ENGRAVE] 논배터리 작업:', nonbatCount, '건');
 
     renderEngravePage();
@@ -11094,10 +11145,11 @@ async function _autoRefreshOnTabSwitch(name) {
 
 /* 체크박스 */
 // ⭐ v2.5: 수리 항목 표시 순서 (논배터리/배터리 먼저, 그 다음 PCB/패널/메인보드)
-const WORK_DISPLAY_ORDER = ['nonbat_full', 'nonbat', 'battery', 'pcb', 'panel', 'etc', 'cover', 'board'];   // ⭐ v2.79e: 등록 화면 배치와 동일 순서
+// ⭐ v2.79h: nonbat=포함(기본)·nonbat_nc=미포함. 말미의 nonbat_full은 이행 완료 전 임시 키 렌더 호환용
+const WORK_DISPLAY_ORDER = ['nonbat', 'nonbat_nc', 'battery', 'pcb', 'panel', 'etc', 'cover', 'board', 'nonbat_full'];
 // ⭐ v2.6: 행 분리 (1행: 논배터리/배터리, 2행: PCB/패널/메인보드/기타)
 // ⭐ v2.79e: 3행 배치 — 1행 핵심(논배 포함·논배 미포함·배터리) / 2행 PCB·패널 / 3행 기타·백커버·메인보드
-const WORK_ROW1 = ['nonbat_full', 'nonbat', 'battery'];
+const WORK_ROW1 = ['nonbat', 'nonbat_nc', 'battery'];
 const WORK_ROW3 = ['etc', 'cover', 'board'];
 const WORK_ROW2 = ['pcb', 'panel'];
 
@@ -11155,7 +11207,7 @@ function buildChecks() {
   const model = getModel();
   const _rw = ks => ks.filter(k => WORKS[k]).map(k => _renderWorkCheckHTML(k, WORKS[k], model)).join('');
   // ⭐ v2.79e: 3행 배치 — 1행 논배(백커버 포함)·논배(미포함)·배터리 / 2행 PCB·패널 / 3행 기타·백커버·메인보드
-  //   '백커버 포함'은 독립 작업(nonbat_full)이라 데이터에도 1개 작업으로 기록됨 (자동 동시선택 없음)
+  //   ⭐ v2.79h: 1행 = 논배(포함·기본 nonbat) / 논배(미포함 nonbat_nc) / 배터리
   document.getElementById('work-checks').innerHTML = `
     <div class="work-row-1" style="display:grid !important;grid-template-columns:1fr 1fr 1fr !important;gap:10px;margin-bottom:10px;">${_rw(WORK_ROW1)}</div>
     <div class="work-row-2" style="display:grid !important;grid-template-columns:1fr 1fr !important;gap:10px;margin-bottom:10px;">${_rw(WORK_ROW2)}</div>
@@ -11165,7 +11217,7 @@ function buildChecks() {
 
 /* ⭐ v2.79e: 논배터리(백커버 포함)와 논배터리(미포함)/백커버 교체는 의미가 겹치므로 동시 선택 방지 —
    나중에 체크한 쪽을 살리고 겹치는 쪽을 자동 해제 (등록: prefix 'wc-' / 수정: 'ewc-' / 교품: 'exc-wc-') */
-const NB_EXCLUSIVE = { nonbat_full: ['nonbat', 'cover'], nonbat: ['nonbat_full'], cover: ['nonbat_full'] };
+const NB_EXCLUSIVE = { nonbat: ['nonbat_nc', 'cover'], nonbat_nc: ['nonbat'], cover: ['nonbat'] };   // ⭐ v2.79h
 function nbExclusive(k, prefix) {
   const others = NB_EXCLUSIVE[k];
   if(!others) return;
@@ -11424,12 +11476,12 @@ async function addEntry() {
   if(!works.length){ notify('수리 항목을 하나 이상 선택하세요.','error'); return; }
   if(busy){ notify('처리 중입니다. 잠시 기다려주세요.','error'); return; }
 
-  // ⭐ v2.79f: '논배터리 (백커버 미포함)' 단독 등록 확인 — 옛 습관대로 '논배터리'만 눌러
-  //   백커버 포함 작업(18,700원)이 미포함(10,800원)으로 등록되는 것 방지
-  if(works.includes('nonbat') && !works.includes('nonbat_full') && !works.includes('cover')) {
+  // ⭐ v2.79h: '논배터리 (백커버 미포함)' 등록 확인 — 미포함은 드문 작업(커버 재사용)이라
+  //   실수로 선택했을 가능성이 높아 한 번 확인 (일반 논배터리 작업은 '백커버 포함'이 기본)
+  if(works.includes('nonbat_nc') && !works.includes('nonbat') && !works.includes('cover')) {
     if(window._nbCoverOk !== true) {
       openModal('🔧 백커버 교체 확인',
-        `'논배터리 작업 (백커버 교체 미포함)' — 공임 ${fmt(WORKS.nonbat.price)}원으로 등록됩니다.\n\n· 백커버까지 교체한 작업이라면 → 닫은 뒤 '논배터리 작업 (백커버 교체 포함)' 항목을 선택하세요.\n· 백커버를 재사용(미교체)한 게 맞다면 → [미포함으로 등록]을 누르세요.`,
+        `'논배터리 작업 (백커버 교체 미포함)' — 공임 ${fmt(WORKS.nonbat_nc.price)}원으로 등록됩니다.\n\n· 백커버까지 교체한 일반 논배터리 작업이라면 → 닫은 뒤 첫 번째 '논배터리 작업 (백커버 교체 포함)' 항목을 선택하세요.\n· 백커버를 재사용(미교체)한 게 맞다면 → [미포함으로 등록]을 누르세요.`,
         () => { window._nbCoverOk = true; addEntry(); }, '미포함으로 등록', 'btn-primary');
       return;
     }
@@ -11447,7 +11499,7 @@ async function addEntry() {
   // (N 표식 = "논배터리 전환 완료" 의미. 배터리 교체·PCB/LCD/MB만 하는 경우는 추가 X)
   // ⭐ v2.79b: 5기종 체계 — N 없는 시리얼은 S2/S2PRO(배터리 유지)로 감지되므로 그 표기도 부착 대상에 포함
   const detectedModel = detectModel(serial);
-  const isNonBatWork = works.includes('nonbat') || works.includes('nonbat_full');   // ⭐ v2.79e: 논배 2종 모두
+  const isNonBatWork = works.includes('nonbat') || works.includes('nonbat_nc') || works.includes('nonbat_full');   // ⭐ v2.79h: 논배 계열 전부
   if(isNonBatWork && ['S2PRO_N','S2_N','S2PRO','S2'].includes(detectedModel) && !serial.endsWith('N')) {
     serial = serial + 'N';
     document.getElementById('inp-serial').value = serial;
@@ -12272,7 +12324,7 @@ function buildTripleWorkHtml() {
     const ws = parseWorks(e.works).map(x => String(x));
     const has = (key, pats) => ws.some(x => x === key || pats.some(t => x.includes(t)));
     return has('panel', ['LCD', '패널'])
-        && has('nonbat', ['nonbat_full', '논배터리'])   // ⭐ v2.79e: 백커버 포함 논배(nonbat_full)도 인정
+        && has('nonbat', ['nonbat_nc', 'nonbat_full', '논배터리'])   // ⭐ v2.79h: 논배 계열 전부 인정
         && has('board', ['메인보드', 'MB']);
   };
   const tripleList = all.filter(isTriple);
@@ -12966,7 +13018,7 @@ async function openEditModal(id) {
   if(modelInput) modelInput.value = e.model || '';
   const ws = parseWorks(e.works);
   const orderedEditEntries = WORK_DISPLAY_ORDER
-    .filter(k => WORKS[k])
+    .filter(k => WORKS[k] && (k !== 'nonbat_full' || ws.includes(k)))   // ⭐ v2.79h: 임시 키는 해당 건에만 표시
     .map(k => [k, WORKS[k]]);
   document.getElementById('edit-work-checks').innerHTML = orderedEditEntries.map(([k,v])=>{
     return `
@@ -13215,13 +13267,21 @@ async function saveEdit() {
     const origEntry = entries.find(x => String(x.id) === String(editTargetId));
     const origWorks = origEntry ? parseWorks(origEntry.works) : [];
     const origTotal = origEntry ? Number(origEntry.total) : 0;
+    // ⭐ v2.79g: 이 화면이 모르는 작업 키가 있으면 수정 차단 — 구버전 페이지가 신버전 데이터를
+    //   수정하면 그 작업을 0원 취급+목록에서 누락시켜 총액이 깨진다 (2026-09-03 실제 발생 사고)
+    const _unknownWk = origWorks.filter(k => !WORKS[k]);
+    if(_unknownWk.length) {
+      notify(`⚠ 이 수리건에 현재 화면이 모르는 작업(${_unknownWk.join(', ')})이 있어요 — 전산이 구버전입니다. Ctrl+F5(강력 새로고침) 후 다시 수정해주세요.`, 'error');
+      btn.disabled = false; btn.textContent = '저장';
+      return;
+    }
     // 추가된 항목: 현재 단가 더함
     const added   = works.filter(k => !origWorks.includes(k));
     // 제거된 항목: 원본 total에서 현재 단가 뺌
     const removed = origWorks.filter(k => !works.includes(k));
-    // ⭐ v2.79f: 수정에서 '논배(미포함)'을 새로 추가하는데 백커버/포함 항목이 없으면 확인
-    if(added.includes('nonbat') && !works.includes('nonbat_full') && !works.includes('cover')) {
-      if(!window.confirm(`'논배터리 작업 (백커버 교체 미포함)' — ${fmt(WORKS.nonbat.price)}원으로 저장합니다.\n\n백커버까지 교체한 작업이라면 [취소] 후 '논배터리 작업 (백커버 교체 포함)'을 선택하세요.`)) {
+    // ⭐ v2.79h: 수정에서 '논배(미포함)'을 새로 추가하면 확인 (미포함은 드문 작업)
+    if(added.includes('nonbat_nc') && !works.includes('nonbat') && !works.includes('cover')) {
+      if(!window.confirm(`'논배터리 작업 (백커버 교체 미포함)' — ${fmt(WORKS.nonbat_nc.price)}원으로 저장합니다.\n\n백커버까지 교체한 일반 논배터리 작업이라면 [취소] 후 '논배터리 작업 (백커버 교체 포함)'을 선택하세요.`)) {
         btn.disabled = false; btn.textContent = '저장';
         return;
       }
@@ -13275,7 +13335,7 @@ async function saveEdit() {
     if(dup){ notify(`이미 등록된 시리얼입니다 (${dup.worker}).`,'error'); btn.disabled=false; btn.textContent='저장'; return; }
     // ⭐ v2.78: 시리얼을 실제로 바꿨을 때만 형식·자릿수 검증 (자릿수 누락 오타 방지)
     if(_serialChanged) {
-      const _svE = validateSerialFormat(newSerial, newModel, Array.isArray(works) && (works.includes('nonbat') || works.includes('nonbat_full')));   // ⭐ v2.79a/e
+      const _svE = validateSerialFormat(newSerial, newModel, Array.isArray(works) && (works.includes('nonbat') || works.includes('nonbat_nc') || works.includes('nonbat_full')));   // ⭐ v2.79a/h
       if(_svE && _svE.level === 'block') { notify(_svE.msg,'error'); btn.disabled=false; btn.textContent='저장'; return; }
       if(_svE && _svE.level === 'warn') {
         if(!window.confirm('⚠️ 시리얼 확인\n\n' + _svE.msg + '\n\n실물 라벨과 일치한다면 [확인]을 눌러 이대로 저장하세요.')) {
@@ -14278,7 +14338,7 @@ function resetExcForm() {
   document.getElementById('exc-reason').value = '비용초과';
   // 체크박스: 논배(백커버 포함)+pcb+panel 디폴트   // ⭐ v2.79e
   document.querySelectorAll('#exc-works-wrap input[type=checkbox]').forEach(cb => {
-    cb.checked = ['nonbat_full','pcb','panel'].includes(cb.value);
+    cb.checked = ['nonbat','pcb','panel'].includes(cb.value);   // ⭐ v2.79h: 논배(포함) 기본
   });
   excUpdatePreview();
 }
@@ -14626,8 +14686,8 @@ function openHistDropdown(type, thEl) {
     border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);min-width:200px;padding:8px 0;font-size:13px;`;
 
   const WORK_META = [
-    {key:'nonbat_full',label:'논배터리+커버',color:'#c2410c'},   // ⭐ v2.79e
     {key:'nonbat',label:'논배터리',color:'#f97316'},
+    {key:'nonbat_nc',label:'논배터리(커버X)',color:'#c2410c'},   // ⭐ v2.79h
     {key:'battery',label:'배터리', color:'#0891b2'},
     {key:'pcb',   label:'PCB 교체',color:'#3b82f6'},
     {key:'panel', label:'LCD 교체',color:'#10b981'},
@@ -14753,14 +14813,14 @@ function toggleHistWork(key, itemEl) {
   const idx = histFilter.works.indexOf(key);
   if(idx >= 0) histFilter.works.splice(idx, 1); else histFilter.works.push(key);
   // 체크 표시 즉시 갱신
-  const WORK_COLORS = {nonbat_full:'#c2410c',nonbat:'#f97316',battery:'#0891b2',pcb:'#3b82f6',panel:'#10b981',etc:'#6b7280',cover:'#d97706',board:'#a855f7'};   // ⭐ v2.79e
+  const WORK_COLORS = {nonbat:'#f97316',nonbat_nc:'#c2410c',nonbat_full:'#f97316',battery:'#0891b2',pcb:'#3b82f6',panel:'#10b981',etc:'#6b7280',cover:'#d97706',board:'#a855f7'};   // ⭐ v2.79h
   const checkEl = itemEl.querySelector('span');
   if(checkEl) { checkEl.style.color=WORK_COLORS[key]; checkEl.textContent=histFilter.works.includes(key)?'✓':''; }
   applyHistFilterDirect();
 }
 
 // 수리항목 칩 토글 (하위 호환 — 기존 칩 없으니 빈 함수만 유지)
-const CHIP_COLORS = { nonbat_full:'#c2410c', nonbat:'#f97316', battery:'#0891b2', pcb:'#3b82f6', panel:'#10b981', etc:'#6b7280', cover:'#d97706', board:'#a855f7' };   // ⭐ v2.79e
+const CHIP_COLORS = { nonbat:'#f97316', nonbat_nc:'#c2410c', nonbat_full:'#f97316', battery:'#0891b2', pcb:'#3b82f6', panel:'#10b981', etc:'#6b7280', cover:'#d97706', board:'#a855f7' };   // ⭐ v2.79h
 function toggleHistChip(el) {}
 
 function resetHistFilters() {
