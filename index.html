@@ -1588,6 +1588,21 @@ window.addEventListener('DOMContentLoaded', function(){
           </div>
         </div>
 
+        <!-- ⭐ v2.79f: 단가 개편 이행 도구 -->
+        <div style="margin-bottom:24px;padding:14px;border:1px dashed var(--border2);border-radius:10px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:6px;">⚡ 단가 개편 이행 도구 — 논배터리(미포함) 오등록 일괄 전환</div>
+          <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;">
+            개편 이후 '논배터리 (백커버 교체 미포함)'으로 등록됐지만 실제로는 백커버까지 교체한 작업을 찾아
+            <b>'백커버 교체 포함'(+7,900원)</b>으로 한 번에 바꿔요. 부품·재고는 건드리지 않아요.
+            커버를 정말 재사용한 건이 섞여 있으면 전환 후 그 건만 수정에서 되돌리세요.</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button class="btn" onclick="scanNbMigration()">🔍 대상 검색</button>
+            <button class="btn btn-primary" id="nbmig-run-btn" onclick="runNbMigration()" style="display:none;">⚡ 일괄 전환 실행</button>
+            <span id="nbmig-status" style="font-size:12px;color:var(--text2);"></span>
+          </div>
+          <div id="nbmig-list" style="margin-top:10px;font-size:12px;font-family:'JetBrains Mono',monospace;line-height:1.8;max-height:180px;overflow-y:auto;"></div>
+        </div>
+
         <!-- 새제품 단가 -->
         <div style="margin-bottom:24px;">
           <div style="font-size:13px;font-weight:700;margin-bottom:10px;">📦 새제품 기준 단가</div>
@@ -9851,6 +9866,69 @@ function removeModelFromPrice(model) {
   notify(`${model} 삭제됨`);
 }
 
+/* ⭐ v2.79f: 단가 개편 이행 도구 — 개편 이후 '논배(미포함)'으로 잘못 등록된 건을
+   '논배(백커버 포함)'으로 일괄 전환. 판정: works에 nonbat만 있고(cover/nonbat_full 없음),
+   저장 공임이 신단가 합계와 정확히 일치(= 신단가 체계로 저장됨)하며, 개편일(2026-09-03) 이후 등록. */
+function _nbMigScan() {
+  const NEWP = k => WORKS[k]?.price || 0;
+  return (entries || []).filter(e => {
+    const ws = parseWorks(e.works);
+    if(!ws.includes('nonbat') || ws.includes('cover') || ws.includes('nonbat_full')) return false;
+    if(String(e.date) < '2026-09-03') return false;
+    const newSum = ws.reduce((s,k) => s + NEWP(k), 0);
+    return Number(e.total) === newSum;
+  });
+}
+function scanNbMigration() {
+  if(!isFullAdmin()) { notify('마스터만 실행할 수 있습니다.','error'); return; }
+  const list = _nbMigScan();
+  window._nbMigList = list;
+  const st = document.getElementById('nbmig-status');
+  const box = document.getElementById('nbmig-list');
+  const runBtn = document.getElementById('nbmig-run-btn');
+  if(!list.length) {
+    st.textContent = '전환 대상이 없습니다. ✅';
+    box.innerHTML = ''; runBtn.style.display = 'none';
+    return;
+  }
+  const diff = (WORKS.nonbat_full?.price || 18700) - (WORKS.nonbat?.price || 10800);
+  st.textContent = `대상 ${list.length}건 · 전환 시 공임 +${fmt(diff * list.length)}원 (건당 +${fmt(diff)}원)`;
+  box.innerHTML = list.map(e => `<div>${escapeHtml(String(e.serial))} · ${String(e.date).slice(5,16).replace('T',' ')} · ${escapeHtml(String(e.worker||'').split('::')[0])} · ${parseWorks(e.works).join('+')} · ${fmt(e.total)}원 → ${fmt(Number(e.total)+diff)}원</div>`).join('');
+  runBtn.style.display = '';
+}
+async function runNbMigration() {
+  if(!isFullAdmin()) { notify('마스터만 실행할 수 있습니다.','error'); return; }
+  const list = window._nbMigList || [];
+  if(!list.length) { notify('먼저 [대상 검색]을 눌러주세요.','error'); return; }
+  const diff = (WORKS.nonbat_full?.price || 18700) - (WORKS.nonbat?.price || 10800);
+  if(!confirm(`${list.length}건을 '논배터리 (백커버 교체 포함)'으로 전환합니다.\n공임이 건당 +${fmt(diff)}원 (총 +${fmt(diff*list.length)}원) 조정됩니다.\n부품·재고는 변경되지 않습니다. 진행할까요?`)) return;
+  const st = document.getElementById('nbmig-status');
+  const runBtn = document.getElementById('nbmig-run-btn');
+  runBtn.disabled = true;
+  let ok = 0, fail = [];
+  for(let i = 0; i < list.length; i++) {
+    const e = list[i];
+    st.textContent = `전환 중... ${i+1}/${list.length}`;
+    try {
+      const ws = parseWorks(e.works).map(k => k === 'nonbat' ? 'nonbat_full' : k);
+      const newTotal = Number(e.total) + diff;
+      // parts는 그대로 재전송 (재고 delta 없음)
+      const partsSafe = Object.entries((e.parts && typeof e.parts === 'object') ? e.parts : {})
+        .map(([k,v]) => encodeURIComponent(k) + '=' + v).join('|');
+      const r = await gasCall({ action:'edit', id:String(e.id), works:JSON.stringify(ws), total:newTotal,
+        note:String(e.note||''), parts:partsSafe, serial:String(e.serial||''), model:String(e.model||'') });
+      if(r && r.ok === false) { fail.push(e.serial); continue; }
+      e.works = ws; e.total = newTotal;   // 로컬 즉시 반영
+      ok++;
+    } catch(err) { fail.push(e.serial); }
+  }
+  runBtn.disabled = false; runBtn.style.display = 'none';
+  window._nbMigList = [];
+  st.textContent = `완료: ${ok}건 전환${fail.length ? ` · 실패 ${fail.length}건 (${fail.slice(0,5).join(', ')}${fail.length>5?' 외':''}) — [대상 검색]으로 재확인 후 다시 실행하세요` : ' ✅'}`;
+  try { renderAll(); } catch(err) {}
+  notify(fail.length ? `⚠ ${ok}건 전환, ${fail.length}건 실패 — 다시 검색해 재실행하세요.` : `✅ ${ok}건 전환 완료 (+${fmt(diff*ok)}원)`);
+}
+
 function savePriceSettings() {
   // ⭐ v2.66a: 데이터 미로드 상태 저장 차단 — 부품비가 로드 전(전부 0 표시)일 때 저장하면
   //   0이 서버를 통째로 덮어 기존 부품비가 소실됨 (실제 발생한 사고의 재발 방지)
@@ -11346,6 +11424,18 @@ async function addEntry() {
   if(!works.length){ notify('수리 항목을 하나 이상 선택하세요.','error'); return; }
   if(busy){ notify('처리 중입니다. 잠시 기다려주세요.','error'); return; }
 
+  // ⭐ v2.79f: '논배터리 (백커버 미포함)' 단독 등록 확인 — 옛 습관대로 '논배터리'만 눌러
+  //   백커버 포함 작업(18,700원)이 미포함(10,800원)으로 등록되는 것 방지
+  if(works.includes('nonbat') && !works.includes('nonbat_full') && !works.includes('cover')) {
+    if(window._nbCoverOk !== true) {
+      openModal('🔧 백커버 교체 확인',
+        `'논배터리 작업 (백커버 교체 미포함)' — 공임 ${fmt(WORKS.nonbat.price)}원으로 등록됩니다.\n\n· 백커버까지 교체한 작업이라면 → 닫은 뒤 '논배터리 작업 (백커버 교체 포함)' 항목을 선택하세요.\n· 백커버를 재사용(미교체)한 게 맞다면 → [미포함으로 등록]을 누르세요.`,
+        () => { window._nbCoverOk = true; addEntry(); }, '미포함으로 등록', 'btn-primary');
+      return;
+    }
+    // (플래그는 모든 확인 절차 통과 시점에 해제 — 시리얼 확인 모달 재진입 시 이중 질문 방지)
+  }
+
   // ⭐ v2.19: 사용자가 _N 또는 _ 형태로 입력해도 자동으로 _ 제거
   // (TO2311FB04596_N → TO2311FB04596N)
   if(serial.includes('_')) {
@@ -11391,11 +11481,12 @@ async function addEntry() {
   if(_sv && _sv.level === 'warn' && window._serialWarnOk !== serial) {
     openModal('⚠️ 시리얼 자릿수 확인', _sv.msg + '\n\n실물 라벨과 일치한다면 [확인]을 눌러 이대로 등록하세요.', () => {
       window._serialWarnOk = serial;
-      saveEntry();
+      addEntry();   // ⭐ v2.79f: 잘못된 함수명(saveEntry) 참조 수정 — 확인 후 등록이 조용히 실패하던 버그
     });
     return;
   }
   window._serialWarnOk = null;
+  window._nbCoverOk = false;   // ⭐ v2.79f: 백커버 확인 플래그 해제 (다음 등록 때 다시 확인)
 
 
   // ⭐ v2.78: T2N은 입고 불량증상 재현 여부 필수 + 재현 시 증상 기재 필수 (노트에 태그로 저장)
@@ -13128,6 +13219,13 @@ async function saveEdit() {
     const added   = works.filter(k => !origWorks.includes(k));
     // 제거된 항목: 원본 total에서 현재 단가 뺌
     const removed = origWorks.filter(k => !works.includes(k));
+    // ⭐ v2.79f: 수정에서 '논배(미포함)'을 새로 추가하는데 백커버/포함 항목이 없으면 확인
+    if(added.includes('nonbat') && !works.includes('nonbat_full') && !works.includes('cover')) {
+      if(!window.confirm(`'논배터리 작업 (백커버 교체 미포함)' — ${fmt(WORKS.nonbat.price)}원으로 저장합니다.\n\n백커버까지 교체한 작업이라면 [취소] 후 '논배터리 작업 (백커버 교체 포함)'을 선택하세요.`)) {
+        btn.disabled = false; btn.textContent = '저장';
+        return;
+      }
+    }
     const total = origTotal
       + added.reduce((s,k) => s + (WORKS[k]?.price||0), 0)
       - removed.reduce((s,k) => s + (WORKS[k]?.price||0), 0);
@@ -17105,7 +17203,7 @@ function _reconPartData(p) {
     const xy = parseXY(logs[0].note);
     base = { date:logs[0].date, qty: xy ? xy.from : null, label:'이력 시작' };
   }
-  if(!base) return { base:null, repairs:0, over:0, overList:[], manIn:0, manOut:0, sysOut:0, expected:Number(p.qty)||0 };
+  if(!base) return { base:null, repairs:0, over:0, overList:[], manIn:0, manOut:0, sysOut:0, doa:null, expected:Number(p.qty)||0 };
   // 기준 이후 로그만 (이력 시작 기준이면 첫 로그 포함)
   const win = logs.filter(l => base.label==='이력 시작' ? true : String(l.date) > String(base.date));
   // 시리얼별 순차감 · 수동(시리얼 없는) 입출고
@@ -17129,7 +17227,8 @@ function _reconPartData(p) {
   const overList = used.filter(([,v]) => v > baseQty).map(([s,v]) => ({ serial:s, net:v, over:v-baseQty }));
   const over = overList.reduce((s,x)=>s+x.over, 0);
   const sysOut = base.qty !== null ? (base.qty - (Number(p.qty)||0)) : null;
-  return { base, repairs, baseQty, over, overList, manIn, manOut, sysOut, expected:(Number(p.qty)||0) + over };
+  // ⭐ 기본 가정: 추가 사용은 DOA 등 실제 추가 소모 → 기대 실물 = 현재 장부 (불량 실물 입력 시 재계산)
+  return { base, repairs, baseQty, over, overList, manIn, manOut, sysOut, doa:null, expected:(Number(p.qty)||0) };
 }
 function renderStockAudit() {
   const el = document.getElementById('audit-content');
@@ -17145,11 +17244,12 @@ function renderStockAudit() {
   const fmtD = v => { const d = new Date(v); return isNaN(d) ? '' : `${d.getMonth()+1}/${d.getDate()}`; };
   window._reconCache = {};
   let h = `<div style="font-size:13px;color:var(--text2);margin-bottom:6px;">
-    부품별로 <b>직전 실사 이후</b>의 수리 사용량과 장부 차감을 대조해요. <b>기대 실물</b> = 현재 장부 + 과차감 의심 — 실물을 센 값이 이 수치와 맞으면 정상이에요.</div>
+    부품별로 <b>직전 실사 이후</b>의 수리 사용량과 장부 차감을 대조해요. <b>추가 사용</b> = 같은 수리건에 기준 수량(보통 1개)보다 많이 기록된 초과분 — 정상이라면 DOA(개봉 불량) 교체 등 실제 추가 소모예요.</div>
   <div style="font-size:11.5px;color:var(--text3);margin-bottom:14px;">
-    ⚠ 실물은 <b>사용 가능한 수량만</b> 세서 입력하세요 (불량 보관분·작업대 위 재공품 제외). 과차감 의심 = 같은 시리얼에 기준 수량보다 많이 차감된 초과분 — 숫자를 누르면 시리얼 목록이 열려요.</div>
+    ① <b>불량(DOA) 실물</b>에 불량 박스 수량을 입력하면 추가 사용 기록과 대조돼요 — 기록보다 불량이 많으면 미기록 소모, 적으면 이중 기록 의심.
+    ② <b>실물 수량</b>은 선반의 <b>사용 가능분만</b> 세서 입력하세요 (불량 박스·작업대 재공품 제외). 추가 사용 숫자를 누르면 해당 시리얼 목록이 열려요.</div>
   <div class="card" style="padding:0;"><div class="table-wrap"><table>
-    <thead><tr><th>부품명</th><th style="text-align:center">기준(실사)</th><th style="text-align:right">현재 장부</th><th style="text-align:right">순차감</th><th style="text-align:right">수리건</th><th style="text-align:right">과차감 의심</th><th style="text-align:right">기대 실물</th><th style="text-align:center">실물 수량</th><th style="text-align:right">차이</th></tr></thead>
+    <thead><tr><th>부품명</th><th style="text-align:center">기준(실사)</th><th style="text-align:right">현재 장부</th><th style="text-align:right">순차감</th><th style="text-align:right">수리건</th><th style="text-align:right">추가 사용</th><th style="text-align:center">불량(DOA) 실물</th><th style="text-align:right">기대 실물</th><th style="text-align:center">실물 수량</th><th style="text-align:right">차이</th></tr></thead>
     <tbody>`;
   (stock||[]).forEach(p => {
     const r = _reconPartData(p);
@@ -17158,7 +17258,7 @@ function renderStockAudit() {
     const baseTitle = r.base ? r.base.label : '';
     const mismatch = r.base && r.sysOut !== null && r.repairs === 0 && r.sysOut !== 0 && !r.manOut && !r.manIn;
     const overCell = r.over > 0
-      ? `<a href="#" onclick="event.preventDefault();toggleReconDetail('${p.id}')" style="color:var(--red);font-weight:700;text-decoration:underline;">${fmt(r.over)}</a>`
+      ? `<a href="#" onclick="event.preventDefault();toggleReconDetail('${p.id}')" style="color:var(--accent);font-weight:700;text-decoration:underline;">${fmt(r.over)}</a>`
       : `<span style="color:var(--text3);">0</span>`;
     h += `<tr id="recon-row-${p.id}">
       <td style="font-weight:600;">${escapeHtml(p.name)}${r.baseQty > 1 ? ` <span style="font-size:10px;color:var(--text3);">(1건 ${r.baseQty}개 기준)</span>` : ''}</td>
@@ -17167,14 +17267,15 @@ function renderStockAudit() {
       <td style="text-align:right;color:var(--text2);">${r.sysOut !== null ? fmt(r.sysOut) : '-'}</td>
       <td style="text-align:right;">${fmt(r.repairs)}</td>
       <td style="text-align:right;">${overCell}</td>
-      <td style="text-align:right;font-weight:700;" id="recon-exp-${p.id}">${fmt(r.expected)}</td>
+      <td style="text-align:center;">${r.over > 0 || r.repairs > 0 ? `<input type="number" id="recon-doa-${p.id}" placeholder="${r.over}" style="width:70px;height:32px;text-align:center;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:6px;" oninput="updateReconExpected('${p.id}')">` : '<span style="color:var(--text3);">-</span>'}</td>
+      <td style="text-align:right;font-weight:700;" id="recon-exp-${p.id}">${fmt(p.qty)}</td>
       <td style="text-align:center;"><input type="number" id="audit-real-${p.id}" placeholder="${p.qty}" style="width:80px;height:32px;text-align:center;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:6px;" oninput="updateAuditDiff('${p.id}')"></td>
       <td style="text-align:right;font-weight:700;" id="audit-diff-${p.id}">-</td>
     </tr>
-    <tr id="recon-detail-${p.id}" style="display:none;"><td colspan="9" style="background:var(--surface2);padding:10px 16px;">
-      <div style="font-size:11.5px;color:var(--text2);margin-bottom:6px;"><b>과차감 의심 시리얼</b> (순차감 &gt; ${r.baseQty}) — 수리 이력에서 검색해 부품 수량을 ${r.baseQty}(으)로 정정하면 초과분이 환입돼요.
+    <tr id="recon-detail-${p.id}" style="display:none;"><td colspan="10" style="background:var(--surface2);padding:10px 16px;">
+      <div style="font-size:11.5px;color:var(--text2);margin-bottom:6px;"><b>추가 사용이 기록된 시리얼</b> (1건당 ${r.baseQty}개 초과분) — 불량(DOA) 박스의 수량·시리얼과 대조하세요. 실제 추가 사용이 아니라 기록 실수인 건만 수리 이력에서 수량을 정정하면 환입돼요.
       ${r.manIn||r.manOut ? ` · 기간 내 수동 입고 +${fmt(r.manIn)} / 수동 출고 −${fmt(r.manOut)}` : ''}</div>
-      <div style="font-size:12px;font-family:'JetBrains Mono',monospace;line-height:1.9;">${(r.overList||[]).map(o=>`<span style="display:inline-block;margin-right:12px;">${escapeHtml(o.serial)} <b style="color:var(--red);">×${o.net}</b></span>`).join('') || '없음'}</div>
+      <div style="font-size:12px;font-family:'JetBrains Mono',monospace;line-height:1.9;">${(r.overList||[]).map(o=>`<span style="display:inline-block;margin-right:12px;">${escapeHtml(o.serial)} <b style="color:var(--accent);">×${o.net}</b></span>`).join('') || '없음'}</div>
     </td></tr>`;
     if(mismatch) h = h.replace(`id="recon-row-${p.id}"`, `id="recon-row-${p.id}" title="기간 내 수리 기록 없이 장부가 변동됨 — 이력 유실 가능"`);
   });
@@ -17185,6 +17286,23 @@ function renderStockAudit() {
       <span style="font-size:11px;color:var(--text3);align-self:center;">비워둔 항목은 변동 없음 · 반영하면 그 시점이 다음 대사의 기준(실사)이 돼요</span>
     </div>`;
   el.innerHTML = h;
+}
+/* ⭐ v2.79e: 기대 실물 = 현재 장부 + (기록된 추가 사용 − 불량 실물).
+   불량 입력이 없으면 추가 사용 = 전부 실제 소모(DOA)로 보고 기대 실물 = 장부.
+   불량이 기록보다 많으면 그만큼 미기록 소모 → 기대 실물이 장부보다 적어짐. */
+function updateReconExpected(id) {
+  const p = (stock||[]).find(x=>String(x.id)===String(id));
+  const r = (window._reconCache||{})[id];
+  const expEl = document.getElementById('recon-exp-'+id);
+  if(!p || !r || !expEl) return;
+  const doaInp = document.getElementById('recon-doa-'+id);
+  const doa = (doaInp && doaInp.value !== '') ? Number(doaInp.value) : r.over;
+  const expected = (Number(p.qty)||0) + (r.over - doa);
+  r.doa = (doaInp && doaInp.value !== '') ? doa : null;
+  r.expected = expected;
+  expEl.textContent = fmt(expected);
+  expEl.style.color = expected === (Number(p.qty)||0) ? '' : 'var(--accent)';
+  updateAuditDiff(id);
 }
 function toggleReconDetail(id) {
   const d = document.getElementById('recon-detail-'+id);
