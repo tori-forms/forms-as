@@ -1724,18 +1724,19 @@ window.addEventListener('DOMContentLoaded', function(){
       <div class="form-group" style="margin-top:4px;">
         <label class="form-label">수리 항목 (복수 선택 가능)</label>
         <!-- ⭐ v2.46: 논배터리/배터리도 exc-works-wrap 안에 포함 (getExcWorks 누락 버그 수정) -->
+        <!-- ⭐ v2.79e: 신규 단가 반영(백커버/기타 추가) + 등록 화면과 동일한 3행 배치. 가격 텍스트는 excUpdatePreview()가 WORKS 기준으로 자동 갱신 -->
         <div id="exc-works-wrap">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;margin-bottom:10px;">
             <label class="work-check exc-wc" id="exc-wc-nonbat" style="cursor:pointer;">
               <input type="checkbox" value="nonbat" checked="" style="margin-top:4px;accent-color:#ea580c;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
-              <div style="flex:1;min-width:0;"><div class="work-check-name">논배터리 작업</div><div class="work-check-price">18,700원</div></div>
+              <div style="flex:1;min-width:0;"><div class="work-check-name">논배터리 작업 (백커버 교체 미포함)</div><div class="work-check-price">10,800원</div></div>
             </label>
             <label class="work-check exc-wc" id="exc-wc-battery" style="cursor:pointer;">
               <input type="checkbox" value="battery" style="margin-top:4px;accent-color:#0891b2;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
-              <div style="flex:1;min-width:0;"><div class="work-check-name">배터리 교체</div><div class="work-check-price">0원</div></div>
+              <div style="flex:1;min-width:0;"><div class="work-check-name">배터리 교체</div><div class="work-check-price">12,800원</div></div>
             </label>
           </div>
-          <div class="exc-work-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
             <label class="work-check exc-wc" id="exc-wc-pcb" style="cursor:pointer;">
               <input type="checkbox" value="pcb" checked="" style="margin-top:4px;accent-color:#2563eb;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
               <div style="flex:1;min-width:0;"><div class="work-check-name">PCB 교체 (+S/N 라이팅)</div><div class="work-check-price">15,180원</div></div>
@@ -1743,6 +1744,16 @@ window.addEventListener('DOMContentLoaded', function(){
             <label class="work-check exc-wc" id="exc-wc-panel" style="cursor:pointer;">
               <input type="checkbox" value="panel" checked="" style="margin-top:4px;accent-color:#16a34a;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
               <div style="flex:1;min-width:0;"><div class="work-check-name">일체형 패널 교체 (액정 보호필름 부착)</div><div class="work-check-price">10,450원</div></div>
+            </label>
+          </div>
+          <div class="exc-work-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+            <label class="work-check exc-wc" id="exc-wc-etc" style="cursor:pointer;">
+              <input type="checkbox" value="etc" style="margin-top:4px;accent-color:#6b7280;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
+              <div style="flex:1;min-width:0;"><div class="work-check-name">기타 작업 (와이파이·스피커·SW 설치 등)</div><div class="work-check-price">3,500원</div></div>
+            </label>
+            <label class="work-check exc-wc" id="exc-wc-cover" style="cursor:pointer;">
+              <input type="checkbox" value="cover" style="margin-top:4px;accent-color:#d97706;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
+              <div style="flex:1;min-width:0;"><div class="work-check-name">백커버 교체</div><div class="work-check-price">7,900원</div></div>
             </label>
             <label class="work-check exc-wc" id="exc-wc-board" style="cursor:pointer;">
               <input type="checkbox" value="board" style="margin-top:4px;accent-color:#7c3aed;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
@@ -11028,10 +11039,12 @@ async function _autoRefreshOnTabSwitch(name) {
 
 /* 체크박스 */
 // ⭐ v2.5: 수리 항목 표시 순서 (논배터리/배터리 먼저, 그 다음 PCB/패널/메인보드)
-const WORK_DISPLAY_ORDER = ['nonbat', 'cover', 'battery', 'pcb', 'panel', 'board', 'etc'];   // ⭐ v2.79: 백커버 추가
+const WORK_DISPLAY_ORDER = ['nonbat', 'battery', 'pcb', 'panel', 'etc', 'cover', 'board'];   // ⭐ v2.79e: 등록 화면 배치와 동일 순서
 // ⭐ v2.6: 행 분리 (1행: 논배터리/배터리, 2행: PCB/패널/메인보드/기타)
-const WORK_ROW1 = ['nonbat', 'cover', 'battery'];   // ⭐ v2.79: 백커버 추가
-const WORK_ROW2 = ['pcb', 'panel', 'board', 'etc'];
+// ⭐ v2.79e: 3행 배치 — 1행 핵심(논배 풀·논배·배터리) / 2행 PCB·패널 / 3행 기타·백커버·메인보드
+const WORK_ROW1 = ['nonbat', 'battery'];
+const WORK_ROW3 = ['etc', 'cover', 'board'];
+const WORK_ROW2 = ['pcb', 'panel'];
 
 // ⭐ 작업 k의 부품 목록 반환 — 매핑(WORK_PARTS_MAP) 우선, 없으면 WORKS 폴백
 // 반환 형식: [{name, qty, modelOnly}]  (modelOnly: 공용이면 '', 아니면 기종값)
@@ -11085,21 +11098,45 @@ function _renderWorkCheckHTML(k, v, model) {
 function buildChecks() {
   initPartQtys();
   const model = getModel();
-  // 1행: 논배터리, 배터리 (2칸)
-  const row1Html = WORK_ROW1
-    .filter(k => WORKS[k])
-    .map(k => _renderWorkCheckHTML(k, WORKS[k], model))
-    .join('');
-  // 2행: PCB, 패널, 메인보드 (3칸)
-  const row2Html = WORK_ROW2
-    .filter(k => WORKS[k])
-    .map(k => _renderWorkCheckHTML(k, WORKS[k], model))
-    .join('');
-  // ⭐ v2.8: 컨테이너에 명시적 block + 두 행 그리드 분리
+  const _rw = ks => ks.filter(k => WORKS[k]).map(k => _renderWorkCheckHTML(k, WORKS[k], model)).join('');
+  // ⭐ v2.79e: '논배터리 작업 (백커버 교체 포함)' 단축 카드 — 체크하면 논배터리+백커버 두 작업이
+  //   함께 선택됨 (합계 = 두 공임의 합, 저장 데이터는 nonbat+cover 그대로라 집계·견적 영향 없음)
+  const _fullPrice = (WORKS.nonbat?.price || 0) + (WORKS.cover?.price || 0);
+  const fullCard = `
+    <div class="work-check" id="wc-nbfull" style="cursor:pointer;" onclick="toggleNbFull()">
+      <div id="nbfull-box" style="margin-top:4px;width:15px;height:15px;flex-shrink:0;border:2px solid var(--border2);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#fff;"></div>
+      <div style="flex:1;min-width:0;"><div class="work-check-name">논배터리 작업 (백커버 교체 포함)</div><div class="work-check-price">${fmt(_fullPrice)}원</div></div>
+    </div>`;
+  // ⭐ v2.79e: 3행 배치 — 1행 핵심 3종 / 2행 PCB·패널 / 3행 기타·백커버·메인보드
   document.getElementById('work-checks').innerHTML = `
-    <div class="work-row-1" style="display:grid !important;grid-template-columns:1fr 1fr !important;gap:10px;margin-bottom:10px;">${row1Html}</div>
-    <div class="work-row-2" style="display:grid !important;grid-template-columns:1fr 1fr 1fr !important;gap:10px;">${row2Html}</div>
+    <div class="work-row-1" style="display:grid !important;grid-template-columns:1fr 1fr 1fr !important;gap:10px;margin-bottom:10px;">${fullCard}${_rw(WORK_ROW1)}</div>
+    <div class="work-row-2" style="display:grid !important;grid-template-columns:1fr 1fr !important;gap:10px;margin-bottom:10px;">${_rw(WORK_ROW2)}</div>
+    <div class="work-row-3" style="display:grid !important;grid-template-columns:1fr 1fr 1fr !important;gap:10px;">${_rw(WORK_ROW3)}</div>
   `;
+  try { syncNbFull(); } catch(e) {}
+}
+
+/* ⭐ v2.79e: 논배터리(백커버 포함) 단축 카드 — 논배터리·백커버 체크박스를 한 번에 토글 */
+function toggleNbFull() {
+  const nb = document.querySelector('#wc-nonbat input');
+  const cv = document.querySelector('#wc-cover input');
+  if(!nb || !cv) return;
+  const on = !(nb.checked && cv.checked);
+  if(nb.checked !== on) nb.click();
+  if(cv.checked !== on) cv.click();
+  syncNbFull();
+}
+function syncNbFull() {
+  const nb = document.querySelector('#wc-nonbat input');
+  const cv = document.querySelector('#wc-cover input');
+  const card = document.getElementById('wc-nbfull');
+  const box = document.getElementById('nbfull-box');
+  if(!card || !box) return;
+  const on = !!(nb && cv && nb.checked && cv.checked);
+  card.classList.toggle('checked', on);
+  box.style.background = on ? 'var(--accent)' : 'transparent';
+  box.style.borderColor = on ? 'var(--accent)' : 'var(--border2)';
+  box.textContent = on ? '✓' : '';
 }
 const toggleCheck = k => {
   const checked = document.querySelector(`#wc-${k} input`).checked;
@@ -11225,6 +11262,7 @@ function updatePP() {
   const cs = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
   document.getElementById('price-preview').textContent = cs.length ? `공임비 합계: ${fmt(cs.reduce((s,k)=>s+WORKS[k].price,0))}원` : '';
   try { renderDeductPreview(); } catch(e) {}   // ⭐ v2.70c: 재고 차감 미리보기 갱신
+  try { syncNbFull(); } catch(e) {}            // ⭐ v2.79e: 논배(백커버 포함) 단축 카드 상태 동기화
 }
 
 // ⭐ v2.70c: 재고 차감 미리보기 — 등록 저장 전에 "이 등록으로 어떤 부품이 몇 개 차감되는지"를
@@ -14138,6 +14176,13 @@ function getExcWorks() {
   return [...document.querySelectorAll('#exc-works-wrap input[type=checkbox]:checked')].map(c => c.value);
 }
 function excUpdatePreview() {
+  // ⭐ v2.79e: 가격 표시를 WORKS 기준으로 동기화 (관리자 단가 설정 오버라이드 반영)
+  try {
+    Object.keys(WORKS).forEach(k => {
+      const pel = document.querySelector('#exc-wc-' + k + ' .work-check-price');
+      if(pel) pel.textContent = fmt(WORKS[k].price || 0) + '원';
+    });
+  } catch(e) {}
   const works = getExcWorks();
   const model = getExcModel();
   const PP = window.PARTS_PRICE || {};
