@@ -2973,10 +2973,12 @@ async function syncData(silent=false, force=false, _snapData=null) {
         const local = entries.find(x => String(x.id) === String(e.id));
         if(local && local.parts && Object.keys(local.parts).length > 0) parts = local.parts;
       }
-      // 구버전 기종명 자동 변환
+      // 구버전 기종명 보정 — ⭐ v2.79b: 시리얼이 N으로 끝나는(전환) 기기만 _N 표기로 통일.
+      //   N 없는 기기는 S2/S2PRO(배터리 유지)가 정식 기종이므로 변환하지 않음.
       let model = e.model || detectModel(String(e.serial));
-      if(model === 'S2') model = 'S2_N';
-      if(model === 'S2PRO') model = 'S2PRO_N';
+      const _serHasN = String(e.serial || '').toUpperCase().endsWith('N');
+      if(model === 'S2' && _serHasN) model = 'S2_N';
+      if(model === 'S2PRO' && _serHasN) model = 'S2PRO_N';
       // ⭐ v2.23: 시트에 잘못 변환된 모델명 자동 복구 (S2PRON → S2PRO_N, S2N → S2_N)
       if(model === 'S2PRON') model = 'S2PRO_N';
       if(model === 'S2N') model = 'S2_N';
@@ -3494,7 +3496,8 @@ function updateColorRow(autoWhite) {
   try { updateT2nRow(); } catch(e) {}   // ⭐ v2.78: 기종 변경 시 T2N 섹션도 함께 갱신
   const row = document.getElementById('color-row');
   if(!row) return;
-  const isS2 = normalizeModel(getModel()) === 'S2_N';
+  const _nmC = normalizeModel(getModel());
+  const isS2 = _nmC === 'S2N' || _nmC === 'S2';   // ⭐ v2.79b: 배터리 유지 S2도 색상 선택 대상
   row.style.display = isS2 ? '' : 'none';
   if(!isS2) { window._regColor = ''; return; }
   if(autoWhite) window._regColor = '화이트';
@@ -3511,7 +3514,7 @@ function updateColorRow(autoWhite) {
    · S2 계열: TO + 연월4자리 + FB/GB + 숫자 + N (예외 0건) / GB=5자리 99.8% / FB=4~6자리(S2_N 5~6, S2PRO_N 4~5)
    · T2N: TN + 제조연월4자리 + 번호
    반환: null(정상) | {level:'block'|'warn', msg} */
-function validateSerialFormat(serial, model) {
+function validateSerialFormat(serial, model, isNonBat) {
   const s = String(serial || '').trim().toUpperCase();
   if(s.startsWith('TN')) {
     const mT = s.match(/^TN(\d{2})(\d{2})([A-Z0-9]+)$/);
@@ -3530,12 +3533,14 @@ function validateSerialFormat(serial, model) {
   if(mm < 1 || mm > 12) return { level: 'block', msg: '시리얼의 연월 "' + m[1] + m[2] + '"이 이상합니다 (월은 01~12). 라벨을 다시 확인해주세요.' };
   const code = m[3], n = m[4].length, hasN = !!m[5];
   if(code !== 'FB' && code !== 'GB') return { level: 'warn', msg: '문자 코드가 "' + code + '"입니다. 지금까지 모든 시리얼은 FB 또는 GB였습니다. 라벨을 다시 확인해주세요.' };
-  if(!hasN) return { level: 'warn', msg: '시리얼 끝에 N이 없습니다. 논배터리 전환 제품이면 N까지 입력해주세요.' };
+  // ⭐ v2.79a: N 누락 경고는 '논배터리 작업'이 포함된 등록에서만 — 배터리 유지 기기(배터리 교체 등)는
+  //   시리얼에 N이 없는 게 정상이므로 경고하지 않음 (N = 논배터리 전환 완료 표식)
+  if(!hasN && isNonBat !== false) return { level: 'warn', msg: '시리얼 끝에 N이 없습니다. 논배터리 전환 제품이면 N까지 입력해주세요.' };
   if(code === 'GB' && n !== 5) return { level: 'warn', msg: 'GB 시리얼은 지금까지 전부 숫자 5자리였는데 이 시리얼은 ' + n + '자리입니다. 자릿수 누락이 아닌지 라벨을 다시 확인해주세요.' };
   if(code === 'FB' && (n < 4 || n > 6)) return { level: 'warn', msg: 'FB 시리얼은 숫자 4~6자리인데 이 시리얼은 ' + n + '자리입니다. 라벨을 다시 확인해주세요.' };
   const md = String(model || '');
-  if(code === 'FB' && md === 'S2_N' && n === 4) return { level: 'warn', msg: 'S2 기종의 FB 시리얼은 보통 5~6자리인데 4자리입니다. 한 자리가 빠지지 않았는지 확인해주세요.' };
-  if(code === 'FB' && md === 'S2PRO_N' && n === 6) return { level: 'warn', msg: 'S2PRO 기종의 FB 시리얼은 보통 4~5자리인데 6자리입니다. 한 자리가 더 들어가지 않았는지 확인해주세요.' };
+  if(code === 'FB' && (md === 'S2_N' || md === 'S2') && n === 4) return { level: 'warn', msg: 'S2 기종의 FB 시리얼은 보통 5~6자리인데 4자리입니다. 한 자리가 빠지지 않았는지 확인해주세요.' };
+  if(code === 'FB' && (md === 'S2PRO_N' || md === 'S2PRO') && n === 6) return { level: 'warn', msg: 'S2PRO 기종의 FB 시리얼은 보통 4~5자리인데 6자리입니다. 한 자리가 더 들어가지 않았는지 확인해주세요.' };
   return null;
 }
 
@@ -3543,14 +3548,16 @@ function detectModel(serial) {
   if(!serial) return '';
   const s = serial.toUpperCase();
   if(s.startsWith('TN')) return 'T2N';     // ⭐ v2.78: T2N 신제품 — TN+제조연월+번호 (예: TN2511xxxxx)
-  if(S2_WHITE_RE.test(s)) return 'S2_N';   // ⭐ v2.71: S2 화이트 시리얼 (TO 접두 없음)
+  // ⭐ v2.79b: 5기종 체계 — 시리얼 끝 N = 논배터리 전환 완료(_N 기종), N 없음 = 배터리 유지(S2/S2PRO)
+  const hasN = s.endsWith('N');
+  if(S2_WHITE_RE.test(s)) return hasN ? 'S2_N' : 'S2';   // ⭐ v2.71: S2 화이트 시리얼 (TO 접두 없음)
   // ⭐ v2.63b: 'TO'(영문 O)와 'T0'(숫자 0) 모두 허용 — 화면상 구분이 안 돼 입력이 섞여 들어옴
   if(!s.startsWith('TO') && !s.startsWith('T0')) return '';
   const num = parseInt(s.slice(2,6));
-  if(num >= 2208 && num <= 2309) return 'S2_N';
+  if(num >= 2208 && num <= 2309) return hasN ? 'S2_N' : 'S2';
   // ⭐ v2.63b: 상한 개방 — 25년6월 이후 생산분도 S2PRO_N 지속 확인(토리 2026-07-10).
   //   신기종이 나오면 이 줄 '위에' 구간을 추가할 것 (예: if(num >= 2611) return 'S3';)
-  if(num >= 2310) return 'S2PRO_N';
+  if(num >= 2310) return hasN ? 'S2PRO_N' : 'S2PRO';
   return '';
 }
 function autoDetectModel() {
@@ -10791,8 +10798,9 @@ async function syncDataForEngrave() {
       if(!model && typeof detectModel === 'function') {
         try { model = detectModel(String(e.serial || '')); } catch {}
       }
-      if(model === 'S2') model = 'S2_N';
-      if(model === 'S2PRO') model = 'S2PRO_N';
+      const _egHasN = String(e.serial || '').toUpperCase().endsWith('N');   // ⭐ v2.79b
+      if(model === 'S2' && _egHasN) model = 'S2_N';
+      if(model === 'S2PRO' && _egHasN) model = 'S2PRO_N';
       return Object.assign({}, e, {model, parts});
     });
 
@@ -11341,18 +11349,36 @@ async function addEntry() {
     document.getElementById('inp-serial').value = serial;
   }
 
-  // ⭐ v2.19: S2PRO_N / S2_N 기종 + 논배터리 작업 포함 시에만 시리얼 끝에 N 자동 추가
-  // (N 표식 = "논배터리 전환 완료" 의미. 일반 PCB/LCD/MB 수리만 하는 경우는 추가 X)
+  // ⭐ v2.19: S2 계열 + 논배터리 작업 포함 시에만 시리얼 끝에 N 자동 추가
+  // (N 표식 = "논배터리 전환 완료" 의미. 배터리 교체·PCB/LCD/MB만 하는 경우는 추가 X)
+  // ⭐ v2.79b: 5기종 체계 — N 없는 시리얼은 S2/S2PRO(배터리 유지)로 감지되므로 그 표기도 부착 대상에 포함
   const detectedModel = detectModel(serial);
   const isNonBatWork = works.includes('nonbat');
-  if(isNonBatWork && (detectedModel === 'S2PRO_N' || detectedModel === 'S2_N') && !serial.endsWith('N')) {
+  if(isNonBatWork && ['S2PRO_N','S2_N','S2PRO','S2'].includes(detectedModel) && !serial.endsWith('N')) {
     serial = serial + 'N';
     document.getElementById('inp-serial').value = serial;
+    try { autoDetectModel(); } catch(e) {}   // ⭐ v2.79b: N 부착 후 기종 배지 갱신 (S2PRO → S2PRO_N)
   }
-  const model = getModel() || detectedModel;
+
+  // ⭐ v2.79d: 전환 이력 자동 인식 — N 없이 입력해도 같은 시리얼의 N 버전 기록(수리·출고)이 있으면
+  //   재입고된 전환 제품으로 보고 자동으로 N을 붙여 기존 이력에 잇는다 (엔지니어 N 입력 깜빡 방지).
+  //   같은 각인 시리얼이 '전환된 실물'과 '미전환 실물'로 동시에 존재할 수 없으므로 자동 보정이 안전.
+  if(!serial.endsWith('N')) {
+    const _nVer = serial + 'N';
+    const _hasNRec = (entries || []).some(e => normalizeSerial(e.serial) === normalizeSerial(_nVer)) ||
+      (typeof shipHistory !== 'undefined' && (shipHistory || []).some(h => normalizeSerial(h.serial) === normalizeSerial(_nVer)));
+    if(_hasNRec) {
+      serial = _nVer;
+      document.getElementById('inp-serial').value = serial;
+      try { autoDetectModel(); } catch(e) {}
+      notify(`🔁 전환 이력이 있는 제품 — ${_nVer}(으)로 자동 인식했습니다.`);
+    }
+  }
+  // ⭐ v2.79b: 기종 확정 — N 부착 후 시리얼 기준으로 재판정 (배지가 수동 입력이면 그 값 우선)
+  const model = getModel() || detectModel(serial) || detectedModel;
 
   // ⭐ v2.78: 시리얼 형식·자릿수 검증 (형식 위반 차단 · 자릿수 특이는 확인 후 진행)
-  const _sv = validateSerialFormat(serial, model);
+  const _sv = validateSerialFormat(serial, model, works.includes('nonbat'));   // ⭐ v2.79a: 논배 미포함 건은 N 누락 경고 제외
   if(_sv && _sv.level === 'block') {
     notify(_sv.msg, 'error');
     try { document.getElementById('inp-serial').focus(); } catch(e) {}
@@ -11366,6 +11392,7 @@ async function addEntry() {
     return;
   }
   window._serialWarnOk = null;
+
 
   // ⭐ v2.78: T2N은 입고 불량증상 재현 여부 필수 + 재현 시 증상 기재 필수 (노트에 태그로 저장)
   if(normalizeModel(model) === 'T2N') {
@@ -13146,7 +13173,7 @@ async function saveEdit() {
     if(dup){ notify(`이미 등록된 시리얼입니다 (${dup.worker}).`,'error'); btn.disabled=false; btn.textContent='저장'; return; }
     // ⭐ v2.78: 시리얼을 실제로 바꿨을 때만 형식·자릿수 검증 (자릿수 누락 오타 방지)
     if(_serialChanged) {
-      const _svE = validateSerialFormat(newSerial, newModel);
+      const _svE = validateSerialFormat(newSerial, newModel, Array.isArray(works) && works.includes('nonbat'));   // ⭐ v2.79a
       if(_svE && _svE.level === 'block') { notify(_svE.msg,'error'); btn.disabled=false; btn.textContent='저장'; return; }
       if(_svE && _svE.level === 'warn') {
         if(!window.confirm('⚠️ 시리얼 확인\n\n' + _svE.msg + '\n\n실물 라벨과 일치한다면 [확인]을 눌러 이대로 저장하세요.')) {
