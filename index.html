@@ -1406,93 +1406,7 @@ window.addEventListener('DOMContentLoaded', function(){
       </div>
     </div>
 
-    <!-- 단가 설정 (관리자 탭으로 이동) -->
-    <div class="card" id="price-setting-card" style="display:none;">
-      <div class="card-title">💰 단가 설정</div>
-      <div style="font-size:12px;color:var(--text2);margin-bottom:16px;">공임비 및 새제품 기준 단가를 설정합니다. 변경 시 대시보드 통계에 즉시 반영됩니다.</div>
-
-      <!-- 수리 항목별 공임비 -->
-      <div style="margin-bottom:20px;">
-        <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text1);">수리 항목별 공임비</div>
-        <div style="display:grid;gap:8px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:11px;font-weight:700;background:#dbeafe;color:#2563eb;padding:2px 8px;border-radius:99px;">PCB 교체</span>
-              <span style="font-size:12px;color:var(--text2);">PCB 교체 (+S/N 라이팅)</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <input type="number" id="price-pcb" value="15180" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
-              <span style="font-size:12px;color:var(--text2);">원</span>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:11px;font-weight:700;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:99px;">LCD 교체</span>
-              <span style="font-size:12px;color:var(--text2);">일체형 패널 교체</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <input type="number" id="price-panel" value="10450" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
-              <span style="font-size:12px;color:var(--text2);">원</span>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:11px;font-weight:700;background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:99px;">MB수리</span>
-              <span style="font-size:12px;color:var(--text2);">메인보드 부분 수리</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <input type="number" id="price-board" value="10450" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
-              <span style="font-size:12px;color:var(--text2);">원</span>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:11px;font-weight:700;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;">논배터리</span>
-              <span style="font-size:12px;color:var(--text2);">논배터리 작업</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <input type="number" id="price-nonbat" value="18700" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;">
-              <span style="font-size:12px;color:var(--text2);">원</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 새제품 기준 단가 -->
-      <div style="margin-bottom:16px;">
-        <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text1);">새제품 기준 단가</div>
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-          <div style="font-size:12px;color:var(--text2);">📦 새제품 단가 (절감 효과 계산 기준)</div>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <input type="number" id="price-new-product" value="140000" style="width:110px;text-align:right;font-family:'JetBrains Mono',monospace;">
-            <span style="font-size:12px;color:var(--text2);">원</span>
-          </div>
-        </div>
-      </div>
-        <!-- 부품비 -->
-        <div style="margin-bottom:16px;">
-          <div style="font-size:13px;font-weight:700;margin-bottom:10px;">수리 항목별 부품비 (평균)</div>
-          <div style="display:grid;gap:8px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#dbeafe;color:#2563eb;padding:2px 8px;border-radius:99px;">PCB 교체</span><span style="font-size:12px;color:var(--text2);">부품비</span></div>
-              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="parts-price-pcb" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:99px;">LCD 교체</span><span style="font-size:12px;color:var(--text2);">부품비</span></div>
-              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="parts-price-panel" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:99px;">MB수리</span><span style="font-size:12px;color:var(--text2);">부품비</span></div>
-              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="parts-price-board" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;">논배터리</span><span style="font-size:12px;color:var(--text2);">부품비</span></div>
-              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="parts-price-nonbat" value="0" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
-            </div>
-          </div>
-        </div>
-        <button class="btn btn-primary" onclick="savePriceSettings()">💾 단가 저장</button>
-      </div>
+    <!-- (v2.79e) 구 단가 설정 카드 제거 — 중복 id(price-*)로 관리자 탭 단가 저장이 숨은 입력값을 읽던 문제 해소 -->
     </div>
 
   <!-- 재고 관리 -->
@@ -1637,7 +1551,20 @@ window.addEventListener('DOMContentLoaded', function(){
         <!-- 공임비 섹션 -->
         <div style="margin-bottom:24px;">
           <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text1);">🔧 수리 항목별 공임비 (기종 공통)</div>
+          <!-- ⭐ v2.79e: 신규 단가 체계 전체(논배 2종·백커버·배터리·기타 포함) 편집 가능 -->
           <div style="display:grid;gap:8px;" id="labor-price-list">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ffedd5;color:#c2410c;padding:2px 8px;border-radius:99px;">논배터리+커버</span><span style="font-size:12px;color:var(--text2);">논배터리 작업 (백커버 교체 포함)</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-nonbat_full" value="18700" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;">논배터리</span><span style="font-size:12px;color:var(--text2);">논배터리 작업 (백커버 교체 미포함)</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-nonbat" value="10800" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#cffafe;color:#0891b2;padding:2px 8px;border-radius:99px;">배터리</span><span style="font-size:12px;color:var(--text2);">배터리 교체</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-battery" value="12800" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
+            </div>
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
               <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#dbeafe;color:#2563eb;padding:2px 8px;border-radius:99px;">PCB 교체</span></div>
               <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-pcb" value="15180" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
@@ -1647,12 +1574,16 @@ window.addEventListener('DOMContentLoaded', function(){
               <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-panel" value="10450" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:99px;">MB수리</span></div>
-              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-board" value="10450" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:99px;">기타작업</span><span style="font-size:12px;color:var(--text2);">기타 작업 (와이파이·스피커·SW 설치 등)</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-etc" value="3500" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ffedd5;color:#ea580c;padding:2px 8px;border-radius:99px;">논배터리</span></div>
-              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-nonbat" value="18700" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#fef3c7;color:#d97706;padding:2px 8px;border-radius:99px;">백커버</span><span style="font-size:12px;color:var(--text2);">백커버 교체</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-cover" value="7900" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:99px;">MB수리</span></div>
+              <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-board" value="10450" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
             </div>
           </div>
         </div>
@@ -1726,9 +1657,13 @@ window.addEventListener('DOMContentLoaded', function(){
         <!-- ⭐ v2.46: 논배터리/배터리도 exc-works-wrap 안에 포함 (getExcWorks 누락 버그 수정) -->
         <!-- ⭐ v2.79e: 신규 단가 반영(백커버/기타 추가) + 등록 화면과 동일한 3행 배치. 가격 텍스트는 excUpdatePreview()가 WORKS 기준으로 자동 갱신 -->
         <div id="exc-works-wrap">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;margin-bottom:10px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:8px;margin-bottom:10px;">
+            <label class="work-check exc-wc" id="exc-wc-nonbat_full" style="cursor:pointer;">
+              <input type="checkbox" value="nonbat_full" checked="" style="margin-top:4px;accent-color:#c2410c;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="nbExclusive('nonbat_full','exc-wc-');excUpdatePreview()">
+              <div style="flex:1;min-width:0;"><div class="work-check-name">논배터리 작업 (백커버 교체 포함)</div><div class="work-check-price">18,700원</div></div>
+            </label>
             <label class="work-check exc-wc" id="exc-wc-nonbat" style="cursor:pointer;">
-              <input type="checkbox" value="nonbat" checked="" style="margin-top:4px;accent-color:#ea580c;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
+              <input type="checkbox" value="nonbat" style="margin-top:4px;accent-color:#ea580c;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="nbExclusive('nonbat','exc-wc-');excUpdatePreview()">
               <div style="flex:1;min-width:0;"><div class="work-check-name">논배터리 작업 (백커버 교체 미포함)</div><div class="work-check-price">10,800원</div></div>
             </label>
             <label class="work-check exc-wc" id="exc-wc-battery" style="cursor:pointer;">
@@ -1752,7 +1687,7 @@ window.addEventListener('DOMContentLoaded', function(){
               <div style="flex:1;min-width:0;"><div class="work-check-name">기타 작업 (와이파이·스피커·SW 설치 등)</div><div class="work-check-price">3,500원</div></div>
             </label>
             <label class="work-check exc-wc" id="exc-wc-cover" style="cursor:pointer;">
-              <input type="checkbox" value="cover" style="margin-top:4px;accent-color:#d97706;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
+              <input type="checkbox" value="cover" style="margin-top:4px;accent-color:#d97706;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="nbExclusive('cover','exc-wc-');excUpdatePreview()">
               <div style="flex:1;min-width:0;"><div class="work-check-name">백커버 교체</div><div class="work-check-price">7,900원</div></div>
             </label>
             <label class="work-check exc-wc" id="exc-wc-board" style="cursor:pointer;">
@@ -2300,18 +2235,19 @@ const WORKS = {
     ] },
   board:  { label:'메인보드 부분 수리 (충전단자 포함)',     price:10450, tag:'MB수리',   tagColor:'#7c3aed', tagBg:'#ede9fe',
     parts: [] },
-  // ⭐ v2.79: 단가 개편 (2026-08-28 단가표) — 기존 논배터리 18,700을 '논배터리 10,800 + 백커버 교체 7,900'으로 분리.
-  //   백커버까지 교체하면 두 작업 모두 체크(합 18,700 = 기존과 동일), 커버 재사용이면 논배터리만(10,800).
-  nonbat: { label:'논배터리 작업 (백커버 교체 미포함)',      price:10800, tag:'논배터리',   tagColor:'#ea580c', tagBg:'#ffedd5',
+  // ⭐ v2.79: 단가 개편 (2026-08-28 단가표) — 기존 논배터리 18,700을 '논배터리 10,800 + 백커버 7,900' 체계로 개편.
+  // ⭐ v2.79e: '논배터리 작업 (백커버 교체 포함)'을 독립 작업(nonbat_full, 18,700)으로 신설 —
+  //   두 작업을 자동 동시선택하면 작업별 통계·백커버 단독교체 구분이 흐려지고 금액 표시도 혼란스러워서,
+  //   데이터에도 1개 작업으로 기록되도록 별도 항목으로 분리. 부품 매핑도 논배 2종을 각각 설정.
+  nonbat_full: { label:'논배터리 작업 (백커버 교체 포함)',    price:18700, tag:'논배터리+커버', tagColor:'#c2410c', tagBg:'#ffedd5',
     parts: [
-      // 두 모델 공용 부품 (FPC보드, 케이블정리테이프, 서브보드필름, 와이어, 강화유리필름, 후면보호필름)
+      // 기존 논배터리 풀 작업과 동일한 부품 구성 (백커버·후면보호필름 포함)
       {name:'FPC보드(S2_N&S2pro_N)',          qty:1},
       {name:'케이블정리테이프(논배터리전환용)', qty:1},
       {name:'서브보드필름(논배터리전환용)',     qty:1},
       {name:'논배터리셋업보드와이어부품(S2pro)', qty:1},
       {name:'강화유리필름(S2)',                qty:1},
       {name:'후면보호필름',                    qty:1},
-      // 모델별 부품 (서브보드, 백커버, 전원버튼)
       {name:'서브보드(S2_N)',     qty:1, modelOnly:'S2_N'},
       {name:'백커버(S2_N)',       qty:1, modelOnly:'S2_N'},
       {name:'전원버튼(S2_N)',     qty:1, modelOnly:'S2_N'},
@@ -2319,10 +2255,27 @@ const WORKS = {
       {name:'백커버(S2pro_N)',    qty:1, modelOnly:'S2PRO_N'},
       {name:'전원버튼(S2Pro_N)',  qty:1, modelOnly:'S2PRO_N'},
     ] },
-  // ⭐ v2.79: 백커버 교체 — 논배터리에서 분리된 신규 작업. 부품(후면 커버·후면 필름)은
-  //   관리자 → 부품 매핑에서 논배터리로부터 옮겨 설정 (매핑 전까지는 부품 자동 차감 없음).
+  nonbat: { label:'논배터리 작업 (백커버 교체 미포함)',      price:10800, tag:'논배터리',   tagColor:'#ea580c', tagBg:'#ffedd5',
+    parts: [
+      // ⭐ v2.79e: 백커버 미포함 — 백커버·후면보호필름은 기본 부품에서 제외 (cover/nonbat_full 쪽에 있음)
+      {name:'FPC보드(S2_N&S2pro_N)',          qty:1},
+      {name:'케이블정리테이프(논배터리전환용)', qty:1},
+      {name:'서브보드필름(논배터리전환용)',     qty:1},
+      {name:'논배터리셋업보드와이어부품(S2pro)', qty:1},
+      {name:'강화유리필름(S2)',                qty:1},
+      {name:'서브보드(S2_N)',     qty:1, modelOnly:'S2_N'},
+      {name:'전원버튼(S2_N)',     qty:1, modelOnly:'S2_N'},
+      {name:'서브보드(S2pro_N)',  qty:1, modelOnly:'S2PRO_N'},
+      {name:'전원버튼(S2Pro_N)',  qty:1, modelOnly:'S2PRO_N'},
+    ] },
+  // ⭐ v2.79: 백커버 교체 — 논배터리에서 분리된 신규 작업.
+  // ⭐ v2.79e: 기본 부품으로 백커버(기종별)·후면보호필름 지정 (관리자 부품 매핑이 있으면 매핑 우선)
   cover: { label:'백커버 교체',                             price:7900,  tag:'백커버',     tagColor:'#d97706', tagBg:'#fef3c7',
-    parts: [] },
+    parts: [
+      {name:'후면보호필름',       qty:1},
+      {name:'백커버(S2_N)',       qty:1, modelOnly:'S2_N'},
+      {name:'백커버(S2pro_N)',    qty:1, modelOnly:'S2PRO_N'},
+    ] },
   battery: { label:'배터리 교체',                          price:12800, tag:'배터리',     tagColor:'#0891b2', tagBg:'#cffafe',   // ⭐ v2.79: 0 → 12,800
     parts: [] },
   // ⭐ v2.70u/v2.79: 기타 작업 — 위 항목에 포함되지 않는 작업 (와이파이·스피커·SW 설치·검수 등).
@@ -3083,6 +3036,7 @@ async function syncData(silent=false, force=false, _snapData=null) {
       //   (구단가 18,700은 '논배터리+백커버 통합' 시절 값 — 분리 후엔 10,800이 맞음.
       //    관리자 → 단가 설정에서 논배터리를 10,800으로 바꾸면 그 값을 그대로 따름)
       if(ps.nonbat && Number(ps.nonbat) !== 18700) WORKS.nonbat.price = ps.nonbat;
+      if(ps.nonbat_full) WORKS.nonbat_full.price = ps.nonbat_full;   // ⭐ v2.79e: 백커버 포함 논배 (독립 작업)
       if(ps.cover)   WORKS.cover.price   = ps.cover;
       if(ps.battery) WORKS.battery.price = ps.battery;
       if(ps.etc)     WORKS.etc.price     = ps.etc;
@@ -8286,7 +8240,7 @@ function getFilteredShipHistory() {
       const works = e ? parseWorks(e.works) : [];
       if(svTypeFilter === 'single')  return works.length === 1;
       if(svTypeFilter === 'multi')   return works.length >= 2;
-      if(svTypeFilter === 'nonbat')  return works.includes('nonbat');
+      if(svTypeFilter === 'nonbat')  return works.includes('nonbat') || works.includes('nonbat_full');   // ⭐ v2.79e
       return true;
     });
   }
@@ -8370,7 +8324,8 @@ function renderShipDashboard(list) {
   const totalShippedCalc = mapped.length || 1; // 나누기용 (division by zero 방지)
   const workCount = { pcb:0, panel:0, board:0, nonbat:0 };
   mapped.forEach(x => {
-    const usedKeys = new Set(x.works);
+    // ⭐ v2.79e: 논배터리(백커버 포함)도 이 차트에서는 '논배터리'로 합산
+    const usedKeys = new Set(x.works.map(k => k === 'nonbat_full' ? 'nonbat' : k));
     usedKeys.forEach(k => { if(workCount[k]!==undefined) workCount[k]++; });
   });
   // 도넛차트: 논배터리 제외 (항상 100%라 의미 없음)
@@ -8555,16 +8510,17 @@ function renderShipDashboard(list) {
 
   // ─── 절감 효과 1: 논배터리 공임비+부품비 vs 새제품 ───
   // 논배터리 공임비 단가
-  const NONBAT_PRICE_PER = WORKS.nonbat?.price || 18700;
-  // 논배터리 작업 시 사용되는 부품비 (nonbat 항목의 단가만)
+  // ⭐ v2.79e: 논배 2종(백커버 포함/미포함) 각각의 단가로 계산
   const PP_NB = window.PARTS_PRICE || {};
-  const nonbatMapped = mapped.filter(x => x.works.includes('nonbat'));
+  const nonbatMapped = mapped.filter(x => x.works.includes('nonbat') || x.works.includes('nonbat_full'));
   const nonbatCount = nonbatMapped.length;
   const totalNonbatRepair = nonbatMapped.reduce((s, x) => {
     const modelParts = PP_NB.modelParts?.[x.model] || {};
+    const isFull = x.works.includes('nonbat_full');
+    const laborPer = isFull ? (WORKS.nonbat_full?.price || 18700) : (WORKS.nonbat?.price || 10800);
     // 논배터리 항목의 부품비만
-    const nbPartsAmt = modelParts['nonbat'] || 0;
-    return s + NONBAT_PRICE_PER + nbPartsAmt;
+    const nbPartsAmt = modelParts[isFull ? 'nonbat_full' : 'nonbat'] || modelParts['nonbat'] || 0;
+    return s + laborPer + nbPartsAmt;
   }, 0);
   const totalNew2 = nonbatCount * NEW_PRODUCT_PRICE;
   const saved1 = totalNew2 - totalNonbatRepair;
@@ -8691,10 +8647,10 @@ function renderShipAnalysis() {
   });
 
   const fmt = n => Number(n).toLocaleString();
-  const WORK_LABELS = { pcb:'PCB 교체', panel:'LCD 교체', board:'MB수리', nonbat:'논배터리', cover:'백커버', battery:'배터리', etc:'기타작업' };   // ⭐ v2.79
-  const WORK_COLORS = { pcb:'#60a5fa', panel:'#34d399', board:'#c084fc', nonbat:'#fb923c', cover:'#fbbf24', battery:'#22d3ee', etc:'#9ca3af' };
-  const WORK_DARK   = { pcb:'#3b82f6', panel:'#10b981', board:'#a855f7', nonbat:'#f97316', cover:'#d97706', battery:'#0891b2', etc:'#6b7280' };
-  const WORK_KEYS   = ['nonbat','pcb','panel','board','etc'];
+  const WORK_LABELS = { pcb:'PCB 교체', panel:'LCD 교체', board:'MB수리', nonbat_full:'논배터리+커버', nonbat:'논배터리', cover:'백커버', battery:'배터리', etc:'기타작업' };   // ⭐ v2.79e
+  const WORK_COLORS = { pcb:'#60a5fa', panel:'#34d399', board:'#c084fc', nonbat_full:'#fdba74', nonbat:'#fb923c', cover:'#fbbf24', battery:'#22d3ee', etc:'#9ca3af' };
+  const WORK_DARK   = { pcb:'#3b82f6', panel:'#10b981', board:'#a855f7', nonbat_full:'#c2410c', nonbat:'#f97316', cover:'#d97706', battery:'#0891b2', etc:'#6b7280' };
+  const WORK_KEYS   = ['nonbat_full','nonbat','battery','pcb','panel','board','cover','etc'];   // ⭐ v2.79e: 논배 2종·배터리·백커버 각각 집계
 
   // ① 수리항목별 발생 현황
   const workCount = {}; const workFee = {}; const workParts = {};
@@ -8707,9 +8663,10 @@ function renderShipAnalysis() {
     usedKeys.forEach(k => {
       if(workCount[k]!==undefined) {
         workCount[k]++;
-        // 해당 항목 공임비 단가
-        const UNIT = { pcb:15180, panel:10450, board:10450, nonbat:18700 };
-        workFee[k] += UNIT[k]||0;
+        // 해당 항목 공임비 단가 — ⭐ v2.79e: 현재 WORKS 단가 기준.
+        //   단, 단가 개편(2026-09) 이전의 'nonbat' 단독 기록은 구단가 18,700 시절 건이므로 18,700으로 집계
+        const _legacyNb = (k === 'nonbat' && String(x.shipDate || x.date || '') < '2026-09-03');
+        workFee[k] += _legacyNb ? 18700 : (WORKS[k]?.price || 0);
         // 해당 항목 부품비 (기종별)
         workParts[k] += modelParts[k] || 0;
       }
@@ -8785,8 +8742,8 @@ function renderShipAnalysis() {
   });
   const combos = Object.entries(comboMap).sort((a,b) => {
     // '논배터리 단일 작업' 조합만 최상단 고정, 나머지는 건수 내림차순
-    const aIsNonbatOnly = a[1].works.length === 1 && a[1].works[0] === 'nonbat' ? 1 : 0;
-    const bIsNonbatOnly = b[1].works.length === 1 && b[1].works[0] === 'nonbat' ? 1 : 0;
+    const aIsNonbatOnly = a[1].works.length === 1 && (a[1].works[0] === 'nonbat' || a[1].works[0] === 'nonbat_full') ? 1 : 0;   // ⭐ v2.79e
+    const bIsNonbatOnly = b[1].works.length === 1 && (b[1].works[0] === 'nonbat' || b[1].works[0] === 'nonbat_full') ? 1 : 0;
     if(aIsNonbatOnly !== bIsNonbatOnly) return bIsNonbatOnly - aIsNonbatOnly;
     return b[1].count - a[1].count;
   });
@@ -8834,8 +8791,10 @@ function renderShipAnalysis() {
   let simpleNonbat = 0, repairNonbat = 0;
   mapped.forEach(x => {
     const ws = x.works || [];
-    if(!ws.includes('nonbat')) return;
-    const hasOther = ws.some(k => k !== 'nonbat');
+    // ⭐ v2.79e: 논배 2종 모두 논배터리화로 집계 — 백커버·기타는 '다른 수리'로 치지 않음
+    const NB_SET = ['nonbat', 'nonbat_full', 'cover'];
+    if(!ws.includes('nonbat') && !ws.includes('nonbat_full')) return;
+    const hasOther = ws.some(k => !NB_SET.includes(k));
     if(hasOther) repairNonbat++; else simpleNonbat++;
   });
   const totalNonbat = simpleNonbat + repairNonbat;
@@ -9574,12 +9533,14 @@ function exportShippingXlsx() {
 /* ===== ⭐ 작업별 부품 매핑 설정 ===== */
 // 수리 작업 목록 (WORKS 키 + 라벨)
 const WORKPARTS_JOBS = [
+  // ⭐ v2.79e: 논배터리 2종(백커버 포함/미포함)을 각각 매핑 — 포함은 백커버·후면필름까지, 미포함은 제외하고 설정
+  { key:'nonbat_full', label:'논배터리 작업 (백커버 포함)', color:'#c2410c', bg:'#ffedd5' },
+  { key:'nonbat', label:'논배터리 작업 (백커버 미포함)', color:'#ea580c', bg:'#ffedd5' },
+  { key:'battery',label:'배터리 교체',    color:'#0891b2', bg:'#cffafe' },
   { key:'pcb',    label:'PCB 교체',     color:'#2563eb', bg:'#dbeafe' },
   { key:'panel',  label:'패널(LCD) 교체', color:'#16a34a', bg:'#dcfce7' },
-  { key:'board',  label:'메인보드 수리',  color:'#7c3aed', bg:'#ede9fe' },
-  { key:'nonbat', label:'논배터리 작업',  color:'#ea580c', bg:'#ffedd5' },
   { key:'cover',  label:'백커버 교체',    color:'#d97706', bg:'#fef3c7' },   // ⭐ v2.79
-  { key:'battery',label:'배터리 교체',    color:'#0891b2', bg:'#cffafe' },
+  { key:'board',  label:'메인보드 수리',  color:'#7c3aed', bg:'#ede9fe' },
 ];
 let _workPartsDraft = null;   // 편집 중 임시본
 
@@ -9596,7 +9557,10 @@ function renderWorkParts() {
   _workPartsDraft = {};
   WORKPARTS_JOBS.forEach(j => {
     _workPartsDraft[j.key] = {};
-    (map[j.key]||[]).forEach(p => { _workPartsDraft[j.key][p.name] = Number(p.qty)||1; });
+    // ⭐ v2.79e: 서버 매핑에 아직 없는 작업(예: 신설된 논배 포함/미포함)은 WORKS 기본 부품으로 시드 —
+    //   편집기를 열고 그대로 저장해도 기본 차감 구성이 조용히 사라지지 않게 함
+    const src = Array.isArray(map[j.key]) ? map[j.key] : (WORKS[j.key]?.parts || []);
+    src.forEach(p => { _workPartsDraft[j.key][p.name] = Number(p.qty)||1; });
   });
 
   const modelBadge = (m) => {
@@ -9898,12 +9862,21 @@ function savePriceSettings() {
   const panel  = Number(document.getElementById('price-panel')?.value)  || WORKS.panel.price;
   const board  = Number(document.getElementById('price-board')?.value)  || WORKS.board.price;
   const nonbat = Number(document.getElementById('price-nonbat')?.value) || WORKS.nonbat.price;
+  // ⭐ v2.79e: 신규 단가 체계 항목 (논배 백커버포함/배터리/백커버/기타)
+  const nonbat_full = Number(document.getElementById('price-nonbat_full')?.value) || WORKS.nonbat_full.price;
+  const battery     = Number(document.getElementById('price-battery')?.value)     || WORKS.battery.price;
+  const cover       = Number(document.getElementById('price-cover')?.value)       || WORKS.cover.price;
+  const etc         = Number(document.getElementById('price-etc')?.value)         || WORKS.etc.price;
   const np     = Number(document.getElementById('price-new-product')?.value) || 140000;
 
   WORKS.pcb.price    = pcb;
   WORKS.panel.price  = panel;
   WORKS.board.price  = board;
   WORKS.nonbat.price = nonbat;
+  WORKS.nonbat_full.price = nonbat_full;
+  WORKS.battery.price = battery;
+  WORKS.cover.price   = cover;
+  WORKS.etc.price     = etc;
   window.NEW_PRODUCT_PRICE_OVERRIDE = np;
 
   // 기종별 부품비 수집
@@ -9928,7 +9901,7 @@ function savePriceSettings() {
 
   window.PARTS_PRICE = { modelParts };
 
-  const settingsObj = { pcb, panel, board, nonbat, newProduct: np, modelParts };
+  const settingsObj = { pcb, panel, board, nonbat, nonbat_full, battery, cover, etc, newProduct: np, modelParts };   // ⭐ v2.79e
   const saved = JSON.parse(localStorage.getItem('formsPriceSettings') || '{}');
   localStorage.setItem('formsPriceSettings', JSON.stringify({ ...saved, ...settingsObj }));
 
@@ -9957,7 +9930,11 @@ function loadPriceSettings() {
     if(saved.pcb)    { WORKS.pcb.price    = saved.pcb;    const el=document.getElementById('price-pcb');    if(el) el.value=saved.pcb; }
     if(saved.panel)  { WORKS.panel.price  = saved.panel;  const el=document.getElementById('price-panel');  if(el) el.value=saved.panel; }
     if(saved.board)  { WORKS.board.price  = saved.board;  const el=document.getElementById('price-board');  if(el) el.value=saved.board; }
-    if(saved.nonbat) { WORKS.nonbat.price = saved.nonbat; const el=document.getElementById('price-nonbat'); if(el) el.value=saved.nonbat; }
+    if(saved.nonbat && Number(saved.nonbat) !== 18700) { WORKS.nonbat.price = saved.nonbat; const el=document.getElementById('price-nonbat'); if(el) el.value=saved.nonbat; }   // ⭐ v2.79e: 구단가 18,700 잔존값 무시
+    if(saved.nonbat_full) { WORKS.nonbat_full.price = saved.nonbat_full; const el=document.getElementById('price-nonbat_full'); if(el) el.value=saved.nonbat_full; }
+    if(saved.battery)     { WORKS.battery.price = saved.battery;         const el=document.getElementById('price-battery');     if(el) el.value=saved.battery; }
+    if(saved.cover)       { WORKS.cover.price = saved.cover;             const el=document.getElementById('price-cover');       if(el) el.value=saved.cover; }
+    if(saved.etc)         { WORKS.etc.price = saved.etc;                 const el=document.getElementById('price-etc');         if(el) el.value=saved.etc; }
     if(saved.newProduct) { window.NEW_PRODUCT_PRICE_OVERRIDE = saved.newProduct; const el=document.getElementById('price-new-product'); if(el) el.value=saved.newProduct; }
     if(saved.modelParts) {
       window.PARTS_PRICE = { modelParts: saved.modelParts };
@@ -10820,7 +10797,7 @@ async function syncDataForEngrave() {
     if(data.agingDurationMs) agingDurationMs = Number(data.agingDurationMs);
 
     console.log('[ENGRAVE] entries 파싱 완료:', entries.length, '건 · inspections:', inspections.length, '건');
-    const nonbatCount = entries.filter(e => Array.isArray(e.works) && e.works.includes('nonbat')).length;
+    const nonbatCount = entries.filter(e => Array.isArray(e.works) && (e.works.includes('nonbat') || e.works.includes('nonbat_full'))).length;   // ⭐ v2.79e
     console.log('[ENGRAVE] 논배터리 작업:', nonbatCount, '건');
 
     renderEngravePage();
@@ -11039,10 +11016,10 @@ async function _autoRefreshOnTabSwitch(name) {
 
 /* 체크박스 */
 // ⭐ v2.5: 수리 항목 표시 순서 (논배터리/배터리 먼저, 그 다음 PCB/패널/메인보드)
-const WORK_DISPLAY_ORDER = ['nonbat', 'battery', 'pcb', 'panel', 'etc', 'cover', 'board'];   // ⭐ v2.79e: 등록 화면 배치와 동일 순서
+const WORK_DISPLAY_ORDER = ['nonbat_full', 'nonbat', 'battery', 'pcb', 'panel', 'etc', 'cover', 'board'];   // ⭐ v2.79e: 등록 화면 배치와 동일 순서
 // ⭐ v2.6: 행 분리 (1행: 논배터리/배터리, 2행: PCB/패널/메인보드/기타)
-// ⭐ v2.79e: 3행 배치 — 1행 핵심(논배 풀·논배·배터리) / 2행 PCB·패널 / 3행 기타·백커버·메인보드
-const WORK_ROW1 = ['nonbat', 'battery'];
+// ⭐ v2.79e: 3행 배치 — 1행 핵심(논배 포함·논배 미포함·배터리) / 2행 PCB·패널 / 3행 기타·백커버·메인보드
+const WORK_ROW1 = ['nonbat_full', 'nonbat', 'battery'];
 const WORK_ROW3 = ['etc', 'cover', 'board'];
 const WORK_ROW2 = ['pcb', 'panel'];
 
@@ -11066,7 +11043,7 @@ function getWorkParts(k, model) {
 function _renderWorkCheckHTML(k, v, model) {
   const visibleParts = getWorkParts(k, model);
   return `<label class="work-check" id="wc-${k}" style="cursor:pointer;">
-    <input type="checkbox" value="${k}" style="margin-top:4px;accent-color:var(--accent);width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="toggleCheck('${k}');updatePP();renderPartQtys('${k}')">
+    <input type="checkbox" value="${k}" style="margin-top:4px;accent-color:var(--accent);width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="toggleCheck('${k}');nbExclusive('${k}','wc-');updatePP();renderPartQtys('${k}')">
     <div style="flex:1;">
       <div class="work-check-name">${v.label}</div>
       <div class="work-check-price">${fmt(v.price)}원</div>
@@ -11099,44 +11076,34 @@ function buildChecks() {
   initPartQtys();
   const model = getModel();
   const _rw = ks => ks.filter(k => WORKS[k]).map(k => _renderWorkCheckHTML(k, WORKS[k], model)).join('');
-  // ⭐ v2.79e: '논배터리 작업 (백커버 교체 포함)' 단축 카드 — 체크하면 논배터리+백커버 두 작업이
-  //   함께 선택됨 (합계 = 두 공임의 합, 저장 데이터는 nonbat+cover 그대로라 집계·견적 영향 없음)
-  const _fullPrice = (WORKS.nonbat?.price || 0) + (WORKS.cover?.price || 0);
-  const fullCard = `
-    <div class="work-check" id="wc-nbfull" style="cursor:pointer;" onclick="toggleNbFull()">
-      <div id="nbfull-box" style="margin-top:4px;width:15px;height:15px;flex-shrink:0;border:2px solid var(--border2);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#fff;"></div>
-      <div style="flex:1;min-width:0;"><div class="work-check-name">논배터리 작업 (백커버 교체 포함)</div><div class="work-check-price">${fmt(_fullPrice)}원</div></div>
-    </div>`;
-  // ⭐ v2.79e: 3행 배치 — 1행 핵심 3종 / 2행 PCB·패널 / 3행 기타·백커버·메인보드
+  // ⭐ v2.79e: 3행 배치 — 1행 논배(백커버 포함)·논배(미포함)·배터리 / 2행 PCB·패널 / 3행 기타·백커버·메인보드
+  //   '백커버 포함'은 독립 작업(nonbat_full)이라 데이터에도 1개 작업으로 기록됨 (자동 동시선택 없음)
   document.getElementById('work-checks').innerHTML = `
-    <div class="work-row-1" style="display:grid !important;grid-template-columns:1fr 1fr 1fr !important;gap:10px;margin-bottom:10px;">${fullCard}${_rw(WORK_ROW1)}</div>
+    <div class="work-row-1" style="display:grid !important;grid-template-columns:1fr 1fr 1fr !important;gap:10px;margin-bottom:10px;">${_rw(WORK_ROW1)}</div>
     <div class="work-row-2" style="display:grid !important;grid-template-columns:1fr 1fr !important;gap:10px;margin-bottom:10px;">${_rw(WORK_ROW2)}</div>
     <div class="work-row-3" style="display:grid !important;grid-template-columns:1fr 1fr 1fr !important;gap:10px;">${_rw(WORK_ROW3)}</div>
   `;
-  try { syncNbFull(); } catch(e) {}
 }
 
-/* ⭐ v2.79e: 논배터리(백커버 포함) 단축 카드 — 논배터리·백커버 체크박스를 한 번에 토글 */
-function toggleNbFull() {
-  const nb = document.querySelector('#wc-nonbat input');
-  const cv = document.querySelector('#wc-cover input');
-  if(!nb || !cv) return;
-  const on = !(nb.checked && cv.checked);
-  if(nb.checked !== on) nb.click();
-  if(cv.checked !== on) cv.click();
-  syncNbFull();
-}
-function syncNbFull() {
-  const nb = document.querySelector('#wc-nonbat input');
-  const cv = document.querySelector('#wc-cover input');
-  const card = document.getElementById('wc-nbfull');
-  const box = document.getElementById('nbfull-box');
-  if(!card || !box) return;
-  const on = !!(nb && cv && nb.checked && cv.checked);
-  card.classList.toggle('checked', on);
-  box.style.background = on ? 'var(--accent)' : 'transparent';
-  box.style.borderColor = on ? 'var(--accent)' : 'var(--border2)';
-  box.textContent = on ? '✓' : '';
+/* ⭐ v2.79e: 논배터리(백커버 포함)와 논배터리(미포함)/백커버 교체는 의미가 겹치므로 동시 선택 방지 —
+   나중에 체크한 쪽을 살리고 겹치는 쪽을 자동 해제 (등록: prefix 'wc-' / 수정: 'ewc-' / 교품: 'exc-wc-') */
+const NB_EXCLUSIVE = { nonbat_full: ['nonbat', 'cover'], nonbat: ['nonbat_full'], cover: ['nonbat_full'] };
+function nbExclusive(k, prefix) {
+  const others = NB_EXCLUSIVE[k];
+  if(!others) return;
+  const self = document.querySelector('#' + prefix + k + ' input');
+  if(!self || !self.checked) return;
+  const cleared = [];
+  others.forEach(o => {
+    const cb = document.querySelector('#' + prefix + o + ' input');
+    if(cb && cb.checked) {
+      cb.checked = false;
+      document.getElementById(prefix + o)?.classList.remove('checked');
+      if(prefix === 'wc-') { try { renderPartQtys(o); } catch(e) {} }
+      cleared.push(WORKS[o]?.tag || o);
+    }
+  });
+  if(cleared.length) { try { notify('ℹ️ [' + (WORKS[k]?.tag || k) + '] 선택 — 중복되는 [' + cleared.join(', ') + '] 체크를 해제했어요'); } catch(e) {} }
 }
 const toggleCheck = k => {
   const checked = document.querySelector(`#wc-${k} input`).checked;
@@ -11262,7 +11229,6 @@ function updatePP() {
   const cs = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
   document.getElementById('price-preview').textContent = cs.length ? `공임비 합계: ${fmt(cs.reduce((s,k)=>s+WORKS[k].price,0))}원` : '';
   try { renderDeductPreview(); } catch(e) {}   // ⭐ v2.70c: 재고 차감 미리보기 갱신
-  try { syncNbFull(); } catch(e) {}            // ⭐ v2.79e: 논배(백커버 포함) 단축 카드 상태 동기화
 }
 
 // ⭐ v2.70c: 재고 차감 미리보기 — 등록 저장 전에 "이 등록으로 어떤 부품이 몇 개 차감되는지"를
@@ -11391,7 +11357,7 @@ async function addEntry() {
   // (N 표식 = "논배터리 전환 완료" 의미. 배터리 교체·PCB/LCD/MB만 하는 경우는 추가 X)
   // ⭐ v2.79b: 5기종 체계 — N 없는 시리얼은 S2/S2PRO(배터리 유지)로 감지되므로 그 표기도 부착 대상에 포함
   const detectedModel = detectModel(serial);
-  const isNonBatWork = works.includes('nonbat');
+  const isNonBatWork = works.includes('nonbat') || works.includes('nonbat_full');   // ⭐ v2.79e: 논배 2종 모두
   if(isNonBatWork && ['S2PRO_N','S2_N','S2PRO','S2'].includes(detectedModel) && !serial.endsWith('N')) {
     serial = serial + 'N';
     document.getElementById('inp-serial').value = serial;
@@ -11416,7 +11382,7 @@ async function addEntry() {
   const model = getModel() || detectModel(serial) || detectedModel;
 
   // ⭐ v2.78: 시리얼 형식·자릿수 검증 (형식 위반 차단 · 자릿수 특이는 확인 후 진행)
-  const _sv = validateSerialFormat(serial, model, works.includes('nonbat'));   // ⭐ v2.79a: 논배 미포함 건은 N 누락 경고 제외
+  const _sv = validateSerialFormat(serial, model, isNonBatWork);   // ⭐ v2.79a/e: 논배(2종) 미포함 건은 N 누락 경고 제외
   if(_sv && _sv.level === 'block') {
     notify(_sv.msg, 'error');
     try { document.getElementById('inp-serial').focus(); } catch(e) {}
@@ -12215,7 +12181,7 @@ function buildTripleWorkHtml() {
     const ws = parseWorks(e.works).map(x => String(x));
     const has = (key, pats) => ws.some(x => x === key || pats.some(t => x.includes(t)));
     return has('panel', ['LCD', '패널'])
-        && has('nonbat', ['논배터리'])
+        && has('nonbat', ['nonbat_full', '논배터리'])   // ⭐ v2.79e: 백커버 포함 논배(nonbat_full)도 인정
         && has('board', ['메인보드', 'MB']);
   };
   const tripleList = all.filter(isTriple);
@@ -12914,7 +12880,7 @@ async function openEditModal(id) {
   document.getElementById('edit-work-checks').innerHTML = orderedEditEntries.map(([k,v])=>{
     return `
     <label class="work-check ${ws.includes(k)?'checked':''}" id="ewc-${k}">
-      <input type="checkbox" value="${k}" ${ws.includes(k)?'checked':''} onchange="document.getElementById('ewc-${k}').classList.toggle('checked',this.checked);updateEditPP()">
+      <input type="checkbox" value="${k}" ${ws.includes(k)?'checked':''} onchange="document.getElementById('ewc-${k}').classList.toggle('checked',this.checked);nbExclusive('${k}','ewc-');updateEditPP()">
       <div><div class="work-check-name">${v.label}</div><div class="work-check-price">${fmt(v.price)}원</div></div>
     </label>`;
   }).join('');
@@ -13211,7 +13177,7 @@ async function saveEdit() {
     if(dup){ notify(`이미 등록된 시리얼입니다 (${dup.worker}).`,'error'); btn.disabled=false; btn.textContent='저장'; return; }
     // ⭐ v2.78: 시리얼을 실제로 바꿨을 때만 형식·자릿수 검증 (자릿수 누락 오타 방지)
     if(_serialChanged) {
-      const _svE = validateSerialFormat(newSerial, newModel, Array.isArray(works) && works.includes('nonbat'));   // ⭐ v2.79a
+      const _svE = validateSerialFormat(newSerial, newModel, Array.isArray(works) && (works.includes('nonbat') || works.includes('nonbat_full')));   // ⭐ v2.79a/e
       if(_svE && _svE.level === 'block') { notify(_svE.msg,'error'); btn.disabled=false; btn.textContent='저장'; return; }
       if(_svE && _svE.level === 'warn') {
         if(!window.confirm('⚠️ 시리얼 확인\n\n' + _svE.msg + '\n\n실물 라벨과 일치한다면 [확인]을 눌러 이대로 저장하세요.')) {
@@ -14212,9 +14178,9 @@ function resetExcForm() {
   document.getElementById('exc-model-manual').style.display = 'inline-block';
   document.getElementById('exc-model-manual').value = '';
   document.getElementById('exc-reason').value = '비용초과';
-  // 체크박스: nonbat+pcb+panel 디폴트
+  // 체크박스: 논배(백커버 포함)+pcb+panel 디폴트   // ⭐ v2.79e
   document.querySelectorAll('#exc-works-wrap input[type=checkbox]').forEach(cb => {
-    cb.checked = ['nonbat','pcb','panel'].includes(cb.value);
+    cb.checked = ['nonbat_full','pcb','panel'].includes(cb.value);
   });
   excUpdatePreview();
 }
@@ -14562,9 +14528,13 @@ function openHistDropdown(type, thEl) {
     border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);min-width:200px;padding:8px 0;font-size:13px;`;
 
   const WORK_META = [
+    {key:'nonbat_full',label:'논배터리+커버',color:'#c2410c'},   // ⭐ v2.79e
     {key:'nonbat',label:'논배터리',color:'#f97316'},
+    {key:'battery',label:'배터리', color:'#0891b2'},
     {key:'pcb',   label:'PCB 교체',color:'#3b82f6'},
     {key:'panel', label:'LCD 교체',color:'#10b981'},
+    {key:'etc',   label:'기타작업',color:'#6b7280'},
+    {key:'cover', label:'백커버',  color:'#d97706'},
     {key:'board', label:'MB수리',  color:'#a855f7'},
   ];
 
@@ -14685,14 +14655,14 @@ function toggleHistWork(key, itemEl) {
   const idx = histFilter.works.indexOf(key);
   if(idx >= 0) histFilter.works.splice(idx, 1); else histFilter.works.push(key);
   // 체크 표시 즉시 갱신
-  const WORK_COLORS = {nonbat:'#f97316',pcb:'#3b82f6',panel:'#10b981',board:'#a855f7'};
+  const WORK_COLORS = {nonbat_full:'#c2410c',nonbat:'#f97316',battery:'#0891b2',pcb:'#3b82f6',panel:'#10b981',etc:'#6b7280',cover:'#d97706',board:'#a855f7'};   // ⭐ v2.79e
   const checkEl = itemEl.querySelector('span');
   if(checkEl) { checkEl.style.color=WORK_COLORS[key]; checkEl.textContent=histFilter.works.includes(key)?'✓':''; }
   applyHistFilterDirect();
 }
 
 // 수리항목 칩 토글 (하위 호환 — 기존 칩 없으니 빈 함수만 유지)
-const CHIP_COLORS = { nonbat:'#f97316', pcb:'#3b82f6', panel:'#10b981', board:'#a855f7' };
+const CHIP_COLORS = { nonbat_full:'#c2410c', nonbat:'#f97316', battery:'#0891b2', pcb:'#3b82f6', panel:'#10b981', etc:'#6b7280', cover:'#d97706', board:'#a855f7' };   // ⭐ v2.79e
 function toggleHistChip(el) {}
 
 function resetHistFilters() {
