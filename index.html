@@ -9817,14 +9817,19 @@ function getModelList() {
   const fromData = [...new Set(entries.map(e => e.model).filter(Boolean))];
   const saved = JSON.parse(localStorage.getItem('formsPriceSettings') || '{}');
   const fromSaved = Object.keys(saved.modelParts || {});
-  return [...new Set([...fromData, ...fromSaved])].sort();
+  const fromServer = Object.keys((window.PARTS_PRICE && window.PARTS_PRICE.modelParts) || {});   // ⭐ v2.79i
+  return [...new Set([...fromData, ...fromSaved, ...fromServer])].sort();
 }
 
 function renderModelPartsTable() {
   const el = document.getElementById('model-parts-price-table');
   if(!el) return;
+  // ⭐ v2.79i: 서버 값(window.PARTS_PRICE) 우선 — 다른 PC에서 저장한 부품비도 보이게.
+  //   (기존엔 이 PC의 localStorage만 읽어서, 저장한 적 없는 PC에서는 전부 0원으로 보이던 문제)
   const saved = JSON.parse(localStorage.getItem('formsPriceSettings') || '{}');
-  const mp = saved.modelParts || {};
+  const _srv = (window.PARTS_PRICE && window.PARTS_PRICE.modelParts) || null;
+  const _hasVals = o => !!o && Object.values(o).some(x => Object.values(x || {}).some(v => Number(v) > 0));
+  const mp = _hasVals(_srv) ? _srv : (saved.modelParts || _srv || {});
   const models = getModelList();
 
   if(!models.length) {
@@ -9832,7 +9837,7 @@ function renderModelPartsTable() {
     return;
   }
 
-  const workKeys = Object.keys(WORKS);
+  const workKeys = Object.keys(WORKS).filter(k => k !== 'nonbat_full');   // ⭐ v2.79i: 임시 키 행 제외
   el.innerHTML = `
     <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
@@ -10010,7 +10015,7 @@ function savePriceSettings() {
   const modelParts = {};
   models.forEach(m => {
     modelParts[m] = {};
-    Object.keys(WORKS).forEach(k => {
+    Object.keys(WORKS).filter(k => k !== 'nonbat_full').forEach(k => {   // ⭐ v2.79i: 임시 키 제외
       const val = Number(document.getElementById(`mp-${m}-${k}`)?.value) || 0;
       modelParts[m][k] = val;
     });
@@ -10065,7 +10070,9 @@ function loadPriceSettings() {
     if(saved.cover)       { WORKS.cover.price = saved.cover;             const el=document.getElementById('price-cover');       if(el) el.value=saved.cover; }
     if(saved.etc)         { WORKS.etc.price = saved.etc;                 const el=document.getElementById('price-etc');         if(el) el.value=saved.etc; }
     if(saved.newProduct) { window.NEW_PRODUCT_PRICE_OVERRIDE = saved.newProduct; const el=document.getElementById('price-new-product'); if(el) el.value=saved.newProduct; }
-    if(saved.modelParts) {
+    // ⭐ v2.79i: 로컬 부품비는 서버 값이 없을 때만 폴백 — 단가 탭 열 때마다
+    //   이 PC의 옛 로컬 값이 서버에서 받은 최신 부품비를 덮어쓰던 문제 수정
+    if(saved.modelParts && !(window.PARTS_PRICE && window.PARTS_PRICE.modelParts)) {
       window.PARTS_PRICE = { modelParts: saved.modelParts };
     }
     // DOM이 있을 때만 테이블 렌더
@@ -17121,11 +17128,20 @@ function renderStock() {
     h += `<div class="empty" style="padding:30px;">해당 기종 부품이 없습니다.</div>`;
     el.innerHTML = h; return;
   }
-  // 카테고리별 그룹
-  const cats = [...new Set(filtered.map(p => p.category || '기타'))].sort();
+  // ⭐ v2.79i: 기종별 그룹 정리 — S2PRO_N → S2_N → 공용 순서로 섹션을 나눠서 표시 (요청)
+  const _grpOrder = ['S2PRO_N', 'S2_N', '공용'];
+  const _grps = {};
+  filtered.forEach(p => { const m = p.model || '공용'; (_grps[m] = _grps[m] || []).push(p); });
+  const cats = [..._grpOrder.filter(m => _grps[m]), ...Object.keys(_grps).filter(m => !_grpOrder.includes(m)).sort()];
   cats.forEach(cat => {
-    const parts = filtered.filter(p => (p.category || '기타') === cat);
-    h += `<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px;">${cat}</div>`;
+    const parts = _grps[cat].slice().sort((a,b) => String(a.name).localeCompare(String(b.name), 'ko'));
+    const _low = parts.filter(p => p.qty <= p.minQty).length;
+    h += `<div style="display:flex;align-items:center;gap:8px;margin:18px 0 8px;">
+      ${modelBadge(cat)}
+      <span style="font-size:12px;font-weight:700;color:var(--text2);">${parts.length}개 품목</span>
+      ${_low ? `<span style="font-size:11px;font-weight:700;color:var(--amber-text);">⚠ 부족/없음 ${_low}</span>` : ''}
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+    </div>`;
     h += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:8px;">`;
     parts.forEach(p => {
       const isLow = p.qty <= p.minQty;
