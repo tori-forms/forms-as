@@ -2236,18 +2236,15 @@ const _isAdminUser = (name) => {
   return tier === 'T3' || tier === 'T4';
 };
 
+// ⭐ v2.79j: WORKS의 하드코딩 parts 전면 제거 — 여기 적힌 옛 부품명(FPC보드(S2_N&S2pro_N) 등)은
+//   현재 재고 목록의 실명과 달라서, 매핑에 흘러들면 "재고 목록에 없음(차감 안 됨)" 유령 항목이 된다
+//   (v2.57i에서 잡았던 버그의 재발 경로). 부품 구성은 오직 관리자 → 작업별 부품 매핑에서 관리하고,
+//   매핑이 없는 작업은 부품 자동 차감 없음(등록 화면 미리보기로 바로 보임)이 안전한 기본값.
 const WORKS = {
   pcb:    { label:'PCB 교체 (+S/N 라이팅)',               price:15180, tag:'PCB 교체',   tagColor:'#2563eb', tagBg:'#dbeafe',
-    parts: [
-      // 모델별로 다른 PCBA 차감
-      {name:'PCBA(S2)',    qty:1, modelOnly:'S2_N'},
-      {name:'PCBA(S2Pro)', qty:1, modelOnly:'S2PRO_N'},
-    ] },
+    parts: [] },
   panel:  { label:'일체형 패널 교체 (액정 보호필름 부착)', price:10450, tag:'LCD 교체',   tagColor:'#16a34a', tagBg:'#dcfce7',
-    parts: [
-      // 두 모델 공용
-      {name:'일체형패널(S2&S2pro)', qty:1},
-    ] },
+    parts: [] },
   board:  { label:'메인보드 부분 수리 (충전단자 포함)',     price:10450, tag:'MB수리',   tagColor:'#7c3aed', tagBg:'#ede9fe',
     parts: [] },
   // ⭐ v2.79h: 키 의미 원복 — 'nonbat'은 처음부터 지금까지의 실제 의미인 '논배터리 작업 (백커버 교체 포함, 18,700)'.
@@ -2255,46 +2252,16 @@ const WORKS = {
   //   2026-08-28 단가표의 신설 항목 '백커버 교체 미포함(10,800)'은 새 키 nonbat_nc 로 분리.
   //   (한때 쓰던 nonbat_full 키는 아래 legacy 항목 — 이행 도구가 nonbat으로 되돌린다)
   nonbat: { label:'논배터리 작업 (백커버 교체 포함)',        price:18700, tag:'논배터리',   tagColor:'#ea580c', tagBg:'#ffedd5',
-    parts: [
-      // 풀 작업 부품 구성 (백커버·후면보호필름 포함) — 기존 서버 부품 매핑과 동일
-      {name:'FPC보드(S2_N&S2pro_N)',          qty:1},
-      {name:'케이블정리테이프(논배터리전환용)', qty:1},
-      {name:'서브보드필름(논배터리전환용)',     qty:1},
-      {name:'논배터리셋업보드와이어부품(S2pro)', qty:1},
-      {name:'강화유리필름(S2)',                qty:1},
-      {name:'후면보호필름',                    qty:1},
-      {name:'서브보드(S2_N)',     qty:1, modelOnly:'S2_N'},
-      {name:'백커버(S2_N)',       qty:1, modelOnly:'S2_N'},
-      {name:'전원버튼(S2_N)',     qty:1, modelOnly:'S2_N'},
-      {name:'서브보드(S2pro_N)',  qty:1, modelOnly:'S2PRO_N'},
-      {name:'백커버(S2pro_N)',    qty:1, modelOnly:'S2PRO_N'},
-      {name:'전원버튼(S2Pro_N)',  qty:1, modelOnly:'S2PRO_N'},
-    ] },
+    parts: [] },   // 부품 구성은 관리자 → 부품 매핑에서 (기존 매핑 유지)
   nonbat_nc: { label:'논배터리 작업 (백커버 교체 미포함)',   price:10800, tag:'논배터리(커버X)', tagColor:'#c2410c', tagBg:'#ffedd5',
-    parts: [
-      // 백커버 미포함(커버 재사용) — 백커버·후면보호필름 제외
-      {name:'FPC보드(S2_N&S2pro_N)',          qty:1},
-      {name:'케이블정리테이프(논배터리전환용)', qty:1},
-      {name:'서브보드필름(논배터리전환용)',     qty:1},
-      {name:'논배터리셋업보드와이어부품(S2pro)', qty:1},
-      {name:'강화유리필름(S2)',                qty:1},
-      {name:'서브보드(S2_N)',     qty:1, modelOnly:'S2_N'},
-      {name:'전원버튼(S2_N)',     qty:1, modelOnly:'S2_N'},
-      {name:'서브보드(S2pro_N)',  qty:1, modelOnly:'S2PRO_N'},
-      {name:'전원버튼(S2Pro_N)',  qty:1, modelOnly:'S2PRO_N'},
-    ] },
+    parts: [] },   // 매핑에서 백커버·후면필름 제외 구성으로 설정
   // (legacy) 2026-09-03 하루 동안 쓰인 임시 키 — 이행 도구가 전부 nonbat으로 되돌린 뒤엔 데이터에 남지 않음.
   //   렌더링·수정 호환을 위해 정의만 유지 (등록 화면에는 노출 안 됨)
   nonbat_full: { label:'(구) 논배터리 작업 (백커버 교체 포함)', price:18700, tag:'논배터리', tagColor:'#ea580c', tagBg:'#ffedd5',
     parts: [] },
-  // ⭐ v2.79: 백커버 교체 — 논배터리에서 분리된 신규 작업.
-  // ⭐ v2.79e: 기본 부품으로 백커버(기종별)·후면보호필름 지정 (관리자 부품 매핑이 있으면 매핑 우선)
+  // ⭐ v2.79: 백커버 교체 — 논배터리에서 분리된 신규 작업. 부품 구성은 매핑에서 (후면 커버·후면 필름).
   cover: { label:'백커버 교체',                             price:7900,  tag:'백커버',     tagColor:'#d97706', tagBg:'#fef3c7',
-    parts: [
-      {name:'후면보호필름',       qty:1},
-      {name:'백커버(S2_N)',       qty:1, modelOnly:'S2_N'},
-      {name:'백커버(S2pro_N)',    qty:1, modelOnly:'S2PRO_N'},
-    ] },
+    parts: [] },
   battery: { label:'배터리 교체',                          price:12800, tag:'배터리',     tagColor:'#0891b2', tagBg:'#cffafe',   // ⭐ v2.79: 0 → 12,800
     parts: [] },
   // ⭐ v2.70u/v2.79: 기타 작업 — 위 항목에 포함되지 않는 작업 (와이파이·스피커·SW 설치·검수 등).
@@ -9591,12 +9558,16 @@ function renderWorkParts() {
   // 현재 매핑 → 드래프트 복사
   const map = window.WORK_PARTS_MAP || {};
   _workPartsDraft = {};
+  // ⭐ v2.79j: WORKS 기본값 시드 제거(옛 부품명이 매핑에 저장되던 원인) +
+  //   매핑에 남은 '재고 목록에 없는 부품명'은 편집기에서 걸러냄 — 저장하면 자동 정리됨
+  const _stockNames = new Set((stock || []).map(p => String(p.name)));
+  let _orphanCnt = 0;
   WORKPARTS_JOBS.forEach(j => {
     _workPartsDraft[j.key] = {};
-    // ⭐ v2.79e: 서버 매핑에 아직 없는 작업(예: 신설된 논배 포함/미포함)은 WORKS 기본 부품으로 시드 —
-    //   편집기를 열고 그대로 저장해도 기본 차감 구성이 조용히 사라지지 않게 함
-    const src = Array.isArray(map[j.key]) ? map[j.key] : (WORKS[j.key]?.parts || []);
-    src.forEach(p => { _workPartsDraft[j.key][p.name] = Number(p.qty)||1; });
+    (map[j.key] || []).forEach(p => {
+      if(!_stockNames.has(String(p.name))) { _orphanCnt++; return; }
+      _workPartsDraft[j.key][p.name] = Number(p.qty)||1;
+    });
   });
 
   const modelBadge = (m) => {
@@ -9607,6 +9578,8 @@ function renderWorkParts() {
 
   // 작업별 아코디언
   let h = '';
+  if(_orphanCnt) h += `<div style="font-size:12px;color:var(--amber-text);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:10px;">
+    ⚠ 재고 목록에 없는 옛 부품명 ${_orphanCnt}개를 매핑에서 걸러냈어요 — 아래 구성 확인 후 <b>저장</b>하면 완전히 정리됩니다.</div>`;
   WORKPARTS_JOBS.forEach(j => {
     const selCount = Object.keys(_workPartsDraft[j.key]).length;
     h += `<details style="margin-bottom:10px;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
@@ -9646,12 +9619,15 @@ async function saveWorkParts() {
   if(!isAdmin) { notify('관리자만 가능합니다.','error'); return; }
   if(!_workPartsDraft) { notify('변경사항이 없습니다.'); return; }
   // 드래프트 → 매핑 구조 {job:[{name,qty,model}]}
+  // ⭐ v2.79j: 재고 목록에 실존하는 부품명만 저장 — 유령 부품명이 매핑에 남는 것 원천 차단
   const map = {};
   WORKPARTS_JOBS.forEach(j => {
-    map[j.key] = Object.entries(_workPartsDraft[j.key]||{}).map(([name,qty]) => {
-      const sp = (stock||[]).find(x=>x.name===name);
-      return { name, qty:Number(qty)||1, model: sp ? (sp.model||'공용') : '공용' };
-    });
+    map[j.key] = Object.entries(_workPartsDraft[j.key]||{})
+      .map(([name,qty]) => {
+        const sp = (stock||[]).find(x=>x.name===name);
+        return sp ? { name, qty:Number(qty)||1, model: (sp.model||'공용') } : null;
+      })
+      .filter(Boolean);
   });
   // ⭐ v2.70g: 기본 수량 이상치 확인 — 휠 스크롤·오타로 6 같은 값이 저장되면 그 뒤 모든 등록에서
   //   조용히 6개씩 기록·차감됨 (등록 화면 부품 패널은 기본 접힘이라 아무도 못 봄). 저장 전에 한 번 묻는다.
