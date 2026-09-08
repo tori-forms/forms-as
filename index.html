@@ -16065,7 +16065,8 @@ function renderWorkers() {
         <button onclick="saveMentoring('${w}',${mentoringMap[w]?'false':'true'})" title="교육 중 (켜면 KPI 목표 면제 · 실적은 그대로 집계)" style="height:30px;padding:0 10px;font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;border:1px solid ${mentoringMap[w]?'#7c3aed':'var(--border2)'};background:${mentoringMap[w]?'#ede9fe':'transparent'};color:${mentoringMap[w]?'#7c3aed':'var(--text2)'};">🎓 교육${mentoringMap[w]?' 중':''}</button>
 <input type="number" min="0" step="1" placeholder="자동" value="${dtVal!==undefined&&dtVal!==null?dtVal:''}" onchange="saveWorkerDailyTarget('${w}',this.value)" title="일일 목표 직접 지정 (비우면 입사일 기준 자동)" style="width:64px;height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);text-align:right;" />
         <span style="font-size:11px;color:var(--text3);">건/일</span>
-        <button class="btn btn-sm btn-danger" onclick="removeWorker('${w}')">삭제</button>` 
+        ${isFullAdmin() ? `<button class="btn btn-sm" onclick="resetWorkerPassword('${escapeJs(w)}')" title="비밀번호 초기화 — 다음 로그인 때 본인이 새 비밀번호를 설정" style="color:#d97706;border-color:#d97706;">🔑 비번 초기화</button>` : ''}
+        <button class="btn btn-sm btn-danger" onclick="removeWorker('${w}')">삭제</button>`
         : `<span style="font-size:11px;color:var(--text3);">권한 없음</span>`}
       </div>
     </div>`;
@@ -16087,6 +16088,24 @@ function renderWorkers() {
         <div style="margin-top:10px;font-size:12px;color:var(--text2);line-height:1.6;">입사 후 단계적으로 늘어나 <b>8주차(약 2개월)에 ${KPI_STD_DAILY}건</b>으로 안착해요. 각 엔지니어의 입사일을 설정하면 이 기준으로 일일 목표가 자동 계산됩니다.</div>
       </div>
     </div>`;
+}
+
+/* ⭐ v2.79k: 비밀번호 초기화 (마스터 전용) — 퇴사자가 설정해 둔 비밀번호를 모를 때 사용.
+   해시를 비우면 해당 계정은 '첫 로그인' 상태가 되어, 다음 로그인 때 본인이 새 비밀번호를 설정한다. */
+async function resetWorkerPassword(name) {
+  if(!isFullAdmin()) { notify('마스터만 비밀번호를 초기화할 수 있습니다.', 'error'); return; }
+  if(!confirm(`${name}님의 비밀번호를 초기화할까요?\n\n초기화하면 기존 비밀번호는 즉시 무효가 되고,\n다음 로그인 때 본인이 새 비밀번호를 설정하는 화면이 뜹니다.`)) return;
+  // 로컬 즉시 반영 + 12분 보호 (낡은 캐시 페이로드가 옛 해시를 되살리는 것 방지 — v2.73b와 같은 원리)
+  window.PASSWORD_MAP = window.PASSWORD_MAP || {};
+  window.PASSWORD_MAP[String(name).trim()] = '';
+  try { localStorage.setItem('fa_pw_ov', JSON.stringify({ name: String(name).trim(), hash: '', ts: Date.now() })); } catch(e) {}
+  try {
+    const r = await gasCall({ action: 'savePassword', name: name, hash: '' });
+    if(r && r.ok === false) { notify('⚠ 서버 저장 실패 — 잠시 후 다시 시도해주세요.', 'error'); return; }
+    notify(`✅ ${name}님 비밀번호 초기화 완료 — 다음 로그인 때 새 비밀번호를 설정하면 됩니다.`);
+  } catch(e) {
+    notify('⚠ 서버 저장 실패 (네트워크) — 다시 시도해주세요.', 'error');
+  }
 }
 
 async function saveTier(name, tier) {
