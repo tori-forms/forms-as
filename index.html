@@ -11172,18 +11172,24 @@ const WORK_ROW2 = ['pcb', 'panel'];
 
 // ⭐ 작업 k의 부품 목록 반환 — 매핑(WORK_PARTS_MAP) 우선, 없으면 WORKS 폴백
 // 반환 형식: [{name, qty, modelOnly}]  (modelOnly: 공용이면 '', 아니면 기종값)
+// ⭐ v2.79o: 부품 기종 매칭 키 — T2N은 S2PRO_N과 사용 부품이 완전히 동일(같은 플랫폼)하므로
+//   부품 매핑·자동 차감·부품 목록에서 T2N = S2PRO_N 으로 취급한다.
+function partsModelKey(m) {
+  const n = (typeof normalizeModel === 'function') ? normalizeModel(m || '') : String(m || '').toUpperCase();
+  return n === 'T2N' ? 'S2PRO_N' : n;
+}
 function getWorkParts(k, model) {
   const map = window.WORK_PARTS_MAP || null;
   // ⭐ v2.70c: 기종 표기 정규화 비교 — 수기 입력 "S2PRO"/"s2pro" 등이 매핑의 "S2PRO_N"과
   //   달라서 부품이 조용히 필터링(=차감 누락)되던 문제 차단
-  const nModel = (typeof normalizeModel === 'function') ? normalizeModel(model||'') : String(model||'');
+  const nModel = partsModelKey(model||'');   // ⭐ v2.79o: T2N → S2PRO_N 부품 사용
   if(map && Array.isArray(map[k])) {
     return map[k]
-      .filter(p => { const pm = p.model||'공용'; return pm==='공용' || normalizeModel(pm)===nModel; })
+      .filter(p => { const pm = p.model||'공용'; return pm==='공용' || partsModelKey(pm)===nModel; })
       .map(p => ({ name:p.name, qty:Number(p.qty)||1, modelOnly: (p.model && p.model!=='공용') ? p.model : '' }));
   }
   return (WORKS[k]?.parts||[])
-    .filter(p => !p.modelOnly || normalizeModel(p.modelOnly) === nModel)
+    .filter(p => !p.modelOnly || partsModelKey(p.modelOnly) === nModel)
     .map(p => ({ name:p.name, qty:p.qty, modelOnly:p.modelOnly||'' }));
 }
 
@@ -11336,12 +11342,12 @@ function addExtraPart(workKey) {
   //   문자열 불일치로 숨던 문제 수정. 그 외 기종 부품도 '다른 기종 부품' 그룹으로 항상 선택 가능
   //   (T2N처럼 전용 부품이 아직 재고에 없는 기종에서 필요한 부품을 고를 수 있게).
   const model = getModel();
-  const _nm = normalizeModel(model || '');
+  const _nm = partsModelKey(model || '');   // ⭐ v2.79o: T2N = S2PRO_N 부품
   const _optOf = p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}${(p.model&&p.model!=='공용')?` (${p.model})`:''}</option>`;
   const _mine = [], _others = [];
   (stock||[]).forEach(p => {
     const m = p.model || '공용';
-    if(m === '공용' || normalizeModel(m) === _nm) _mine.push(p); else _others.push(p);
+    if(m === '공용' || partsModelKey(m) === _nm) _mine.push(p); else _others.push(p);
   });
   const opts = _mine.map(_optOf).join('')
     + (_others.length ? `<optgroup label="── 다른 기종 부품 ──">${_others.map(_optOf).join('')}</optgroup>` : '');
@@ -11429,23 +11435,36 @@ function renderDeductPreview() {
   if(!checked.length || !Array.isArray(stock) || !stock.length) { el.innerHTML = ''; return; }
   const pd = getPartsData();
   const model = getModel();
-  const curModel = normalizeModel(model || '');
+  const curModel = partsModelKey(model || '');   // ⭐ v2.79o: T2N = S2PRO_N 부품
   const chips = [];
+  const missing = [];   // ⭐ v2.79o: 매칭 실패 부품은 모아서 한 줄로 (유령 부품명 여러 개가 화면을 뒤덮던 문제)
   Object.entries(pd).forEach(([name, qty]) => {
     if(qty <= 0) return;
     if(typeof isQualityFlagKey === 'function' && isQualityFlagKey(name)) return;
     const nm = String(name).trim().toLowerCase();
-    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && normalizeModel(p.model||'공용')===curModel);
+    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && partsModelKey(p.model||'공용')===curModel);
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
     if(idx < 0) {
-      chips.push(`<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(239,68,68,.12);border:1px solid #ef444466;color:#ef4444;padding:3px 10px;border-radius:99px;font-size:11.5px;font-weight:600;margin:2px;">✕ ${escapeHtml(name)} — 재고 목록에 없음 (차감 안 됨!)</span>`);
+      missing.push(name);
     } else {
       const cur = Number(stock[idx].qty||0);
       const short = cur < qty;
       chips.push(`<span style="display:inline-flex;align-items:center;gap:4px;background:${short?'rgba(245,158,11,.12)':'rgba(16,185,129,.10)'};border:1px solid ${short?'#f59e0b66':'#10b98155'};color:${short?'#f59e0b':'#10b981'};padding:3px 10px;border-radius:99px;font-size:11.5px;font-weight:600;margin:2px;">${short?'⚠':'✓'} ${escapeHtml(stock[idx].name)} −${qty} <span style="color:var(--text3);font-weight:500;">(현재 ${fmt(cur)})</span>${short?' 재고 부족':''}</span>`);
     }
   });
+  // ⭐ v2.79o: 매칭 실패 부품 표시 — 1~2개면 개별 빨간 칩(실수 감지용), 3개 이상이면 한 줄 요약으로 접기
+  //   (부품 매핑에 남은 옛 이름들이 화면을 뒤덮지 않게. 근본 정리는 관리자 → 부품 매핑에서 저장 한 번)
+  if(missing.length) {
+    if(missing.length <= 2) {
+      missing.forEach(name => chips.unshift(`<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(239,68,68,.12);border:1px solid #ef444466;color:#ef4444;padding:3px 10px;border-radius:99px;font-size:11.5px;font-weight:600;margin:2px;">✕ ${escapeHtml(name)} — 재고 목록에 없음 (차감 안 됨!)</span>`));
+    } else {
+      chips.unshift(`<details style="display:inline-block;vertical-align:middle;margin:2px;">
+        <summary style="display:inline-flex;align-items:center;gap:4px;background:rgba(239,68,68,.10);border:1px solid #ef444455;color:#ef4444;padding:3px 10px;border-radius:99px;font-size:11.5px;font-weight:600;cursor:pointer;list-style:none;">⚠ 매칭 안 되는 부품명 ${missing.length}개 — 차감 안 됨 · 관리자 → 부품 매핑에서 저장하면 정리돼요 (눌러서 목록)</summary>
+        <div style="font-size:11px;color:var(--text3);padding:6px 4px 2px;line-height:1.8;">${missing.map(n=>escapeHtml(n)).join(' · ')}</div>
+      </details>`);
+    }
+  }
   el.innerHTML = chips.length ? `
     <div style="border:1px dashed var(--border2);border-radius:10px;padding:9px 12px;background:var(--surface2);">
       <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">📦 이 등록으로 차감될 재고</div>
@@ -13253,12 +13272,12 @@ function _appendEditExtraRow(workKey, id, name, qty, fixed) {
     //   현재 수정 중인 기기 기종(공용+해당기종)에 맞는 재고 부품만 표시
     // ⭐ v2.79l: 기종 정규화 비교 + '다른 기종 부품' 그룹 (등록 화면과 동일 규칙)
     const _em = (entries.find(x=>String(x.id)===String(editTargetId))?.model) || '';
-    const _enm = normalizeModel(_em || '');
+    const _enm = partsModelKey(_em || '');   // ⭐ v2.79o: T2N = S2PRO_N 부품
     const _eOpt = s => `<option value="${String(s.name).replace(/"/g,'&quot;')}"${s.name===name?' selected':''}>${String(s.name).replace(/</g,'&lt;')}${(s.model&&s.model!=='공용')?` (${s.model})`:''}</option>`;
     const _eMine = [], _eOthers = [];
     (stock||[]).forEach(s => {
       const m = s.model||'공용';
-      if(m==='공용' || normalizeModel(m)===_enm) _eMine.push(s); else _eOthers.push(s);
+      if(m==='공용' || partsModelKey(m)===_enm) _eMine.push(s); else _eOthers.push(s);
     });
     const _opts = _eMine.map(_eOpt).join('')
       + (_eOthers.length ? `<optgroup label="── 다른 기종 부품 ──">${_eOthers.map(_eOpt).join('')}</optgroup>` : '');
@@ -16696,23 +16715,69 @@ function switchStockTab(tab) {
 function _doaLogs() {
   return (stockLog || []).filter(l => l.type === 'out' && /^DOA/.test(String(l.note || '')));
 }
+/* ⭐ v2.79p: 입고분(로트) 자동 추정 — 선입선출 기준.
+   입고 로그(복구·취소 환입 제외)를 시간순으로 로트로 보고, 지금까지의 총 출고량이
+   어느 로트 구간에 와 있는지 계산해 "현재 소진 중인 입고분"을 자동으로 잡는다.
+   (재고 로그 보존 범위 내에서의 추정 — 필요하면 등록 시 드롭다운으로 다른 입고분 선택 가능) */
+function _partLots(part) {
+  const pid = String(part.id); const pname = String(part.name);
+  const mine = (stockLog || []).filter(l => String(l.partId) === pid || String(l.partName) === pname);
+  const lots = mine.filter(l => l.type === 'in' && !/복구|취소|환입/.test(String(l.note || '')))
+    .map(l => ({ date: String(l.date).slice(0,10), qty: Number(l.qty) || 0 }))
+    .sort((a,b) => a.date.localeCompare(b.date));
+  // 같은 날짜 입고는 하나의 로트로 합침
+  const merged = [];
+  lots.forEach(l => {
+    const last = merged[merged.length-1];
+    if(last && last.date === l.date) last.qty += l.qty; else merged.push({...l});
+  });
+  const consumed = mine.filter(l => l.type === 'out').reduce((s,l) => s + (Number(l.qty)||0), 0);
+  return { lots: merged, consumed };
+}
+function _fifoLotEstimate(part) {
+  const { lots, consumed } = _partLots(part);
+  if(!lots.length) return null;
+  let cum = 0;
+  for(const l of lots) {
+    cum += l.qty;
+    if(consumed < cum) return l;   // 소진 위치가 이 로트 안
+  }
+  return lots[lots.length-1];       // 전부 소진 계산이면 최신 로트로
+}
+function updateDoaLotSel() {
+  const sel = document.getElementById('doa-lot');
+  const idx = Number(document.getElementById('doa-part')?.value);
+  const sp = stock[idx];
+  if(!sel || !sp) return;
+  const { lots } = _partLots(sp);
+  const est = _fifoLotEstimate(sp);
+  sel.innerHTML = lots.length
+    ? lots.slice().reverse().map(l =>
+        `<option value="${l.date}" ${est && l.date === est.date ? 'selected' : ''}>${l.date} 입고분 (${fmt(l.qty)}개)${est && l.date === est.date ? ' — 자동 추정' : ''}</option>`
+      ).join('') + `<option value="">입고분 모름/기록 안 함</option>`
+    : `<option value="">입고 이력 없음 (기록 안 함)</option>`;
+}
 function renderDoa() {
   const el = document.getElementById('doa-content');
   if(!el) return;
   const logs = _doaLogs().slice().sort((a,b) => String(b.date).localeCompare(String(a.date)));
   const curMonth = new Date().toISOString().slice(0,7);
-  // 부품별 집계
+  const _symOf = n => { const m = String(n||'').match(/^DOA[^\[]*\[([^\]]*)\]/); return m ? m[1] : '-'; };
+  // ⭐ v2.79p: 노트의 입고분 태그 파싱 — "DOA 불량 [증상] (2026-08-26 입고분)"
+  const _lotOf = n => { const m = String(n||'').match(/\((\d{4}-\d{2}-\d{2}) 입고분\)/); return m ? m[1] : ''; };
+  // 부품 × 입고분별 집계
   const agg = {};
   logs.forEach(l => {
-    const k = l.partName || '?';
-    if(!agg[k]) agg[k] = { total: 0, month: 0 };
+    const k = (l.partName || '?') + '|' + (_lotOf(l.note) || '미지정');
+    if(!agg[k]) agg[k] = { part: l.partName || '?', lot: _lotOf(l.note) || '', total: 0, month: 0 };
     agg[k].total += Number(l.qty)||0;
     if(String(l.date).slice(0,7) === curMonth) agg[k].month += Number(l.qty)||0;
   });
-  // 부품별 입고 누계 (DOA율 참고용)
-  const inSum = {};
-  (stockLog||[]).forEach(l => { if(l.type==='in') inSum[l.partName] = (inSum[l.partName]||0) + (Number(l.qty)||0); });
-  const _symOf = n => { const m = String(n||'').match(/^DOA[^\[]*\[([^\]]*)\]/); return m ? m[1] : '-'; };
+  // 입고분별 입고 수량 조회용 (부품명 → {입고일: 수량})
+  const lotQty = {};
+  (stock||[]).forEach(p => {
+    try { _partLots(p).lots.forEach(l => { (lotQty[p.name] = lotQty[p.name] || {})[l.date] = l.qty; }); } catch(e) {}
+  });
   const _d = v => { const d = new Date(v); return isNaN(d) ? '' : `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
   const partOpts = (stock||[]).map((p,i) => `<option value="${i}">${escapeHtml(p.name)}${p.model&&p.model!=='공용'?` (${p.model})`:''} — 재고 ${p.qty}</option>`).join('');
 
@@ -16726,7 +16791,11 @@ function renderDoa() {
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
       <div class="form-group" style="margin:0;min-width:260px;flex:1;">
         <label class="form-label">부품</label>
-        <select id="doa-part" style="width:100%;height:36px;">${partOpts}</select>
+        <select id="doa-part" style="width:100%;height:36px;" onchange="updateDoaLotSel()">${partOpts}</select>
+      </div>
+      <div class="form-group" style="margin:0;min-width:210px;">
+        <label class="form-label">입고분 <span style="color:var(--text3);font-weight:400;">(FIFO 자동 추정)</span></label>
+        <select id="doa-lot" style="width:100%;height:36px;"></select>
       </div>
       <div class="form-group" style="margin:0;">
         <label class="form-label">수량</label>
@@ -16745,36 +16814,40 @@ function renderDoa() {
     </div>
   </div>`;
 
-  // 부품별 집계
-  const aggRows = Object.entries(agg).sort((a,b) => b[1].total - a[1].total);
-  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">부품별 DOA 집계 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 이력 기준 (재고 로그 보존 범위)</span></div>
+  // ⭐ v2.79p: 부품 × 입고분별 집계 — 어느 로트에서 얼마나 나왔는지 (공급사 클레임 근거)
+  const aggRows = Object.values(agg).sort((a,b) => (a.part+a.lot).localeCompare(b.part+b.lot) || b.total - a.total)
+    .sort((a,b) => b.total - a.total);
+  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">부품 × 입고분별 DOA 집계 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 이력 기준 (재고 로그 보존 범위)</span></div>
     <div class="table-wrap"><table>
-    <thead><tr><th>부품명</th><th style="text-align:right">이번 달</th><th style="text-align:right">누적</th><th style="text-align:right">누적 입고</th><th style="text-align:right">DOA율</th></tr></thead>
-    <tbody>${aggRows.length ? aggRows.map(([name,v]) => {
-      const inQ = inSum[name] || 0;
+    <thead><tr><th>부품명</th><th>입고분</th><th style="text-align:right">입고 수량</th><th style="text-align:right">이번 달</th><th style="text-align:right">누적 DOA</th><th style="text-align:right">DOA율</th></tr></thead>
+    <tbody>${aggRows.length ? aggRows.map(v => {
+      const inQ = (v.lot && lotQty[v.part] && lotQty[v.part][v.lot]) || 0;
       const rate = inQ > 0 ? (v.total / inQ * 100) : null;
-      return `<tr><td style="font-weight:600;">${escapeHtml(name)}</td>
+      return `<tr><td style="font-weight:600;">${escapeHtml(v.part)}</td>
+        <td>${v.lot ? v.lot + ' 입고' : '<span style="color:var(--text3);">미지정</span>'}</td>
+        <td style="text-align:right;color:var(--text2);">${inQ ? fmt(inQ) : '-'}</td>
         <td style="text-align:right;">${fmt(v.month)}</td>
         <td style="text-align:right;font-weight:700;color:var(--red);">${fmt(v.total)}</td>
-        <td style="text-align:right;color:var(--text2);">${inQ ? fmt(inQ) : '-'}</td>
         <td style="text-align:right;">${rate !== null ? rate.toFixed(2) + '%' : '-'}</td></tr>`;
-    }).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:18px;">DOA 기록이 없습니다.</td></tr>'}</tbody>
+    }).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:18px;">DOA 기록이 없습니다.</td></tr>'}</tbody>
     </table></div></div>`;
 
   // 상세 목록
   h += `<div class="card" style="padding:0;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">DOA 상세 목록 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 ${Math.min(logs.length,100)}건</span></div>
     <div class="table-wrap"><table>
-    <thead><tr><th>일시</th><th>부품</th><th style="text-align:right">수량</th><th>증상</th><th>등록자</th>${isAdmin?'<th></th>':''}</tr></thead>
+    <thead><tr><th>일시</th><th>부품</th><th>입고분</th><th style="text-align:right">수량</th><th>증상</th><th>등록자</th>${isAdmin?'<th></th>':''}</tr></thead>
     <tbody>${logs.length ? logs.slice(0,100).map(l => `<tr>
       <td style="white-space:nowrap;color:var(--text2);">${_d(l.date)}</td>
       <td style="font-weight:600;">${escapeHtml(l.partName||'')}</td>
+      <td style="white-space:nowrap;">${_lotOf(l.note) || '<span style="color:var(--text3);">-</span>'}</td>
       <td style="text-align:right;">${fmt(l.qty)}</td>
       <td>${escapeHtml(_symOf(l.note))}</td>
       <td>${escapeHtml(String(l.worker||'').split('::')[0])}</td>
       ${isAdmin ? `<td><button class="btn btn-sm" onclick="undoDoa('${escapeJs(String(l.logId||''))}')" title="잘못 등록한 DOA 되돌리기 (재고 환입)">되돌리기</button></td>` : ''}
-    </tr>`).join('') : `<tr><td colspan="${isAdmin?6:5}" style="text-align:center;color:var(--text3);padding:18px;">DOA 기록이 없습니다.</td></tr>`}</tbody>
+    </tr>`).join('') : `<tr><td colspan="${isAdmin?7:6}" style="text-align:center;color:var(--text3);padding:18px;">DOA 기록이 없습니다.</td></tr>`}</tbody>
     </table></div></div>`;
   el.innerHTML = h;
+  try { updateDoaLotSel(); } catch(e) {}   // ⭐ v2.79p: 첫 부품 기준 입고분 자동 추정 채우기
 }
 async function registerDoa() {
   const idx = Number(document.getElementById('doa-part')?.value);
@@ -16783,8 +16856,9 @@ async function registerDoa() {
   const sp = stock[idx];
   if(!sp) { notify('부품을 선택하세요.', 'error'); return; }
   if(!sym) { notify('증상을 입력하세요 (예: 고스트 터치).', 'error'); try{document.getElementById('doa-sym').focus();}catch(e){} return; }
-  if(!confirm(`${sp.name} ${qty}개를 DOA(개봉 불량)로 등록할까요?\n재고에서 ${qty}개 차감됩니다. (증상: ${sym})`)) return;
-  const r = await adjustStockOp({ idx, delta: -qty, type: 'out', note: `DOA 불량 [${sym}]` });
+  const lot = (document.getElementById('doa-lot')?.value || '').trim();   // ⭐ v2.79p: 입고분 (FIFO 자동 추정, 변경 가능)
+  if(!confirm(`${sp.name} ${qty}개를 DOA(개봉 불량)로 등록할까요?\n재고에서 ${qty}개 차감됩니다. (증상: ${sym}${lot ? ` · ${lot} 입고분` : ''})`)) return;
+  const r = await adjustStockOp({ idx, delta: -qty, type: 'out', note: `DOA 불량 [${sym}]${lot ? ` (${lot} 입고분)` : ''}` });
   if(r && r.ok) { notify(`🚫 DOA 등록 완료 — ${sp.name} −${qty} (실물은 스티커 붙여 DOA 박스에 보관하세요)`); }
   const symEl = document.getElementById('doa-sym'); if(symEl) symEl.value = '';
   renderDoa();
@@ -18162,8 +18236,8 @@ async function deductStock(works, partsData, model, serial) {
     // ⭐ 기종 우선 매칭: (1)해당기종 전용 → (2)공용 → (3)이름만 일치
     // ⭐ v2.70c: 기종 정규화 비교 (수기 "S2PRO" ↔ 재고 "S2PRO_N" 표기 흔들림 흡수)
     const nm = partName.trim().toLowerCase();
-    const curModel = normalizeModel(model || '');
-    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && normalizeModel(p.model||'공용')===curModel);
+    const curModel = partsModelKey(model || '');   // ⭐ v2.79o: T2N = S2PRO_N 부품
+    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && partsModelKey(p.model||'공용')===curModel);
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
     if(idx < 0) { missed.push(partName); continue; }   // ⭐ v2.70b: 스킵을 기록
@@ -18197,10 +18271,10 @@ async function applyStockDelta(oldParts, newParts, model, serial) {
   if(!stock.length) return;
   const _sTag = serial ? ` [${String(serial).toUpperCase()}]` : '';   // ⭐ v2.70l: 시리얼 태깅
   const names = new Set([...Object.keys(oldParts||{}), ...Object.keys(newParts||{})]);
-  const curModel = normalizeModel(model || '');   // ⭐ v2.70c: 기종 정규화
+  const curModel = partsModelKey(model || '');   // ⭐ v2.79o: T2N = S2PRO_N 부품   // ⭐ v2.70c: 기종 정규화
   const findIdx = (partName) => {
     const nm = String(partName).trim().toLowerCase();
-    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && normalizeModel(p.model||'공용')===curModel);
+    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && partsModelKey(p.model||'공용')===curModel);
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
     return idx;
@@ -18262,7 +18336,7 @@ async function restoreStockForEntry(e) {
     if(qty <= 0) continue;
     // ⭐ 차감(deductStock)과 동일한 기종 우선 매칭: (1)해당기종 →(2)공용 →(3)이름만
     const nm = partName.trim().toLowerCase();
-    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && normalizeModel(p.model||'공용')===curModel);
+    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && partsModelKey(p.model||'공용')===curModel);
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
     if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
     if(idx < 0) continue;
