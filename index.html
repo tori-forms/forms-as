@@ -2831,7 +2831,14 @@ let _syncInProgress = false;
 // ⭐ v2.73b: 방금 저장한 작업자 명단 보호 — 새 계정 추가 직후 낡은 캐시(5~15분 지연)가
 //   명단을 되돌려 "등록했는데 엔지니어 관리에서 안 보임"이 되던 문제 차단. (12분, 서버 확인 시 조기 해제)
 function _rememberWorkers(rawArr) {
-  try { localStorage.setItem('fa_workers_ov', JSON.stringify({ raw: rawArr, ts: Date.now() })); } catch(e) {}
+  // ⭐ v2.79r 버그 수정: 모든 호출부가 serializeWorkers()의 '||' 문자열을 넘기는데
+  //   __applyRawWorkers의 보호는 Array.isArray(ov.raw)만 인정 → 12분 보호가 늘 무시되어
+  //   낡은 캐시 페이로드가 방금 저장한 명단(대행일·교육·입사일 등)을 되돌리던 문제.
+  //   배열로 정규화해 저장 → 보호가 실제로 작동.
+  try {
+    const arr = Array.isArray(rawArr) ? rawArr : String(rawArr).split('||');
+    localStorage.setItem('fa_workers_ov', JSON.stringify({ raw: arr, ts: Date.now() }));
+  } catch(e) {}
 }
 function __applyRawWorkers(rawWorkers) {
   try {
@@ -3690,13 +3697,11 @@ function buildLoginGrid() {
     grid.innerHTML = '<div style="grid-column:1/-1;color:var(--text3);font-size:13px;">등록된 엔지니어가 없습니다.</div>';
     return;
   }
-  grid.innerHTML = list.map(w => {
-    const r = roleMap[w] || 'engineer';
-    const badge = (r === 'both')
-      ? `<span style="display:inline-block;padding:2px 6px;border-radius:6px;background:#10b981;color:#fff;font-size:10px;font-weight:600;margin-left:4px;">🔧+🔍</span>`
-      : '';
-    return `<button class="login-btn" onclick="pwLoginStart('${w}','engineer')">${w}${tierBadge(tierMap[w]||'')}${badge}</button>`;
-  }).join('');
+  // ⭐ v2.79r: 겸직(🔧+🔍) 배지 제거 — 엔지니어 로그인 화면은 이름+직급만 (배지 탓에 카드만 튀어 보임.
+  //   겸직 여부는 QC 로그인 화면과 작업자 관리에서 확인)
+  grid.innerHTML = list.map(w =>
+    `<button class="login-btn" onclick="pwLoginStart('${w}','engineer')">${w}${tierBadge(tierMap[w]||'')}</button>`
+  ).join('');
 }
 
 // ⭐ v2.3 신규: QC 전용 로그인 그리드 (inspector 또는 both)
