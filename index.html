@@ -1422,14 +1422,12 @@ window.addEventListener('DOMContentLoaded', function(){
       <button id="stocktab-inventory" onclick="switchStockTab('inventory')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--accent);">
         📦 재고 현황
       </button>
-      <button id="stocktab-ppm" onclick="switchStockTab('ppm')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
-        🔍 불량 PPM
-      </button>
+      <!-- (v2.79q) 불량 PPM 서브탭 제거 — 대신 발주 알림(소모 추이 기반)으로 교체 -->
       <button id="stocktab-doa" onclick="switchStockTab('doa')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
         🚫 부품 DOA
       </button>
       <button id="stocktab-order" onclick="switchStockTab('order')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
-        🛒 발주 리스트
+        🚨 발주 알림<span id="order-tab-badge"></span>
       </button>
       <button id="stocktab-audit" onclick="switchStockTab('audit')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
         🧮 재고 대사(실사)
@@ -1440,9 +1438,6 @@ window.addEventListener('DOMContentLoaded', function(){
     </div>
     <div id="stock-inventory-panel">
       <div id="stock-content"></div>
-    </div>
-    <div id="stock-ppm-panel" style="display:none;">
-      <div id="ppm-content"></div>
     </div>
     <div id="stock-usage-panel" style="display:none;">
       <div id="usage-content"></div>
@@ -1479,6 +1474,8 @@ window.addEventListener('DOMContentLoaded', function(){
       <button id="admtab-shipview" onclick="switchAdminTab('shipview')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">📈 출고 현황</button>
       <button id="admtab-price" onclick="switchAdminTab('price')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">💰 단가 설정</button>
       <button id="admtab-workparts" onclick="switchAdminTab('workparts')" class="admin-sub-btn" style="padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">🔧 작업별 부품</button>
+      <!-- ⭐ v2.79r: 경영 분석 (T4/마스터 전용 — 로그인 시 T4만 버튼 노출) -->
+      <button id="admtab-finance" onclick="switchAdminTab('finance')" class="admin-sub-btn" style="display:none;padding:8px 18px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--text2);">💼 경영 분석</button>
     </div>
 
     <!-- 각 서브탭 컨텐츠 -->
@@ -1644,6 +1641,10 @@ window.addEventListener('DOMContentLoaded', function(){
         </div>
         <div id="workparts-editor"></div>
       </div>
+    </div>
+    <!-- ⭐ v2.79r: 경영 분석 (영업이익·인건비 상계) — T4/마스터 전용 -->
+    <div id="admin-finance" style="display:none;">
+      <div id="finance-content"></div>
     </div>
   </div>
 
@@ -2330,13 +2331,18 @@ let roleMap = {}; // { 이름: 'engineer'|'inspector'|'both' } - 검수 역할 (
 let hireDateMap = {}; // { 이름: 'YYYY-MM-DD' } - 입사일 (주차별 KPI 램프업용)
 let mentoringMap = {}; // { 이름: true } - 교육 중(신입 멘토) → 목표 면제
 let mentoringEndMap = {}; // ⭐ v2.63: { 이름: 'YYYY-MM-DD' } — 교육 해제일. 이전 날짜는 미달 집계 제외 (해제 시 과거 교육기간이 소급 미달로 잡히는 문제 방지)
+let actingDaysMap = {};   // ⭐ v2.79q: { 이름: ['YYYY-MM-DD',...] } — 파트장 대행일 (T3 휴무 시 T2가 대행). 그 날은 수리 목표 면제 + 기록에 남음
+function isActingDay(name, dayStr) {
+  try { return Array.isArray(actingDaysMap[name]) && actingDaysMap[name].includes(String(dayStr).slice(0,10)); } catch(e) { return false; }
+}
 let inspections = []; // 검수 이력 (Phase2 추가)
 let agingDurationMs = 24*60*60*1000; // 에이징 24h (서버에서 받아 덮어씀)
 let serverTimeOffset = 0; // 서버-클라이언트 시간 차이 (ms)
 
 // === ⭐ 입사일 기준 주차별(램프업) KPI 목표 ===
 const KPI_STD_DAILY = 12;   // 표준 1일 목표 (3개월차 도달 후 유지 상한)
-const T3_STD_DAILY = 6;     // ⭐ v2.70s: T3(파트장) 1일 목표 — 관리·신입 교육 병행 반영
+const T3_STD_DAILY = 6;     // ⭐ v2.70s: T3(파트장) 1일 목표 — 관리·신입 교육 병행 반영 (2026-09-10 이전까지)
+const T3_MANAGE_START = '2026-09-10';   // ⭐ v2.79q: 이 날부터 T3(파트장)는 수리 목표 제외 — 사람 관리 전담
 // 입사 후 주차별 1일 목표 (1주차 → 12주차). 12주 이후는 KPI_STD_DAILY 유지.
 //  ⭐ 수습 3개월 평가 전 "12개 꾸준히 치는 모습"을 보여주도록:
 //     1개월(4주) 6개 · 6주차 10개 · 8주차(≈2개월) 12 안착 · 이후 평가까지 ~한달 12 유지
@@ -2543,16 +2549,19 @@ function getPersonalDailyTarget(name, asOf) {
   if(name === MASTER_NAME) return 0;
   if(!isActiveWorker(name)) return 0; // 비활동 제외
   if(mentoringMap[name]) return 0;    // 교육 중 → 목표 면제
+  const ref = (asOf instanceof Date && !isNaN(asOf.getTime())) ? asOf : new Date();
+  const refStr = `${ref.getFullYear()}-${String(ref.getMonth()+1).padStart(2,'0')}-${String(ref.getDate()).padStart(2,'0')}`;
+  // ⭐ v2.79q: 파트장 대행일 → 그 날은 수리 목표 면제 (사람 관리 업무 — 기록은 대행일 목록에 남음)
+  if(isActingDay(name, refStr)) return 0;
   // 개별 입력값 우선 (양수일 때)
   const manual = workerDailyTargets[name];
   if(manual !== undefined && manual !== null && manual > 0) return manual;
   // 수리 엔지니어가 아니면(QC 전담·T4 등) 목표 없음
   if(!isRepairEngineer(name)) return 0;
-  // ⭐ v2.70s: T3(파트장)는 관리 업무·신입 교육 병행 — 일 목표 6건 (개별 지정이 있으면 그 값 우선,
-  //   교육 중 플래그면 위에서 이미 0 처리 · QC 전담 T3는 위 가드에서 0 유지)
-  if(tierMap[name] === 'T3') return T3_STD_DAILY;
+  // ⭐ v2.79q: T3(파트장)는 2026-09-10부터 수리 목표 제외 — 사람 관리 전담으로 전환
+  //   (이전 날짜는 기존 정책 유지: v2.70s 관리·교육 병행 일 6건 — 과거 미달 기록이 소급 변동하지 않게)
+  if(tierMap[name] === 'T3') return refStr >= T3_MANAGE_START ? 0 : T3_STD_DAILY;
   // 입사일 기준 그 시점 일 목표 (입사일 없으면 정착 기준)
-  const ref = (asOf instanceof Date && !isNaN(asOf.getTime())) ? asOf : new Date();
   return tenureDailyTarget(name, ref) || KPI_STD_DAILY;
 }
 
@@ -2833,7 +2842,7 @@ function __applyRawWorkers(rawWorkers) {
     }
   } catch(e) {}
   workers = rawWorkers.map(w => String(w).split('::')[0]);
-  tierMap = {}; partMap = {}; statusMap = {}; roleMap = {}; hireDateMap = {}; workerDailyTargets = {}; mentoringMap = {}; mentoringEndMap = {};
+  tierMap = {}; partMap = {}; statusMap = {}; roleMap = {}; hireDateMap = {}; workerDailyTargets = {}; mentoringMap = {}; mentoringEndMap = {}; actingDaysMap = {};
   rawWorkers.forEach(w => {
     const parts = String(w).split('::');
     const name = parts[0];
@@ -2845,6 +2854,8 @@ function __applyRawWorkers(rawWorkers) {
     if(parts[6] !== undefined && parts[6] !== '') hireDateMap[name] = parts[6];
     if(parts[7] === '1') mentoringMap[name] = true;
     if(parts[8]) mentoringEndMap[name] = String(parts[8]);   // ⭐ v2.63: 교육 해제일
+    // ⭐ v2.79q: 10번째 필드 = 파트장 대행일 목록 (쉼표 구분 YYYY-MM-DD)
+    if(parts[9]) actingDaysMap[name] = String(parts[9]).split(',').map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s));
   });
 }
 
@@ -3077,6 +3088,9 @@ async function syncData(silent=false, force=false, _snapData=null) {
       if(ps.cover)   WORKS.cover.price   = ps.cover;
       if(ps.battery) WORKS.battery.price = ps.battery;
       if(ps.etc)     WORKS.etc.price     = ps.etc;
+      // ⭐ v2.79r: 경영 분석(인건비·영업이익) 설정 — 단가 설정 객체에 실려 함께 저장/로드
+      window._psSeen = true;
+      try { __applyFinance(ps.finance || null); } catch(e) { console.warn('[경영 분석 로드]', e); }
     }
     // 서버에 없으면 localStorage 폴백 (관리자 기기에서 설정된 값)
     if(!window.PARTS_PRICE) loadPriceSettings();
@@ -3203,12 +3217,12 @@ function renderAll() {
   if(tab?.includes('재고')) {
     // 현재 활성화된 서브탭에 따라 다른 렌더 함수 호출
     const activeStockTab = document.querySelector('#stocktab-inventory[style*="var(--accent)"]') ? 'inventory'
-                        : document.querySelector('#stocktab-ppm[style*="var(--accent)"]') ? 'ppm'
+                        : document.querySelector('#stocktab-order[style*="var(--accent)"]') ? 'order'   // ⭐ v2.79q: PPM 제거 → 발주 알림
                         : document.querySelector('#stocktab-usage[style*="var(--accent)"]') ? 'usage'
                         : document.querySelector('#stocktab-history[style*="var(--accent)"]') ? 'history'
                         : 'inventory';
     if(activeStockTab === 'inventory') renderStock();
-    else if(activeStockTab === 'ppm') { try { renderPPM(); } catch {} }
+    else if(activeStockTab === 'order') { try { renderOrderList(); } catch {} }
     else if(activeStockTab === 'usage') { try { renderPartsUsage(); } catch {} }
     else if(activeStockTab === 'history') { try { renderStockHistory(); } catch {} }  // ⭐ 데이터 도착/동기화 시 이력도 갱신
   }
@@ -9685,7 +9699,11 @@ async function saveWorkParts() {
 
 /* ===== 관리자 서브탭 ===== */
 function switchAdminTab(tab) {
-  const tabs = ['workers','kpi','report','shipview','stock','price','workparts'];
+  const tabs = ['workers','kpi','report','shipview','stock','price','workparts','finance'];
+  // ⭐ v2.79r: 경영 분석은 T4/마스터 전용 — 버튼 노출도 여기서 갱신
+  const finBtn = document.getElementById('admtab-finance');
+  if(finBtn) finBtn.style.display = isFullAdmin() ? '' : 'none';
+  if(tab === 'finance' && !isFullAdmin()) { notify('경영 분석은 팀장(T4)만 볼 수 있습니다.', 'error'); return; }
 
   // 서브탭 버튼 활성화
   tabs.forEach(t => {
@@ -9698,7 +9716,7 @@ function switchAdminTab(tab) {
   });
 
   // 모든 기존 탭 숨기기 (admin 내부용)
-  ['admin-workers','admin-kpi','admin-report','admin-shipview','admin-stock','admin-price','admin-workparts'].forEach(id => {
+  ['admin-workers','admin-kpi','admin-report','admin-shipview','admin-stock','admin-price','admin-workparts','admin-finance'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.display = 'none';
   });
@@ -9723,6 +9741,7 @@ function switchAdminTab(tab) {
     renderReportInto('report-content2', document.getElementById('report-month2')?.value);
   }
   if(tab === 'workparts') renderWorkParts();
+  if(tab === 'finance') { try { renderFinance(); } catch(e) { console.error('[경영 분석]', e); } }
   if(tab === 'shipview') {
     // ⭐ 관리자 출고 현황 = 티오더 고객 대시보드(voltales)를 그대로 임베드
     //    "고객사엔 이렇게 보이는구나"를 같은 화면에서 확인
@@ -10043,6 +10062,8 @@ function savePriceSettings() {
   window.PARTS_PRICE = { modelParts };
 
   const settingsObj = { pcb, panel, board, nonbat, nonbat_nc, battery, cover, etc, newProduct: np, modelParts };   // ⭐ v2.79h
+  // ⭐ v2.79r: 경영 분석 설정이 같은 객체에 실려 있으므로 단가 저장이 지우지 않게 항상 동봉
+  if(window._FINANCE_RAW) settingsObj.finance = window._FINANCE_RAW;
   const saved = JSON.parse(localStorage.getItem('formsPriceSettings') || '{}');
   localStorage.setItem('formsPriceSettings', JSON.stringify({ ...saved, ...settingsObj }));
 
@@ -10090,6 +10111,208 @@ function loadPriceSettings() {
       renderModelPartsTable();
     }
   } catch(e) { console.error(e); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ * ⭐ v2.79r: 경영 분석 (T4/마스터 전용) — 엔지니어팀 영업이익·인건비 상계
+ *  - 엑셀 '엔지니어팀 영업이익 분석'을 전산에 내장: 연봉(개별) + 간접비율 → 월 인건비,
+ *    실제 수리 공임비 매출과 상계해 월별 영업이익/이익률/손익분기(BEP)를 자동 계산.
+ *  - 저장 위치: 단가 설정 객체(settingsJson)의 finance 필드 (서버 저장, Code.gs 무변경).
+ *    급여 숫자는 base64로 실어 화면 밖에서 바로 읽히지 않게 함 (⚠ 암호화는 아님 — 데이터
+ *    채널을 기술적으로 파고들면 복원 가능. 화면 자체는 T4 로그인만 접근).
+ * ═══════════════════════════════════════════════════════════════ */
+function __finEnc(obj) { try { return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))); } catch(e) { return ''; } }
+function __finDec(raw) { try { return JSON.parse(decodeURIComponent(escape(atob(String(raw))))); } catch(e) { return null; } }
+function _finDefaults() { return { indirectRate: 35, fixedMonthly: 0, unitPrice: 27000, salaries: {}, exclude: {} }; }
+function _finData() { return Object.assign(_finDefaults(), window.FINANCE || {}); }
+/* 서버 로드 시 적용 — 내 최근 저장(12분) 보호: 낡은 캐시 응답이 방금 저장한 연봉을 되돌리지 않게 */
+function __applyFinance(raw) {
+  let ov = null;
+  try { ov = JSON.parse(localStorage.getItem('fa_finance_ov') || 'null'); } catch(e) {}
+  if(ov && ov.raw && (Date.now() - (ov.ts || 0)) < 720000) {
+    if(raw === ov.raw) { try { localStorage.removeItem('fa_finance_ov'); } catch(e) {} }   // 서버 확인 → 해제
+    else raw = ov.raw;                                                                      // 낡은 응답 → 내 값 유지
+  }
+  if(!raw) return;
+  const d = __finDec(raw);
+  if(d && typeof d === 'object') { window.FINANCE = d; window._FINANCE_RAW = raw; }
+}
+/* 단가 스냅샷 — finance 저장 시 settingsJson 전체가 교체되므로 현재 단가·부품비를 함께 실어 보존 */
+function _priceSnapshotForSave() {
+  const s = {};
+  try {
+    ['pcb','panel','board','nonbat','nonbat_nc','battery','cover','etc'].forEach(k => { if(WORKS[k] && WORKS[k].price) s[k] = WORKS[k].price; });
+    if(window.NEW_PRODUCT_PRICE_OVERRIDE) s.newProduct = window.NEW_PRODUCT_PRICE_OVERRIDE;
+    if(window.PARTS_PRICE && window.PARTS_PRICE.modelParts) s.modelParts = window.PARTS_PRICE.modelParts;
+  } catch(e) {}
+  return s;
+}
+async function saveFinance() {
+  if(!isFullAdmin()) { notify('경영 분석 저장은 팀장(T4)만 가능합니다.', 'error'); return; }
+  if(!window._psSeen && !confirm('서버 단가 설정을 아직 못 받아온 상태예요.\n지금 저장하면 기종별 부품비 등 다른 설정을 덮어쓸 수 있습니다.\n(새로고침 후 다시 시도하는 걸 권장) 그래도 저장할까요?')) return;
+  const f = _finData();
+  const g = id => document.getElementById(id);
+  f.indirectRate = Math.max(0, Number(g('fin-ir')?.value) || 0);
+  f.fixedMonthly = Math.max(0, Number(g('fin-fixed')?.value) || 0);
+  f.unitPrice   = Math.max(0, Number(g('fin-unit')?.value) || 0) || 27000;
+  f.salaries = {}; f.exclude = {};
+  (window._finNames || []).forEach((n, i) => {
+    const v = Number(g('fin-sal-' + i)?.value);
+    if(!isNaN(v) && v > 0) f.salaries[n] = v;
+    if(g('fin-inc-' + i) && !g('fin-inc-' + i).checked) f.exclude[n] = true;
+  });
+  const raw = __finEnc(f);
+  window.FINANCE = f; window._FINANCE_RAW = raw;
+  try { localStorage.setItem('fa_finance_ov', JSON.stringify({ ts: Date.now(), raw })); } catch(e) {}
+  const settingsObj = Object.assign(_priceSnapshotForSave(), { finance: raw });
+  notify('💾 저장 중... (서버 반영)');
+  try {
+    const resp = await gasCall({ action: 'savePriceSettings', settingsJson: JSON.stringify(settingsObj) });
+    if(resp && resp.ok !== false) notify('✅ 경영 분석 설정 저장 완료');
+    else notify('⚠ 서버 저장 실패 — 다시 시도해주세요.', 'error');
+  } catch(e) { notify('⚠ 서버 저장 실패 (네트워크) — 다시 시도해주세요.', 'error'); }
+  renderFinance();
+}
+/* 월 인건비(원) = 연봉(만원)×10,000×(1+간접비율%) ÷ 12 */
+function _finMonthlyCost(salaryMan, irPct) { return Math.round(salaryMan * 10000 * (1 + (irPct || 0) / 100) / 12); }
+async function renderFinance() {
+  const el = document.getElementById('finance-content');
+  if(!el) return;
+  if(!isFullAdmin()) { el.innerHTML = '<div class="empty"><div class="empty-icon">🔒</div>경영 분석은 팀장(T4)만 볼 수 있습니다.</div>'; return; }
+  const f = _finData();
+  const now = new Date();
+  const mv = document.getElementById('fin-month')?.value || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const [fy, fm] = mv.split('-').map(Number);
+  // 워킹데이: 공휴일 API가 느려도 화면이 안 뜨는 일 없게 3초 타임아웃 → 주말 제외 단순 계산 폴백
+  let workdays = 0;
+  try { workdays = await Promise.race([getWorkdays(fy, fm), new Promise(res => setTimeout(() => res(0), 3000))]) || 0; } catch(e) {}
+  if(!workdays) {
+    const dim = new Date(fy, fm, 0).getDate();
+    for(let d = 1; d <= dim; d++) { const dow = new Date(fy, fm - 1, d).getDay(); if(dow !== 0 && dow !== 6) workdays++; }
+  }
+
+  // 이 달 실적 (수리 등록 공임비 기준 — KPI 리포트와 동일)
+  const monthEntries = (entries || []).filter(e => String(e.date).startsWith(mv));
+  const revBy = {}, cntBy = {};
+  monthEntries.forEach(e => { const n = e.worker || '?'; revBy[n] = (revBy[n] || 0) + (Number(e.total) || 0); cntBy[n] = (cntBy[n] || 0) + 1; });
+  const totalRev = monthEntries.reduce((s, e) => s + (Number(e.total) || 0), 0);
+  const totalCnt = monthEntries.length;
+  const avgUnit = totalCnt > 0 ? Math.round(totalRev / totalCnt) : (f.unitPrice || 27000);
+
+  // 분석 대상: 현재 명단(활동중, 마스터 제외) + 이 달 매출 있는 퇴사자(참고 표기)
+  const team = (workers || []).filter(n => n !== MASTER_NAME && isActiveWorker(n));
+  const gone = Object.keys(revBy).filter(n => n !== MASTER_NAME && !team.includes(n));
+  window._finNames = team;
+
+  let teamCost = 0, teamRevInc = 0, incCnt = 0;
+  const rows = team.map((n, i) => {
+    const sal = f.salaries[n] || 0;
+    const inc = !f.exclude[n];
+    const cost = sal ? _finMonthlyCost(sal, f.indirectRate) : 0;
+    const rev = revBy[n] || 0, cnt = cntBy[n] || 0;
+    const profit = rev - cost;
+    const bepCnt = cost > 0 && avgUnit > 0 ? Math.ceil(cost / avgUnit) : 0;   // 월 손익분기 건수
+    if(inc && sal) { teamCost += cost; teamRevInc += rev; incCnt++; }
+    return { n, i, sal, inc, cost, rev, cnt, profit, bepCnt };
+  });
+  const fixed = f.fixedMonthly || 0;
+  const teamProfit = totalRev - teamCost - fixed;
+  const teamMargin = totalRev > 0 ? (teamProfit / totalRev * 100) : (teamCost + fixed > 0 ? -100 : 0);
+  const _w = v => fmt(Math.round(v)) + '원';
+  const _pc = v => `<span style="font-weight:800;color:${v >= 0 ? 'var(--green,#16a34a)' : '#dc2626'};">${v >= 0 ? '+' : '−'}${fmt(Math.abs(Math.round(v)))}원</span>`;
+
+  let h = `
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+    <span style="font-size:14px;font-weight:800;">💼 엔지니어팀 경영 분석</span>
+    <span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;background:#fee2e2;color:#dc2626;">T4 전용</span>
+    <input type="month" id="fin-month" value="${mv}" onchange="renderFinance()" style="height:32px;padding:0 8px;border:1px solid var(--border2);border-radius:var(--radius-sm);">
+    <span style="font-size:11.5px;color:var(--text3);">워킹데이 ${workdays || '?'}일 · 매출 기준: 이 달 수리 등록 공임비 합계</span>
+  </div>`;
+
+  // ── 요약 카드
+  h += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px;">
+    <div class="card" style="padding:14px 16px;"><div style="font-size:11px;color:var(--text3);font-weight:700;">이 달 매출 (공임비)</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px;">${_w(totalRev)}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">${fmt(totalCnt)}건 · 평균 ${_w(avgUnit)}/건</div></div>
+    <div class="card" style="padding:14px 16px;"><div style="font-size:11px;color:var(--text3);font-weight:700;">월 인건비 (간접비 ${f.indirectRate}% 포함)</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px;">${_w(teamCost)}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">${incCnt}명 반영${fixed ? ` · 고정비 ${_w(fixed)} 별도` : ''}</div></div>
+    <div class="card" style="padding:14px 16px;border-color:${teamProfit >= 0 ? 'var(--accent)' : '#dc2626'};"><div style="font-size:11px;color:var(--text3);font-weight:700;">영업이익 (매출−인건비−고정비)</div>
+      <div style="font-size:20px;">${_pc(teamProfit)}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">이익률 <b style="color:${teamMargin >= 0 ? 'var(--green,#16a34a)' : '#dc2626'};">${teamMargin.toFixed(1)}%</b></div></div>
+    <div class="card" style="padding:14px 16px;"><div style="font-size:11px;color:var(--text3);font-weight:700;">팀 손익분기 (BEP)</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px;">${avgUnit > 0 ? fmt(Math.ceil((teamCost + fixed) / avgUnit)) : '?'}건/월</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">${avgUnit > 0 && workdays > 0 ? `일 ${(Math.ceil((teamCost + fixed) / avgUnit) / workdays).toFixed(1)}건 필요 · 현재 일 ${(totalCnt / Math.max(1, workdays)).toFixed(1)}건` : ''}</div></div>
+  </div>`;
+
+  // ── 엔지니어별 상계 표
+  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      👥 엔지니어별 인건비 상계 <span style="font-size:11px;color:var(--text3);font-weight:400;">연봉은 만원 단위 (예: 3050) · 포함 해제 시 팀 합계에서 제외</span>
+      <button class="btn btn-sm btn-primary" onclick="saveFinance()">💾 저장 (서버)</button></div>
+    <div class="table-wrap"><table>
+    <thead><tr><th>포함</th><th>엔지니어</th><th style="text-align:right">연봉 (만원)</th><th style="text-align:right">월 인건비</th><th style="text-align:right">이 달 매출</th><th style="text-align:right">건수</th><th style="text-align:right">손익</th><th style="text-align:right">BEP 건수</th><th>달성</th></tr></thead>
+    <tbody>${rows.map(r => {
+      const pct = r.bepCnt > 0 ? Math.min(200, Math.round(r.cnt / r.bepCnt * 100)) : 0;
+      return `<tr style="${!r.inc ? 'opacity:.45;' : ''}">
+      <td><input type="checkbox" id="fin-inc-${r.i}" ${r.inc ? 'checked' : ''} onchange="saveFinance()"></td>
+      <td style="font-weight:700;">${escapeHtml(r.n)} ${tierBadge(tierMap[r.n] || '')}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;font-weight:700;">🎓</span>' : ''}</td>
+      <td style="text-align:right;"><input type="number" id="fin-sal-${r.i}" value="${r.sal || ''}" placeholder="미입력" min="0" style="width:84px;height:30px;text-align:right;padding:0 6px;border:1px solid var(--border2);border-radius:var(--radius-sm);"></td>
+      <td style="text-align:right;color:var(--text2);">${r.sal ? _w(r.cost) : '<span style="color:var(--text3);">—</span>'}</td>
+      <td style="text-align:right;font-weight:600;">${_w(r.rev)}</td>
+      <td style="text-align:right;">${fmt(r.cnt)}</td>
+      <td style="text-align:right;">${r.sal ? _pc(r.profit) : '<span style="color:var(--text3);">—</span>'}</td>
+      <td style="text-align:right;color:var(--text2);">${r.bepCnt ? fmt(r.bepCnt) + '건' : '—'}</td>
+      <td style="min-width:90px;">${r.bepCnt ? `<div style="display:flex;align-items:center;gap:6px;"><div style="flex:1;height:7px;border-radius:99px;background:var(--surface2);overflow:hidden;"><div style="height:100%;width:${Math.min(100, pct)}%;background:${r.cnt >= r.bepCnt ? 'var(--green,#16a34a)' : '#f59e0b'};"></div></div><span style="font-size:11px;font-weight:700;color:${r.cnt >= r.bepCnt ? 'var(--green,#16a34a)' : '#d97706'};">${pct}%</span></div>` : ''}</td>
+    </tr>`; }).join('')}
+    ${gone.map(n => `<tr style="opacity:.55;"><td></td><td>${escapeHtml(n)} <span style="font-size:10px;color:var(--text3);">퇴사·명단 외</span></td><td style="text-align:right;color:var(--text3);">—</td><td style="text-align:right;color:var(--text3);">—</td><td style="text-align:right;">${_w(revBy[n])}</td><td style="text-align:right;">${fmt(cntBy[n])}</td><td colspan="3" style="font-size:11px;color:var(--text3);">매출만 팀 합계에 포함</td></tr>`).join('')}
+    </tbody></table></div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;padding:12px 16px;border-top:1px solid var(--border);">
+      <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">간접비율 (%) — 4대보험·퇴직금 등</label>
+        <input type="number" id="fin-ir" value="${f.indirectRate}" min="0" step="0.5" style="width:90px;height:32px;text-align:right;padding:0 6px;"></div>
+      <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">기타 월 고정비 (원) — 임대료·공구 등</label>
+        <input type="number" id="fin-fixed" value="${f.fixedMonthly || ''}" placeholder="0" min="0" style="width:120px;height:32px;text-align:right;padding:0 6px;"></div>
+      <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">기준 건당가 (실적 없을 때 폴백)</label>
+        <input type="number" id="fin-unit" value="${f.unitPrice || 27000}" min="0" style="width:100px;height:32px;text-align:right;padding:0 6px;"></div>
+      <button class="btn btn-sm btn-primary" style="height:32px;" onclick="saveFinance()">💾 저장 (서버)</button>
+      <span style="font-size:10.5px;color:var(--text3);line-height:1.5;">저장하면 서버에 올라가 다른 기기에서도 보여요.<br>⚠ 급여는 민감정보 — 화면은 T4 전용이지만 데이터 채널을 파고들면 복원 가능한 수준의 보호입니다.</span>
+    </div></div>`;
+
+  // ── 달성률 시나리오 (엑셀 재현) — 팀 일 목표 기준
+  const midD = new Date(fy, fm - 1, 15);
+  const teamDaily = team.filter(n => !f.exclude[n]).reduce((s, n) => s + (getPersonalDailyTarget(n, midD) || 0), 0);
+  const baseRev = teamDaily * workdays * avgUnit;
+  const scen = [1, 0.9, 0.8, 0.6, 0.4, 0.2, 0].map(rate => {
+    const rev = baseRev * rate, pf = rev - teamCost - fixed;
+    return { rate, rev, pf, mg: rev > 0 ? pf / rev * 100 : null, daily: teamDaily * rate };
+  });
+  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">📐 달성률 시나리오 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 팀 일 목표 ${fmt(teamDaily)}건 × ${workdays}일 × 건당 ${_w(avgUnit)} 기준</span></div>
+    <div class="table-wrap"><table>
+    <thead><tr><th>달성률</th><th style="text-align:right">일 건수</th><th style="text-align:right">월 매출</th><th style="text-align:right">영업이익</th><th style="text-align:right">이익률</th></tr></thead>
+    <tbody>${scen.map(s => `<tr style="${s.pf >= 0 ? 'background:rgba(45,212,191,.07);' : ''}">
+      <td style="font-weight:700;">${Math.round(s.rate * 100)}%</td>
+      <td style="text-align:right;">${s.daily.toFixed(1)}건</td>
+      <td style="text-align:right;">${_w(s.rev)}</td>
+      <td style="text-align:right;">${_pc(s.pf)}</td>
+      <td style="text-align:right;color:${(s.mg ?? -1) >= 0 ? 'var(--green,#16a34a)' : '#dc2626'};font-weight:700;">${s.mg === null ? '—' : s.mg.toFixed(1) + '%'}</td>
+    </tr>`).join('')}</tbody></table></div>
+    <div style="padding:10px 16px;font-size:11.5px;color:var(--text3);border-top:1px solid var(--border);">손익분기 달성률 ≈ <b>${baseRev > 0 ? Math.ceil((teamCost + fixed) / baseRev * 100) : '?'}%</b> — 이 아래로 내려가면 적자 구간입니다.</div></div>`;
+
+  // ── 최근 6개월 추이 (매출 실적 vs 현재 인건비 기준)
+  const months = [];
+  for(let k = 5; k >= 0; k--) { const d = new Date(fy, fm - 1 - k, 1); months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }
+  const trend = months.map(m => { const r = (entries || []).filter(e => String(e.date).startsWith(m)).reduce((s, e) => s + (Number(e.total) || 0), 0); return { m, rev: r, pf: r - teamCost - fixed }; });
+  const maxV = Math.max(1, ...trend.map(t => Math.max(t.rev, teamCost + fixed)));
+  h += `<div class="card" style="margin-bottom:14px;"><div style="font-size:13px;font-weight:700;margin-bottom:10px;">📊 최근 6개월 추이 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 매출은 실적, 인건비는 현재 설정 기준(과거 급여 변동 미반영)</span></div>
+    <div style="display:flex;gap:10px;align-items:flex-end;height:150px;">
+      ${trend.map(t => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end;">
+        <span style="font-size:10px;font-weight:700;color:${t.pf >= 0 ? 'var(--green,#16a34a)' : '#dc2626'};">${t.rev ? (t.pf >= 0 ? '+' : '−') + fmt(Math.abs(Math.round(t.pf / 10000))) + '만' : ''}</span>
+        <div style="width:70%;max-width:56px;background:${t.m === mv ? 'var(--accent)' : 'var(--text3)'};opacity:${t.m === mv ? 1 : .45};border-radius:6px 6px 0 0;height:${Math.round(t.rev / maxV * 100)}%;min-height:${t.rev ? 3 : 0}px;" title="${t.m} 매출 ${_w(t.rev)}"></div>
+        <span style="font-size:10.5px;color:var(--text3);">${t.m.slice(5)}월</span>
+      </div>`).join('')}
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--text3);">기준선(월 인건비+고정비): <b>${_w(teamCost + fixed)}</b> — 막대가 이 금액을 넘어야 흑자</div>
+  </div>`;
+  el.innerHTML = h;
 }
 
 
@@ -14281,7 +14504,8 @@ async function renderSummary() {
     return cb - ca;
   });
 
-  const activeToday = sortedWorkers.filter(w => list.filter(e=>e.worker===w && matchSq(e)).length > 0);
+  // ⭐ v2.79q: 파트장 대행일인 사람은 수리 0건이어도 보이게 (대행 기록이 화면에 남도록)
+  const activeToday = sortedWorkers.filter(w => list.filter(e=>e.worker===w && matchSq(e)).length > 0 || isActingDay(w, sel));
   // 검색 힌트 표시
   const hintEl = document.getElementById('summary-serial-hint');
   if(hintEl) {
@@ -14297,9 +14521,12 @@ async function renderSummary() {
     const diff = target ? cnt - target : 0;
     const pct = target ? Math.min(100, Math.round(cnt/target*100)) : 0;
     const isMe = w === currentUser;
+    const acting = isActingDay(w, sel);   // ⭐ v2.79q: 이 날 파트장 대행 여부
     let bc,bt,pc,blockAccent,blockStyle;
     if(w === MASTER_NAME) {bc='badge-blue';bt='관리자';pc='prog-ok';blockAccent='var(--border)';blockStyle='';}
+    else if(acting){bc='badge-blue';bt='👑 파트장 대행';pc='prog-ok';blockAccent='#d97706';blockStyle='box-shadow:0 0 0 2px #d97706;';}
     else if(mentoringMap[w]){bc='badge-blue';bt='🎓 교육 중';pc='prog-ok';blockAccent='#7c3aed';blockStyle='';}
+    else if(!target && tierMap[w]==='T3'){bc='badge-blue';bt='👥 관리 전담';pc='prog-ok';blockAccent='var(--border)';blockStyle='';}   // ⭐ v2.79q: T3 = 사람 관리 역할
     else if(!target){bc='badge-blue';bt='학습 중';pc='prog-ok';blockAccent='var(--border)';blockStyle='';}
     else if(diff>0){bc='badge-over';bt=`⭐ ${diff}건 초과`;pc='prog-over';blockAccent='#6366f1';blockStyle='box-shadow:0 0 0 2px #6366f1,0 4px 16px rgba(99,102,241,.18);';}
     else if(diff<0){bc='badge-under';bt=`${Math.abs(diff)}건 미달`;pc='prog-under';blockAccent='var(--red)';blockStyle='box-shadow:0 0 0 2px var(--red);';}
@@ -14332,8 +14559,9 @@ async function renderSummary() {
           </div>
         </div>
         <div class="worker-block-meta">
-          <span style="font-size:13px;color:var(--text2);">${cnt} / ${target||'?'}건</span>
+          <span style="font-size:13px;color:var(--text2);">${acting ? `${cnt}건 · 목표 면제` : `${cnt} / ${target||'?'}건`}</span>
           <span class="badge ${bc}">${bt}</span>
+          ${(tierMap[w]==='T2' && (isMe || isAdmin)) ? `<button class="btn btn-sm" onclick="event.stopPropagation();toggleActingDay('${escapeJs(w)}','${sel}')" title="${acting ? '이 날 파트장 대행 해제' : 'T3 휴무 — 이 날 파트장 대행 (수리 목표 면제 · 기록에 남음)'}" style="height:26px;padding:0 9px;font-size:11px;font-weight:700;${acting ? 'border-color:#d97706;color:#d97706;background:#fff7ed;' : ''}">👑 대행${acting ? ' 해제' : ''}</button>` : ''}
           <span class="worker-block-revenue">${fmt(wrev)}원</span>
           <span id="arrow-${blockId}" style="font-size:16px;color:var(--text3);transition:transform .2s;display:inline-block;">${_isWbOpen(blockId, isMe)?'▲':'▼'}</span>
         </div>
@@ -15487,7 +15715,8 @@ async function renderReport() {
     const manual = workerDailyTargets[name];
     const q = _qByEng[name] || { ins: 0, def: 0 };   // ⭐ v2.75a: 품질 실적
     const qRate = q.ins > 0 ? (q.def / q.ins * 100) : 0;
-    return { name, cnt, reg, rev, exc, excConv, kpiCnt, isCurrent, missDays: md.miss, noticedDays: md.noticed, tw, daily, manual,
+    const actDays = (actingDaysMap[name] || []).filter(d => String(d).startsWith(monthVal));   // ⭐ v2.79q: 이 달 파트장 대행일
+    return { name, cnt, reg, rev, exc, excConv, kpiCnt, isCurrent, missDays: md.miss, noticedDays: md.noticed, tw, daily, manual, actDays,
       qIns: q.ins, qDef: q.def, qRate, share: shareBase ? (kpiCnt/shareBase*100) : 0 };
   }).sort((a, b) => b.kpiCnt - a.kpiCnt);
   const maxShare = rows.length ? Math.max(...rows.map(r => r.share)) : 0;
@@ -15526,7 +15755,10 @@ async function renderReport() {
     } else if(mentoringMap[r.name]) {
       stage = `<span style="font-weight:700;color:#7c3aed;">🎓 교육 중</span> <span style="font-size:10px;color:var(--text3);">목표 면제 · 실적만 집계</span>`;
     } else if(tierMap[r.name] === 'T3' && !(r.manual != null && r.manual > 0)) {
-      stage = `<span style="font-weight:600;">일 ${T3_STD_DAILY}건</span> <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#e0f2fe;color:#0369a1;">파트장 · 관리 병행</span>`;   // ⭐ v2.70s
+      // ⭐ v2.79q: T3는 2026-09-10부터 사람 관리 전담 (수리 목표 제외) — 이전 달 리포트는 기존 병행 기준 표기
+      stage = (monthVal >= T3_MANAGE_START.slice(0,7))
+        ? `<span style="font-weight:700;color:#0369a1;">👥 관리 전담</span> <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#e0f2fe;color:#0369a1;">파트장 · 수리 목표 제외 (${T3_MANAGE_START.slice(5).replace('-','/')}~)</span>`
+        : `<span style="font-weight:600;">일 ${T3_STD_DAILY}건</span> <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#e0f2fe;color:#0369a1;">파트장 · 관리 병행</span>`;   // ⭐ v2.70s
     } else if(r.manual != null && r.manual > 0) {
       stage = `<span style="font-weight:600;">일 ${r.manual}건</span> <span style="font-size:10px;color:var(--text3);">개별 지정</span>`;
     } else if(r.tw != null) {
@@ -15534,6 +15766,13 @@ async function renderReport() {
       stage = `<span style="font-weight:600;">입사 ${r.tw}주차 · 일 ${r.daily}건</span>${onboard ? ' <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#fef3c7;color:#d97706;">🌱 온보딩</span>' : (r.daily>=KPI_STD_DAILY ? ' <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#dcfce7;color:#16a34a;">정착</span>' : '')}`;
     } else {
       stage = `<span style="font-weight:600;">일 ${KPI_STD_DAILY}건</span> <span style="font-size:10px;color:var(--text3);">정착 기준 · 입사일 미설정</span>`;
+    }
+    // ⭐ v2.79q: 이 달 파트장 대행일 기록 표시 — 대행한 날은 목표 면제 · 미달 미집계.
+    //   날짜를 그대로 보여줘서 "이 사람은 이 날들 대행 업무라 실적이 덜 나왔구나"를 표에서 바로 알 수 있게.
+    if(r.actDays && r.actDays.length) {
+      const _ds = r.actDays.map(d => d.slice(5).replace('-','/'));
+      const _shown = _ds.slice(0,4).join('·') + (_ds.length > 4 ? ` 외 ${_ds.length-4}일` : '');
+      stage += `<br><span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#fff7ed;color:#d97706;" title="파트장 대행일 (수리 목표 면제): ${r.actDays.join(', ')}">👑 대행 ${r.actDays.length}일 (${_shown})</span>`;
     }
     h += `<tr${(r.cnt>0&&rank===1)?' style="background:var(--accent-bg,rgba(45,212,191,.06));"':''}>
       <td style="text-align:center;">${rankCell}</td>
@@ -15581,6 +15820,35 @@ async function renderReport() {
       <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);">${fmt(footRev)}원</td>
     </tr></tfoot>
   </table></div>`;
+
+  // ⭐ v2.79q: 파트장 대행 이력 카드 — 누가 어떤 날 대행 업무로 수리에서 빠졌는지 월간 리포트에 기록으로 남김.
+  //   대행일은 목표 면제·미달 미집계라, 위 표에서 실적이 적어 보여도 "대행 때문"임을 여기서 확인.
+  (function() {
+    const _dow = ['일','월','화','수','목','금','토'];
+    const _fmtAct = d => { const t = new Date(d + 'T00:00:00'); return isNaN(t) ? d : `${d.slice(5).replace('-','/')}(${_dow[t.getDay()]})`; };
+    const monthActs = Object.entries(actingDaysMap || {})
+      .map(([n, days]) => ({ name: n, days: (days || []).filter(d => String(d).startsWith(monthVal)).sort(), all: (days || []).slice().sort() }))
+      .filter(x => x.days.length)
+      .sort((a, b) => b.days.length - a.days.length);
+    const allActs = Object.entries(actingDaysMap || {})
+      .map(([n, days]) => ({ name: n, all: (days || []).slice().sort() }))
+      .filter(x => x.all.length);
+    if(!monthActs.length && !allActs.length) return;
+    h += `<div class="card" style="padding:0;margin-top:14px;">
+      <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">👑 파트장 대행 이력 <span style="font-size:11px;color:var(--text3);font-weight:400;">· T3 휴무일에 T2가 대행 — 대행일은 수리 목표 면제 · 미달 미집계 (그 날 실적이 적은 건 대행 업무 때문) · 놓친 날은 관리자→작업자 관리에서 날짜를 골라 소급 등록하면 그 날 미달도 정리돼요</span></div>
+      ${monthActs.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>대행자</th><th style="text-align:center">이 달 대행</th><th>대행일</th></tr></thead>
+        <tbody>${monthActs.map(x => `<tr>
+          <td style="font-weight:700;">${escapeHtml(x.name)} ${tierBadge(tierMap[x.name] || '')}</td>
+          <td style="text-align:center;font-weight:800;color:#d97706;">${x.days.length}일</td>
+          <td style="font-size:12px;">${x.days.map(d => `<span style="display:inline-block;margin:1px 3px 1px 0;padding:2px 8px;border-radius:99px;background:#fff7ed;color:#d97706;font-weight:700;font-size:11px;">${_fmtAct(d)}</span>`).join('')}</td>
+        </tr>`).join('')}</tbody></table></div>`
+      : `<div style="padding:14px 18px;font-size:12.5px;color:var(--text3);">이 달(${monthVal}) 대행 기록이 없습니다.</div>`}
+      ${allActs.length ? `<details style="border-top:1px solid var(--border);"><summary style="padding:10px 18px;font-size:12px;font-weight:700;color:var(--text2);cursor:pointer;">📜 전체 대행 이력 보기 (전 기간)</summary>
+        <div style="padding:4px 18px 14px;font-size:12px;line-height:2;">${allActs.map(x => `<div><b>${escapeHtml(x.name)}</b> — 총 ${x.all.length}일: ${x.all.map(d => `<span style="color:#d97706;font-weight:600;">${d}</span>`).join(', ')}</div>`).join('')}</div>
+      </details>` : ''}
+    </div>`;
+  })();
 
   // ⭐ 신입 주차별 목표 스케줄 안내 (대표님 이해용)
   const schedCells = KPI_RAMP_SCHEDULE.map((v, idx) => {
@@ -16031,6 +16299,9 @@ function serializeWorkers() {
     const hasHire = !!hire;
     const dtStr = hasDt ? String(dt) : '';
     const mEnd = mentoringEndMap[w] || '';   // ⭐ v2.63: 교육 해제일
+    // ⭐ v2.79q: 10번째 필드 = 파트장 대행일 목록 (쉼표 구분) — 있으면 10필드 전부 명시
+    const acting = (Array.isArray(actingDaysMap[w]) && actingDaysMap[w].length) ? actingDaysMap[w].slice().sort().join(',') : '';
+    if(acting) return `${w}::${t}::${p}::${s}::${dtStr}::${r}::${hire}::${mentoring}::${mEnd}::${acting}`;
     // ⭐ 교육중/해제일이 있으면 9필드 전부 명시
     if(mentoring || mEnd) return `${w}::${t}::${p}::${s}::${dtStr}::${r}::${hire}::${mentoring}::${mEnd}`;
     // ⭐ 입사일이 있으면 7필드 전부 명시 (뒤 필드가 있으면 앞 필드도 채워야 파싱 정합)
@@ -16125,7 +16396,7 @@ function renderWorkers() {
     return; 
   }
 
-  el.innerHTML = permNotice + visibleWorkers.map(w=>{
+  el.innerHTML = permNotice + visibleWorkers.map((w, _wi)=>{
     const ct = entries.filter(e=>e.worker===w&&String(e.date).startsWith(ts)).length;
     const ca = entries.filter(e=>e.worker===w).length;
     const tier = tierMap[w] || '';
@@ -16156,6 +16427,8 @@ function renderWorkers() {
         ${partBadge(part)}
         <span style="font-size:12px;color:var(--text2);">오늘 ${ct}건 / 전체 ${ca}건</span>
         ${mentoringMap[w] ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#ede9fe;color:#7c3aed;">🎓 교육 중</span>' : ''}
+        ${tier==='T3' ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#e0f2fe;color:#0369a1;">👥 관리 전담</span>' : ''}
+        ${(actingDaysMap[w]||[]).length ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#fff7ed;color:#d97706;" title="파트장 대행일: ${(actingDaysMap[w]||[]).join(', ')}">👑 대행 ${(actingDaysMap[w]||[]).length}일${isActingDay(w, todayStr()) ? ' · 오늘' : ''}</span>` : ''}
         ${tenureLabel}
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -16175,6 +16448,9 @@ function renderWorkers() {
         </select>
         <input type="date" value="${hireVal}" onchange="saveWorkerHireDate('${w}',this.value)" title="입사일 (주차별 KPI 목표 산정)" style="height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);" />
         <button onclick="saveMentoring('${w}',${mentoringMap[w]?'false':'true'})" title="교육 중 (켜면 KPI 목표 면제 · 실적은 그대로 집계)" style="height:30px;padding:0 10px;font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;border:1px solid ${mentoringMap[w]?'#7c3aed':'var(--border2)'};background:${mentoringMap[w]?'#ede9fe':'transparent'};color:${mentoringMap[w]?'#7c3aed':'var(--text2)'};">🎓 교육${mentoringMap[w]?' 중':''}</button>
+        ${tier==='T2' ? (() => { const _act = isActingDay(w, todayStr()); return `
+        <input type="date" id="act-d-${_wi}" value="${todayStr()}" title="대행일 — 지난 날짜를 골라 놓친 대행 기록을 나중에 등록/해제할 수 있어요" style="height:30px;padding:0 6px;font-size:11px;border:1px solid ${_act?'#d97706':'var(--border2)'};border-radius:var(--radius-sm);color:var(--text2);" />
+        <button onclick="toggleActingDay('${escapeJs(w)}', document.getElementById('act-d-${_wi}')?.value)" title="파트장 대행 (T3 휴무일 — 왼쪽 날짜의 대행 기록을 등록/해제. 기본 오늘, 지난 날짜 소급 등록 가능)" style="height:30px;padding:0 10px;font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;border:1px solid ${_act?'#d97706':'var(--border2)'};background:${_act?'#fff7ed':'transparent'};color:${_act?'#d97706':'var(--text2)'};">👑 대행${_act?' (오늘 중)':''}</button>`; })() : ''}
 <input type="number" min="0" step="1" placeholder="자동" value="${dtVal!==undefined&&dtVal!==null?dtVal:''}" onchange="saveWorkerDailyTarget('${w}',this.value)" title="일일 목표 직접 지정 (비우면 입사일 기준 자동)" style="width:64px;height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);text-align:right;" />
         <span style="font-size:11px;color:var(--text3);">건/일</span>
         ${isFullAdmin() ? `<button class="btn btn-sm" onclick="resetWorkerPassword('${escapeJs(w)}')" title="비밀번호 초기화 — 다음 로그인 때 본인이 새 비밀번호를 설정" style="color:#d97706;border-color:#d97706;">🔑 비번 초기화</button>` : ''}
@@ -16393,6 +16669,37 @@ async function saveMentoring(name, on) {
     else { delete mentoringMap[name]; delete mentoringEndMap[name]; }   // ⭐ 저장 실패 롤백 — 기록한 해제일도 취소
     notify('교육 중 저장 실패.','error');
     renderWorkers();
+  }
+}
+
+/* ⭐ v2.79q: 파트장 대행일 토글 — T3 휴무일에 T2가 파트장 대행.
+   그 날은 수리 목표가 면제되고(미달로 안 잡힘), 대행일이 명단에 기록으로 남아
+   일일 현황 배지·월간 리포트 "대행 N일"·작업자 관리에서 확인된다.
+   본인(T2 스스로) 또는 관리자(T3·T4·마스터)가 켜고 끌 수 있음. */
+async function toggleActingDay(name, dayStr) {
+  const day = String(dayStr || todayStr()).slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(day)) { notify('대행일 날짜를 선택해주세요.', 'error'); return; }
+  if(name !== currentUser && !canManageWorker(name)) {
+    notify('본인 또는 관리자만 대행을 지정할 수 있습니다.', 'error');
+    return;
+  }
+  const cur = Array.isArray(actingDaysMap[name]) ? actingDaysMap[name].slice() : [];
+  const on = !cur.includes(day);
+  const past = day < todayStr();   // ⭐ 소급 등록 (사전에 못 남긴 날)
+  if(on && !confirm(`${name} — ${day} 파트장 대행으로 기록할까요?${past ? '\n(지난 날짜 소급 등록 — 그 날 미달로 잡혔던 것도 대행으로 정리됩니다)' : ''}\n이 날은 수리 목표가 면제되고, 대행일이 기록에 남습니다.`)) return;
+  if(!on && !confirm(`${name} — ${day} 파트장 대행 기록을 해제할까요?\n(해제하면 이 날 수리 목표가 다시 적용됩니다)`)) return;
+  const old = cur.slice();
+  if(on) cur.push(day); else cur.splice(cur.indexOf(day), 1);
+  if(cur.length) actingDaysMap[name] = cur.sort(); else delete actingDaysMap[name];
+  try {
+    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
+    notify(on ? `👑 ${name} — ${day} 파트장 대행 기록 (수리 목표 면제)` : `${name} — ${day} 대행 해제`);
+    try { renderWorkers(); } catch(e) {}
+    try { renderSummary(); } catch(e) {}
+  } catch {
+    if(old.length) actingDaysMap[name] = old; else delete actingDaysMap[name];
+    notify('대행 기록 저장 실패.', 'error');
+    try { renderWorkers(); } catch(e) {}
   }
 }
 
@@ -16658,7 +16965,6 @@ function viewSerialRepair(serial) {
 
 function switchStockTab(tab) {
   const inventoryPanel = document.getElementById('stock-inventory-panel');
-  const ppmPanel = document.getElementById('stock-ppm-panel');
   const usagePanel = document.getElementById('stock-usage-panel');
   const orderPanel = document.getElementById('stock-order-panel');
   const auditPanel = document.getElementById('stock-audit-panel');
@@ -16666,15 +16972,14 @@ function switchStockTab(tab) {
   const doaPanel = document.getElementById('stock-doa-panel');   // ⭐ v2.79m
   const historyBtn = document.getElementById('stocktab-history');
   const invBtn = document.getElementById('stocktab-inventory');
-  const ppmBtn = document.getElementById('stocktab-ppm');
   const usageBtn = document.getElementById('stocktab-usage');
   const orderBtn = document.getElementById('stocktab-order');
   const auditBtn = document.getElementById('stocktab-audit');
   const doaBtn = document.getElementById('stocktab-doa');   // ⭐ v2.79m
 
-  // 모든 패널 숨기고 모든 버튼 비활성화
-  [inventoryPanel, ppmPanel, usagePanel, orderPanel, auditPanel, historyPanel, doaPanel].forEach(p => { if(p) p.style.display = 'none'; });
-  [invBtn, ppmBtn, usageBtn, orderBtn, auditBtn, historyBtn, doaBtn].forEach(b => {
+  // 모든 패널 숨기고 모든 버튼 비활성화 (v2.79q: 불량 PPM 서브탭 제거)
+  [inventoryPanel, usagePanel, orderPanel, auditPanel, historyPanel, doaPanel].forEach(p => { if(p) p.style.display = 'none'; });
+  [invBtn, usageBtn, orderBtn, auditBtn, historyBtn, doaBtn].forEach(b => {
     if(b) { b.style.borderBottomColor = 'transparent'; b.style.color = 'var(--text2)'; }
   });
 
@@ -16686,10 +16991,6 @@ function switchStockTab(tab) {
     inventoryPanel.style.display = 'block';
     if(invBtn) { invBtn.style.borderBottomColor = 'var(--accent)'; invBtn.style.color = 'var(--accent)'; }
     renderStock();
-  } else if(tab === 'ppm') {
-    ppmPanel.style.display = 'block';
-    if(ppmBtn) { ppmBtn.style.borderBottomColor = 'var(--accent)'; ppmBtn.style.color = 'var(--accent)'; }
-    renderPPM();
   } else if(tab === 'usage') {
     usagePanel.style.display = 'block';
     if(usageBtn) { usageBtn.style.borderBottomColor = 'var(--accent)'; usageBtn.style.color = 'var(--accent)'; }
@@ -16715,10 +17016,11 @@ function switchStockTab(tab) {
 function _doaLogs() {
   return (stockLog || []).filter(l => l.type === 'out' && /^DOA/.test(String(l.note || '')));
 }
-/* ⭐ v2.79p: 입고분(로트) 자동 추정 — 선입선출 기준.
-   입고 로그(복구·취소 환입 제외)를 시간순으로 로트로 보고, 지금까지의 총 출고량이
-   어느 로트 구간에 와 있는지 계산해 "현재 소진 중인 입고분"을 자동으로 잡는다.
-   (재고 로그 보존 범위 내에서의 추정 — 필요하면 등록 시 드롭다운으로 다른 입고분 선택 가능) */
+/* ⭐ v2.79q: 입고분(로트) 릴레이식 기본값.
+   FIFO로 자동 추정해 "때려버리면" 실제와 어긋날 수 있어(예: 8/26 대량 입고 후 소량 입고),
+   기본값은 그 부품의 **직전 DOA 등록과 같은 입고분**으로 이어 달고(릴레이),
+   새 입고분 박스를 개봉했을 때만 드롭다운에서 한 번 바꿔주면 이후 등록이 그 입고분으로 이어진다.
+   직전 등록이 없을 때만 FIFO 소진 위치를 참고 추정으로 제시. */
 function _partLots(part) {
   const pid = String(part.id); const pname = String(part.name);
   const mine = (stockLog || []).filter(l => String(l.partId) === pid || String(l.partName) === pname);
@@ -16744,18 +17046,41 @@ function _fifoLotEstimate(part) {
   }
   return lots[lots.length-1];       // 전부 소진 계산이면 최신 로트로
 }
+/* ⭐ v2.79q: 이 부품의 직전 DOA 등록이 어느 입고분이었는지 (릴레이 기준점) */
+function _doaRelayLot(sp) {
+  const logs = _doaLogs()
+    .filter(l => String(l.partId) === String(sp.id) || String(l.partName) === String(sp.name))
+    .sort((a,b) => String(b.date).localeCompare(String(a.date)));
+  for(const l of logs) {
+    const m = String(l.note||'').match(/\((\d{4}-\d{2}-\d{2}) 입고분\)/);
+    if(m) return m[1];
+  }
+  return null;
+}
 function updateDoaLotSel() {
   const sel = document.getElementById('doa-lot');
   const idx = Number(document.getElementById('doa-part')?.value);
   const sp = stock[idx];
   if(!sel || !sp) return;
   const { lots } = _partLots(sp);
-  const est = _fifoLotEstimate(sp);
-  sel.innerHTML = lots.length
-    ? lots.slice().reverse().map(l =>
-        `<option value="${l.date}" ${est && l.date === est.date ? 'selected' : ''}>${l.date} 입고분 (${fmt(l.qty)}개)${est && l.date === est.date ? ' — 자동 추정' : ''}</option>`
-      ).join('') + `<option value="">입고분 모름/기록 안 함</option>`
-    : `<option value="">입고 이력 없음 (기록 안 함)</option>`;
+  const relay = _doaRelayLot(sp);                       // ⭐ 릴레이: 직전 DOA 등록의 입고분
+  const est = relay ? null : _fifoLotEstimate(sp);      // 직전 등록 없을 때만 FIFO 참고 추정
+  const pick = relay || (est && est.date) || '';
+  const listDates = lots.map(l => l.date);
+  let opts = lots.slice().reverse().map(l => {
+    const isPick = l.date === pick;
+    const tag = isPick ? (relay ? ' — 직전 등록에 이어짐' : ' — FIFO 참고 추정') : '';
+    return `<option value="${l.date}" ${isPick ? 'selected' : ''}>${l.date} 입고분 (${fmt(l.qty)}개)${tag}</option>`;
+  }).join('');
+  // 직전 등록의 입고분이 입고 로그 목록에 없어도(로그 보존 범위 밖) 그대로 이어 달 수 있게 옵션 추가
+  if(relay && !listDates.includes(relay)) {
+    opts = `<option value="${relay}" selected>${relay} 입고분 — 직전 등록에 이어짐</option>` + opts;
+  }
+  sel.innerHTML = (opts || '') + `<option value="">입고분 모름/기록 안 함</option>`;
+  const hint = document.getElementById('doa-lot-hint');
+  if(hint) hint.textContent = relay
+    ? '직전 등록과 같은 입고분에 이어 달아요 — 새 입고분 박스를 개봉했을 때만 바꿔주세요.'
+    : (est ? '이 부품은 첫 DOA 등록이라 FIFO 소진 위치로 추정했어요 — 실제 개봉한 입고분이 다르면 바꿔주세요.' : '입고 이력이 없어요 — 필요하면 그대로 등록해도 됩니다.');
 }
 function renderDoa() {
   const el = document.getElementById('doa-content');
@@ -16793,9 +17118,10 @@ function renderDoa() {
         <label class="form-label">부품</label>
         <select id="doa-part" style="width:100%;height:36px;" onchange="updateDoaLotSel()">${partOpts}</select>
       </div>
-      <div class="form-group" style="margin:0;min-width:210px;">
-        <label class="form-label">입고분 <span style="color:var(--text3);font-weight:400;">(FIFO 자동 추정)</span></label>
+      <div class="form-group" style="margin:0;min-width:230px;">
+        <label class="form-label">입고분 <span style="color:var(--text3);font-weight:400;">(직전 등록에 이어짐)</span></label>
         <select id="doa-lot" style="width:100%;height:36px;"></select>
+        <div id="doa-lot-hint" style="font-size:10.5px;color:var(--text3);margin-top:3px;line-height:1.4;"></div>
       </div>
       <div class="form-group" style="margin:0;">
         <label class="form-label">수량</label>
@@ -16847,7 +17173,7 @@ function renderDoa() {
     </tr>`).join('') : `<tr><td colspan="${isAdmin?7:6}" style="text-align:center;color:var(--text3);padding:18px;">DOA 기록이 없습니다.</td></tr>`}</tbody>
     </table></div></div>`;
   el.innerHTML = h;
-  try { updateDoaLotSel(); } catch(e) {}   // ⭐ v2.79p: 첫 부품 기준 입고분 자동 추정 채우기
+  try { updateDoaLotSel(); } catch(e) {}   // ⭐ v2.79q: 첫 부품 기준 입고분(릴레이) 채우기
 }
 async function registerDoa() {
   const idx = Number(document.getElementById('doa-part')?.value);
@@ -16856,7 +17182,7 @@ async function registerDoa() {
   const sp = stock[idx];
   if(!sp) { notify('부품을 선택하세요.', 'error'); return; }
   if(!sym) { notify('증상을 입력하세요 (예: 고스트 터치).', 'error'); try{document.getElementById('doa-sym').focus();}catch(e){} return; }
-  const lot = (document.getElementById('doa-lot')?.value || '').trim();   // ⭐ v2.79p: 입고분 (FIFO 자동 추정, 변경 가능)
+  const lot = (document.getElementById('doa-lot')?.value || '').trim();   // ⭐ v2.79q: 입고분 (직전 등록에 릴레이, 변경 가능)
   if(!confirm(`${sp.name} ${qty}개를 DOA(개봉 불량)로 등록할까요?\n재고에서 ${qty}개 차감됩니다. (증상: ${sym}${lot ? ` · ${lot} 입고분` : ''})`)) return;
   const r = await adjustStockOp({ idx, delta: -qty, type: 'out', note: `DOA 불량 [${sym}]${lot ? ` (${lot} 입고분)` : ''}` });
   if(r && r.ok) { notify(`🚫 DOA 등록 완료 — ${sp.name} −${qty} (실물은 스티커 붙여 DOA 박스에 보관하세요)`); }
@@ -16876,336 +17202,7 @@ async function undoDoa(logId) {
 }
 function _doaUndoRef(l) { try { return String(l.date).slice(5,16).replace('T',' '); } catch(e) { return ''; } }
 
-function togglePpmPart(uid) {
-  const body = document.getElementById(uid + '-body');
-  const arrow = document.getElementById(uid + '-arrow');
-  if(!body) return;
-  const isOpen = body.style.display !== 'none';
-  body.style.display = isOpen ? 'none' : 'block';
-  if(arrow) arrow.style.transform = isOpen ? '' : 'rotate(90deg)';
-}
-
-function renderPPM() {
-  const el = document.getElementById('ppm-content');
-  if(!el) return;
-
-  const allEntries = entries || [];
-  if(!allEntries.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div>수리 이력이 없습니다.</div>';
-    return;
-  }
-
-  // 디버깅: parts 데이터 보유 entry 통계
-  const entriesWithParts = allEntries.filter(e => e.parts && Object.keys(e.parts).length > 0);
-  console.log('[PPM] 전체 entries:', allEntries.length, '/ parts 있는 entries:', entriesWithParts.length);
-  if(entriesWithParts.length > 0) {
-    console.log('[PPM] parts 샘플 (최대 3개):', entriesWithParts.slice(0, 3).map(e => ({
-      id: e.id,
-      serial: e.serial,
-      worker: e.worker,
-      works: e.works,
-      parts: e.parts
-    })));
-
-    // parts 내용 풀어서 표시 (객체 펼침)
-    console.log('[PPM] === parts 상세 내용 ===');
-    entriesWithParts.slice(0, 3).forEach((e, i) => {
-      console.log('[PPM] #' + i + ' ' + e.serial + ' / works:', e.works, '/ parts:', JSON.stringify(e.parts));
-    });
-
-    // 부품명 별 사용 통계 (모든 entry 기준)
-    const partUsageStats = {};
-    entriesWithParts.forEach(e => {
-      Object.entries(e.parts).forEach(([partName, qty]) => {
-        if(!(Number(qty) > 0)) return;   // ⭐ 0 = 미사용 명시 저장분 — 사용 통계에서 제외
-        if(!partUsageStats[partName]) partUsageStats[partName] = { total: 0, count: 0, max: 0 };
-        partUsageStats[partName].total += Number(qty);
-        partUsageStats[partName].count += 1;
-        partUsageStats[partName].max = Math.max(partUsageStats[partName].max, Number(qty));
-      });
-    });
-    console.log('[PPM] === 부품별 사용 통계 ===');
-    Object.entries(partUsageStats).forEach(([name, stat]) => {
-      console.log('[PPM] ' + name + ': 총 ' + stat.total + '개, ' + stat.count + '건, 최대 ' + stat.max + '개');
-    });
-
-    // 2개 이상 쓴 entry 찾기
-    const overUsageEntries = entriesWithParts.filter(e => 
-      Object.values(e.parts).some(qty => Number(qty) > 1)
-    );
-    console.log('[PPM] === 부품 2개 이상 쓴 entries ===:', overUsageEntries.length, '건');
-    if(overUsageEntries.length > 0) {
-      console.log('[PPM] 샘플 (최대 5개):', overUsageEntries.slice(0, 5).map(e => ({
-        serial: e.serial,
-        works: e.works,
-        parts: e.parts
-      })));
-    }
-
-    // WORKS 정의의 부품명과 매칭 검증
-    console.log('[PPM] === WORKS 정의 부품명 (논배터리) ===');
-    const nonbatParts = (WORKS.nonbat?.parts || []).map(p => p.name);
-    console.log('[PPM] WORKS 정의:', nonbatParts);
-    console.log('[PPM] 실제 parts 데이터의 부품명:', Object.keys(partUsageStats));
-    const missing = Object.keys(partUsageStats).filter(p => !nonbatParts.includes(p));
-    if(missing.length > 0) {
-      console.warn('[PPM] ⚠️ WORKS 정의에 없는 부품명:', missing);
-    }
-  } else {
-    console.warn('[PPM] ⚠️ parts 데이터가 있는 entry가 0개입니다. 부품 수량 수정이 저장되지 않았거나, 파싱 실패 가능성');
-    // 첫 entry의 raw 데이터 출력
-    if(allEntries.length > 0) {
-      const sample = allEntries[0];
-      console.log('[PPM] 첫 entry raw 데이터:', {
-        id: sample.id,
-        serial: sample.serial,
-        parts_type: typeof sample.parts,
-        parts_value: sample.parts
-      });
-    }
-  }
-
-  const fmt2 = n => String(n).padStart(2,'0');
-  const fmtDT = d => {
-    if(!d) return '-';
-    const dt = new Date(d);
-    return `${dt.getFullYear()}.${fmt2(dt.getMonth()+1)}.${fmt2(dt.getDate())} ${fmt2(dt.getHours())}:${fmt2(dt.getMinutes())}`;
-  };
-
-  // 부품별 집계
-  // partStats[부품명] = { normal: 총정상사용수, extra: 총초과수, cases: [{entry, work, 정상qty, 실사용qty, 초과qty}] }
-  const partStats = {};
-
-  allEntries.forEach(entry => {
-    const works = parseWorks(entry.works || '');
-    works.forEach(wk => {
-      const workDef = WORKS[wk];
-      if(!workDef || !workDef.parts || !workDef.parts.length) return;
-
-      workDef.parts.forEach(pd => {
-        const partName = pd.name;
-        const normalQty = Number(pd.qty) || 1;
-
-        // 실제 사용 수량 (entry.parts = {부품명: 수량} flat 구조)
-        let actualQty = normalQty;
-        if(entry.parts && entry.parts[partName] !== undefined) {
-          actualQty = Number(entry.parts[partName]);
-        }
-
-        if(!partStats[partName]) partStats[partName] = { normal: 0, extra: 0, cases: [] };
-        partStats[partName].normal += normalQty;
-
-        const extra = actualQty - normalQty;
-        if(extra > 0) {
-          partStats[partName].extra += extra;
-          partStats[partName].cases.push({
-            entry,
-            work: wk,
-            workLabel: workDef.label || wk,
-            normalQty,
-            actualQty,
-            extra,
-            dt: entry.repairTime || entry.shippedAt || ''
-          });
-        }
-      });
-    });
-  });
-
-  // 전체 요약
-  const partNames = Object.keys(partStats);
-  let grandNormal = 0, grandExtra = 0, grandCases = 0;
-  partNames.forEach(pn => {
-    grandNormal += partStats[pn].normal;
-    grandExtra += partStats[pn].extra;
-    grandCases += partStats[pn].cases.length;
-  });
-  const grandPPM = grandNormal > 0 ? Math.round((grandExtra / grandNormal) * 1000000) : 0;
-  const ppmColor = p => p > 10000 ? '#fca5a5' : p > 5000 ? '#fbbf24' : '#86efac';
-
-  // 부품별 PPM (초과 발생 부품만)
-  const defectParts = partNames.filter(pn => partStats[pn].extra > 0)
-    .sort((a,b) => partStats[b].extra - partStats[a].extra);
-
-  let h = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-bottom:28px;">
-      <div style="background:linear-gradient(135deg,#1e293b,#1e3a5f);border-radius:14px;padding:20px;color:#fff;">
-        <div style="font-size:11px;opacity:.6;margin-bottom:6px;">총 부품 사용 건수</div>
-        <div style="font-size:24px;font-weight:700;">${grandNormal.toLocaleString()}<span style="font-size:13px;opacity:.6;margin-left:4px;">개</span></div>
-      </div>
-      <div style="background:linear-gradient(135deg,#1e293b,#3a1e1e);border-radius:14px;padding:20px;color:#fff;">
-        <div style="font-size:11px;opacity:.6;margin-bottom:6px;">초과 사용 누계</div>
-        <div style="font-size:24px;font-weight:700;color:#fca5a5;">${grandExtra.toLocaleString()}<span style="font-size:13px;opacity:.6;margin-left:4px;">개</span></div>
-      </div>
-      <div style="background:linear-gradient(135deg,#1e293b,#1e2d4a);border-radius:14px;padding:20px;color:#fff;">
-        <div style="font-size:11px;opacity:.6;margin-bottom:6px;">초과 발생 수리건수</div>
-        <div style="font-size:24px;font-weight:700;color:#fbbf24;">${grandCases.toLocaleString()}<span style="font-size:13px;opacity:.6;margin-left:4px;">건</span></div>
-      </div>
-      <div style="background:linear-gradient(135deg,#1e293b,#1a2744);border-radius:14px;padding:20px;color:#fff;">
-        <div style="font-size:11px;opacity:.6;margin-bottom:6px;">전체 불량 PPM</div>
-        <div style="font-size:24px;font-weight:700;color:${ppmColor(grandPPM)};">${grandPPM.toLocaleString()}</div>
-        <div style="font-size:10px;opacity:.4;margin-top:4px;">초과÷전체×1,000,000</div>
-      </div>
-    </div>`;
-
-  if(!defectParts.length) {
-    h += `<div class="empty" style="margin-top:20px;"><div class="empty-icon">✅</div>초과 사용된 부품이 없습니다!</div>`;
-    el.innerHTML = h;
-    return;
-  }
-
-  // 부품별 섹션
-  h += `<div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:16px;">📊 부품별 불량 PPM</div>`;
-
-  defectParts.forEach((pn, idx) => {
-    const ps = partStats[pn];
-    const ppm = ps.normal > 0 ? Math.round((ps.extra / ps.normal) * 1000000) : 0;
-    const ppmRate = ps.normal > 0 ? (ps.extra / ps.normal * 100).toFixed(1) : '0.0';
-    const uid = 'ppm-part-' + idx;
-
-    h += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;box-shadow:var(--shadow);overflow:hidden;">
-      <div onclick="togglePpmPart('${uid}')" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 18px;cursor:pointer;user-select:none;">
-        <span id="${uid}-arrow" style="font-size:12px;color:var(--text3);transition:transform .2s;display:inline-block;">▶</span>
-        <div style="font-size:14px;font-weight:700;">${pn}</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;">
-          <span style="font-size:12px;background:var(--surface2);padding:3px 10px;border-radius:20px;color:var(--text2);">
-            총 <strong>${ps.normal}개</strong>
-          </span>
-          <span style="font-size:12px;background:#fca5a530;padding:3px 10px;border-radius:20px;color:#fca5a5;">
-            초과 <strong>+${ps.extra}개</strong>
-          </span>
-          <span style="font-size:12px;padding:3px 10px;border-radius:20px;font-weight:700;background:${ppm>10000?'#fca5a530':ppm>5000?'#fbbf2430':'#86efac30'};color:${ppmColor(ppm)};">
-            PPM ${ppm.toLocaleString()} <span style="font-weight:400;font-size:11px;">(${ppmRate}%)</span>
-          </span>
-        </div>
-      </div>
-      <div id="${uid}-body" style="display:none;border-top:1px solid var(--border);padding:0 18px 14px;">
-        <div style="overflow-x:auto;margin-top:12px;">
-        <table style="width:100%;border-collapse:collapse;font-size:12px;">
-          <thead>
-            <tr style="border-bottom:1px solid var(--border);background:var(--surface2);">
-              <th style="padding:8px 12px;text-align:left;font-weight:600;color:var(--text2);">시리얼</th>
-              <th style="padding:8px 12px;text-align:left;font-weight:600;color:var(--text2);">기종</th>
-              <th style="padding:8px 12px;text-align:left;font-weight:600;color:var(--text2);">수리 항목</th>
-              <th style="padding:8px 12px;text-align:center;font-weight:600;color:var(--text2);">기준</th>
-              <th style="padding:8px 12px;text-align:center;font-weight:600;color:var(--text2);">실사용</th>
-              <th style="padding:8px 12px;text-align:center;font-weight:600;color:var(--text2);">초과</th>
-              <th style="padding:8px 12px;text-align:left;font-weight:600;color:var(--text2);">일시</th>
-            </tr>
-          </thead>
-          <tbody>`;
-
-    ps.cases.forEach((c, i) => {
-      h += `<tr style="border-bottom:1px solid var(--border);${i%2===0?'background:var(--surface);':''}">
-        <td style="padding:8px 12px;font-family:monospace;font-size:11px;">${c.entry.serial || '-'}</td>
-        <td style="padding:8px 12px;">${c.entry.model || '-'}</td>
-        <td style="padding:8px 12px;">${c.workLabel}</td>
-        <td style="padding:8px 12px;text-align:center;">${c.normalQty}개</td>
-        <td style="padding:8px 12px;text-align:center;">${c.actualQty}개</td>
-        <td style="padding:8px 12px;text-align:center;color:#fca5a5;font-weight:700;">+${c.extra}</td>
-        <td style="padding:8px 12px;font-size:11px;color:var(--text2);">${fmtDT(c.dt)}</td>
-      </tr>`;
-    });
-
-    h += `</tbody></table></div></div></div>`;
-  });
-
-  // ─── 엔지니어별 집계 ───────────────────────────────
-  const engStats = {};
-  allEntries.forEach(entry => {
-    const eng = entry.worker || '(미지정)';
-    if(!engStats[eng]) engStats[eng] = { total: 0, defect: 0, cases: [] };
-    engStats[eng].total += 1;
-    const works2 = parseWorks(entry.works || '');
-    let hasDefect = false;
-    const defectDetails = [];
-    works2.forEach(wk => {
-      const workDef = WORKS[wk];
-      if(!workDef || !workDef.parts || !workDef.parts.length) return;
-      workDef.parts.forEach(pd => {
-        const pn = pd.name;
-        const normalQ = Number(pd.qty) || 1;
-        let actualQ = normalQ;
-        if(entry.parts && entry.parts[pn] !== undefined) actualQ = Number(entry.parts[pn]);
-        const ex = actualQ - normalQ;
-        if(ex > 0) { hasDefect = true; defectDetails.push(`${pn} +${ex}`); }
-      });
-    });
-    if(hasDefect) {
-      engStats[eng].defect += 1;
-      engStats[eng].cases.push({ entry, dt: entry.repairTime || entry.shippedAt || '', defectDetails });
-    }
-  });
-
-  // workers에 등록된 현재 엔지니어만 (퇴사자 제외), 없으면 전체
-  const activeWorkers = (workers || []).filter(w => w !== MASTER_NAME);
-  const engNames = Object.keys(engStats)
-    .filter(n => activeWorkers.length === 0 || activeWorkers.includes(n))
-    .sort((a,b) => engStats[b].defect - engStats[a].defect);
-  if(!engNames.length) {
-    h += `<div style="font-size:14px;font-weight:700;color:var(--text);margin:28px 0 16px;">👷 엔지니어별 불량 발생 현황</div>
-    <div class="empty" style="margin-top:8px;"><div class="empty-icon">✅</div>등록된 엔지니어의 초과 사용 내역이 없습니다.</div>`;
-    el.innerHTML = h;
-    return;
-  }
-  const maxDefect = Math.max(...engNames.map(n => engStats[n].defect), 1);
-
-  h += `<div style="font-size:14px;font-weight:700;color:var(--text);margin:28px 0 16px;">👷 엔지니어별 불량 발생 현황</div>`;
-  h += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin-bottom:20px;box-shadow:var(--shadow);">`;
-  engNames.forEach(eng => {
-    const es = engStats[eng];
-    const rate = es.total > 0 ? (es.defect / es.total * 100).toFixed(1) : '0.0';
-    const barW = es.defect > 0 ? Math.max(Math.round(es.defect / maxDefect * 100), 4) : 0;
-    const bc = es.defect === 0 ? 'var(--green)' : Number(rate) > 30 ? '#fca5a5' : Number(rate) > 15 ? '#fbbf24' : '#86efac';
-    h += `<div style="margin-bottom:14px;">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;">
-        <span style="font-size:13px;font-weight:600;min-width:80px;">${eng}</span>
-        <span style="font-size:12px;color:var(--text2);">총 ${es.total}건</span>
-        <span style="font-size:12px;margin-left:auto;"><strong style="color:${bc};">${es.defect}건 초과</strong> <span style="color:var(--text2);">(${rate}%)</span></span>
-      </div>
-      <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;">
-        <div style="width:${barW}%;height:100%;background:${bc};border-radius:4px;"></div>
-      </div>
-    </div>`;
-  });
-  h += `</div>`;
-
-  const defectEngs = engNames.filter(n => engStats[n].defect > 0);
-  if(defectEngs.length) {
-    h += `<div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:12px;">📋 초과 발생 수리 상세</div>`;
-    defectEngs.forEach(eng => {
-      const es = engStats[eng];
-      const rate = (es.defect / es.total * 100).toFixed(1);
-      h += `<details style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;box-shadow:var(--shadow);">
-        <summary style="padding:14px 18px;cursor:pointer;font-size:13px;font-weight:700;display:flex;align-items:center;gap:10px;list-style:none;">
-          <span>${eng}</span>
-          <span style="background:#fca5a530;color:#fca5a5;font-size:12px;padding:2px 10px;border-radius:12px;">${es.defect}건 초과 발생</span>
-          <span style="color:var(--text2);font-size:12px;font-weight:400;">/ 전체 ${es.total}건 (${rate}%)</span>
-          <span style="margin-left:auto;color:var(--text2);">▼</span>
-        </summary>
-        <div style="padding:0 18px 16px;overflow-x:auto;">
-          <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:10px;">
-            <thead><tr style="border-bottom:1px solid var(--border);background:var(--surface2);">
-              <th style="padding:8px 12px;text-align:left;color:var(--text2);">시리얼</th>
-              <th style="padding:8px 12px;text-align:left;color:var(--text2);">기종</th>
-              <th style="padding:8px 12px;text-align:left;color:var(--text2);">초과 부품</th>
-              <th style="padding:8px 12px;text-align:left;color:var(--text2);">일시</th>
-            </tr></thead>
-            <tbody>`;
-      es.cases.forEach((c, i) => {
-        h += `<tr style="border-bottom:1px solid var(--border);${i%2===0?'background:var(--surface);':''}">
-          <td style="padding:8px 12px;font-family:monospace;font-size:11px;">${c.entry.serial || '-'}</td>
-          <td style="padding:8px 12px;">${c.entry.model || '-'}</td>
-          <td style="padding:8px 12px;color:#fca5a5;">${c.defectDetails.join(', ')}</td>
-          <td style="padding:8px 12px;font-size:11px;color:var(--text2);">${fmtDT(c.dt)}</td>
-        </tr>`;
-      });
-      h += `</tbody></table></div></details>`;
-    });
-  }
-
-  el.innerHTML = h;
-}
+/* (v2.79q) 불량 PPM 서브탭 제거 — renderPPM/togglePpmPart 삭제. 부품 초과 사용은 재고 대사(실사)·DOA 탭에서 관리 */
 
 
 
@@ -17470,59 +17467,143 @@ function renderStock() {
     }
   }
   el.innerHTML = h;
+  try { updateOrderBadge(); } catch(e) {}   // ⭐ v2.79q: 발주 알림 배지 갱신
 }
 function setStockModelFilter(v){ window._stockModelFilter = v; renderStock(); }
 
-// ⭐ 발주 리스트 — 최소재고 이하(부족/없음) 부품 모아서 발주 목록
+/* ⭐ v2.79q: 발주 알림 — 구 '최소재고 이하 발주 리스트'를 소모 추이 기반 알림으로 교체.
+   부품 생산 리드타임이 ~2개월이라, "지금 발주해도 도착까지 2달"을 전제로
+   [현재고 ÷ 최근 소모 속도 = 커버 일수]를 계산해 리드타임 전에 미리 알려준다.
+   권장 발주량 = 일평균 소모 × (리드타임 + 도착 후 안정 운영 목표 일수) − 현재고. */
+function _orderCfg() {
+  let c = {};
+  try { c = JSON.parse(localStorage.getItem('fa_order_cfg') || '{}') || {}; } catch(e) {}
+  return {
+    lead: Math.max(1, Number(c.lead) || 60),   // 발주→입고 리드타임 (일)
+    op:   Math.max(1, Number(c.op)   || 60),   // 입고 후 안정 운영 목표 (일) — "최소 2달 이상 운영"
+    look: Math.max(7, Number(c.look) || 28)    // 소모 속도 집계 기간 (일)
+  };
+}
+function saveOrderCfg() {
+  const g = id => Number(document.getElementById(id)?.value) || 0;
+  const c = { lead: g('ord-lead'), op: g('ord-op'), look: g('ord-look') };
+  try { localStorage.setItem('fa_order_cfg', JSON.stringify(c)); } catch(e) {}
+  renderOrderList();
+}
+/* 부품별 소모 속도·커버 일수·판정 계산 (탭 배지와 화면이 공유) */
+function _orderAlertData() {
+  const cfg = _orderCfg();
+  const now = Date.now();
+  const startMs = new Date(STOCK_STATS_START + 'T00:00:00').getTime();
+  const since = Math.max(now - cfg.look * 86400000, startMs);
+  const lookDays = Math.max(1, (now - since) / 86400000);
+  // 소모 = 기간 내 출고 − 기간 내 환입(복구·취소·DOA 되돌리기) — 되돌린 차감은 소모가 아님
+  const usedBy = {};
+  (stockLog || []).forEach(l => {
+    const t = new Date(l.date).getTime();
+    if(isNaN(t) || t < since) return;
+    const q = Number(l.qty) || 0;
+    const key = String(l.partName || '');
+    if(l.type === 'out') usedBy[key] = (usedBy[key] || 0) + q;
+    else if(l.type === 'in' && /복구|취소|환입/.test(String(l.note || ''))) usedBy[key] = (usedBy[key] || 0) - q;
+  });
+  const rows = (stock || []).map((p, idx) => {
+    const used = Math.max(0, usedBy[p.name] || 0);
+    const avg = used / lookDays;                                 // 일평균 소모
+    const qty = Number(p.qty) || 0;
+    const cover = avg > 0 ? qty / avg : Infinity;                // 커버 일수
+    const rec = avg > 0 ? Math.max(0, Math.ceil(avg * (cfg.lead + cfg.op)) - qty) : 0;   // 권장 발주량
+    const belowMin = qty <= (Number(p.minQty) || 0) && (Number(p.minQty) || 0) > 0;
+    // 판정: 커버가 리드타임보다 짧으면 이미 늦음(긴급) · 리드+2주 안이면 지금 발주 · 리드+운영목표 안이면 준비
+    let level, label, color, bg;
+    if(avg > 0 && (qty <= 0 || cover < cfg.lead)) { level = 0; label = qty <= 0 ? '재고 없음' : '🔴 지금 발주 (리드타임 내 소진)'; color = '#dc2626'; bg = '#fee2e2'; }
+    else if(avg > 0 && cover < cfg.lead + 14)     { level = 1; label = '🟠 발주 준비 (2주 내 발주)'; color = '#d97706'; bg = '#ffedd5'; }
+    else if(avg > 0 && cover < cfg.lead + cfg.op) { level = 2; label = '🟡 발주 계획'; color = '#a16207'; bg = '#fef9c3'; }
+    else if(belowMin)                             { level = 1; label = '🟠 최소재고 이하'; color = '#d97706'; bg = '#ffedd5'; }
+    else                                          { level = 3; label = avg > 0 ? '🟢 여유' : '— 소모 없음'; color = 'var(--text3)'; bg = 'transparent'; }
+    return { p, idx, used, avg, cover, rec, belowMin, level, label, color, bg };
+  }).sort((a, b) => a.level - b.level || a.cover - b.cover);
+  return { cfg, lookDays, rows, alertCnt: rows.filter(r => r.level <= 1).length };
+}
+function updateOrderBadge() {
+  const b = document.getElementById('order-tab-badge');
+  if(!b) return;
+  try {
+    const { alertCnt } = _orderAlertData();
+    b.innerHTML = alertCnt > 0 ? `<span style="display:inline-block;margin-left:5px;min-width:16px;padding:1px 5px;border-radius:99px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;line-height:1.4;vertical-align:1px;">${alertCnt}</span>` : '';
+  } catch(e) {}
+}
 function renderOrderList() {
   const el = document.getElementById('order-content');
   if(!el) return;
-  const low = (stock||[]).filter(p => p.qty <= (p.minQty||0)).sort((a,b)=>(a.qty-a.minQty)-(b.qty-b.minQty));
-  if(!low.length) {
-    el.innerHTML = `<div class="empty"><div class="empty-icon">✅</div>발주가 필요한 부품이 없습니다.<br><span style="font-size:12px;color:var(--text3);">모든 부품이 최소재고 이상입니다.</span></div>`;
+  const { cfg, rows, alertCnt } = _orderAlertData();
+  updateOrderBadge();
+  if(!(stock || []).length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">📦</div>등록된 부품이 없습니다.</div>`;
     return;
   }
-  // 최근 30일 일평균 소모량으로 권장 발주량 추정 (단, 운영 시작일 6/30 이전 제외)
-  const now = Date.now();
-  const since = now - 30*86400000;
-  const startMs = new Date(STOCK_STATS_START + 'T00:00:00').getTime();
-  const usedByPart = {};
-  (stockLog||[]).forEach(l => {
-    if(l.type !== 'out') return;
-    const t = new Date(l.date).getTime();
-    if(isNaN(t) || t < since || t < startMs) return;   // ⭐ 6/30 이전 제외
-    usedByPart[l.partName] = (usedByPart[l.partName]||0) + Number(l.qty||0);
-  });
+  const nUrgent = rows.filter(r => r.level === 0).length;
+  const nPrep = rows.filter(r => r.level === 1).length;
+  const nPlan = rows.filter(r => r.level === 2).length;
+  const _dday = c => {
+    if(!isFinite(c)) return '<span style="color:var(--text3);">—</span>';
+    const d = new Date(Date.now() + c * 86400000);
+    return `<b>${Math.floor(c)}일</b> <span style="font-size:11px;color:var(--text3);">(~${d.getMonth()+1}/${d.getDate()})</span>`;
+  };
+  let h = `
+  <div class="card" style="margin-bottom:14px;">
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+      <div style="font-size:13px;font-weight:800;">🚨 소모 추이 기반 발주 알림</div>
+      <span style="font-size:12px;padding:3px 10px;border-radius:99px;background:#fee2e2;color:#dc2626;font-weight:700;">지금 발주 ${nUrgent}종</span>
+      <span style="font-size:12px;padding:3px 10px;border-radius:99px;background:#ffedd5;color:#d97706;font-weight:700;">발주 준비 ${nPrep}종</span>
+      <span style="font-size:12px;padding:3px 10px;border-radius:99px;background:#fef9c3;color:#a16207;font-weight:700;">발주 계획 ${nPlan}종</span>
+    </div>
+    <div style="font-size:11.5px;color:var(--text3);margin-top:8px;line-height:1.7;">
+      최근 <b>${cfg.look}일</b> 소모 속도로 <b>현재고가 며칠 버티는지(커버 일수)</b>를 계산해요.
+      부품 생산 리드타임이 <b>${cfg.lead}일</b>이라, 커버 일수가 <b>리드타임+${cfg.op}일(도착 후 안정 운영분)</b> 아래로 내려오면 발주 계획을 잡고,
+      리드타임+14일 아래면 지금 발주해야 공백 없이 운영됩니다. 권장 발주량 = 일평균 소모 × (리드타임+운영 목표) − 현재고.
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">
+      <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">리드타임 (발주→입고, 일)</label>
+        <input type="number" id="ord-lead" value="${cfg.lead}" min="1" onchange="saveOrderCfg()" style="width:80px;height:32px;text-align:center;"></div>
+      <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">도착 후 안정 운영 목표 (일)</label>
+        <input type="number" id="ord-op" value="${cfg.op}" min="1" onchange="saveOrderCfg()" style="width:80px;height:32px;text-align:center;"></div>
+      <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">소모 집계 기간 (일)</label>
+        <input type="number" id="ord-look" value="${cfg.look}" min="7" onchange="saveOrderCfg()" style="width:80px;height:32px;text-align:center;"></div>
+    </div>
+  </div>`;
 
-  let h = `<div style="font-size:13px;color:var(--text2);margin-bottom:14px;">최소재고 이하 부품 <b style="color:var(--red-text);">${low.length}종</b> · 30일 소모량 기준 권장 발주량 제안</div>`;
-  h += `<div class="card" style="padding:0;"><div class="table-wrap"><table>
-    <thead><tr><th>부품명</th><th>카테고리</th><th style="text-align:right">현재고</th><th style="text-align:right">최소</th><th style="text-align:right">30일 소모</th><th style="text-align:right">권장 발주</th></tr></thead>
-    <tbody>`;
-  low.forEach(p => {
-    const used30 = usedByPart[p.name] || 0;
-    // 권장: 최소재고의 2배까지 채우되, 최근 한달 소모량 이상은 확보
-    const target = Math.max((p.minQty||0)*2, used30);
-    const order = Math.max(0, target - p.qty);
-    const isEmpty = p.qty <= 0;
-    h += `<tr>
-      <td style="font-weight:600;">${escapeHtml(p.name)}</td>
-      <td style="font-size:12px;color:var(--text2);">${escapeHtml(p.category||'기타')}</td>
-      <td style="text-align:right;font-weight:700;color:${isEmpty?'var(--red-text)':'var(--amber-text)'};">${p.qty}</td>
-      <td style="text-align:right;color:var(--text3);">${p.minQty||0}</td>
-      <td style="text-align:right;color:var(--text2);">${used30}</td>
-      <td style="text-align:right;font-weight:700;color:var(--accent);">${order>0?'+'+order:'-'}</td>
-    </tr>`;
-  });
-  h += `</tbody></table></div></div>`;
-  // 복사용 텍스트
-  const copyText = low.map(p => {
-    const used30 = usedByPart[p.name]||0;
-    const order = Math.max(0, Math.max((p.minQty||0)*2, used30) - p.qty);
-    return `${p.name} ${order}개`;
-  }).filter(s=>!s.endsWith(' 0개')).join('\n');
+  const active = rows.filter(r => r.level <= 2);
+  const calm = rows.filter(r => r.level === 3);
+  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">발주 필요·계획 부품 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 커버 일수 짧은 순</span></div>
+    <div class="table-wrap"><table>
+    <thead><tr><th>부품명</th><th style="text-align:right">현재고</th><th style="text-align:right">일평균 소모</th><th>예상 소진</th><th>판정</th><th style="text-align:right">권장 발주량</th></tr></thead>
+    <tbody>${active.length ? active.map(r => `<tr>
+      <td style="font-weight:600;">${escapeHtml(r.p.name)}${r.p.model && r.p.model !== '공용' ? ` <span style="font-size:10px;color:var(--text3);">(${escapeHtml(r.p.model)})</span>` : ''}${r.belowMin ? ' <span style="font-size:10px;font-weight:700;color:#d97706;">최소재고↓</span>' : ''}</td>
+      <td style="text-align:right;font-weight:700;color:${r.p.qty <= 0 ? '#dc2626' : 'inherit'};">${fmt(r.p.qty)}</td>
+      <td style="text-align:right;color:var(--text2);">${r.avg > 0 ? r.avg.toFixed(1) + '개/일' : '-'}</td>
+      <td style="white-space:nowrap;">${_dday(r.cover)}</td>
+      <td><span style="font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:99px;background:${r.bg};color:${r.color};white-space:nowrap;">${r.label}</span></td>
+      <td style="text-align:right;font-weight:800;color:var(--accent);">${r.rec > 0 ? '+' + fmt(r.rec) : '-'}</td>
+    </tr>`).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">✅ 지금 발주가 필요한 부품이 없습니다 — 모든 부품이 리드타임+운영 목표 이상 커버돼요.</td></tr>`}</tbody>
+    </table></div></div>`;
+
+  // 여유·소모 없음 부품 (접힘)
+  h += `<details class="card" style="padding:0;"><summary style="padding:12px 16px;font-size:12.5px;font-weight:700;cursor:pointer;color:var(--text2);">🟢 여유·소모 없음 부품 ${calm.length}종 <span style="font-size:11px;color:var(--text3);font-weight:400;">— 펼쳐서 확인</span></summary>
+    <div class="table-wrap"><table>
+    <thead><tr><th>부품명</th><th style="text-align:right">현재고</th><th style="text-align:right">일평균 소모</th><th>예상 소진</th></tr></thead>
+    <tbody>${calm.map(r => `<tr>
+      <td>${escapeHtml(r.p.name)}${r.p.model && r.p.model !== '공용' ? ` <span style="font-size:10px;color:var(--text3);">(${escapeHtml(r.p.model)})</span>` : ''}</td>
+      <td style="text-align:right;">${fmt(r.p.qty)}</td>
+      <td style="text-align:right;color:var(--text2);">${r.avg > 0 ? r.avg.toFixed(1) + '개/일' : '-'}</td>
+      <td style="white-space:nowrap;">${_dday(r.cover)}</td>
+    </tr>`).join('')}</tbody></table></div></details>`;
+
+  // 복사용 텍스트 — 권장 발주량 있는 알림 부품만
+  const copyText = active.filter(r => r.rec > 0).map(r => `${r.p.name} ${r.rec}개`).join('\n');
   h += `<div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
     <button class="btn btn-sm btn-primary" onclick="copyOrderList()">📋 발주 목록 복사</button>
-    <span style="font-size:11px;color:var(--text3);">권장 발주량만 텍스트로 복사돼요</span>
+    <span style="font-size:11px;color:var(--text3);">알림 뜬 부품의 권장 발주량만 텍스트로 복사돼요</span>
   </div>
   <textarea id="order-copy-text" style="position:absolute;left:-9999px;">${escapeHtml(copyText)}</textarea>`;
   el.innerHTML = h;
