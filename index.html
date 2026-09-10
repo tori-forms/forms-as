@@ -1087,7 +1087,7 @@ window.addEventListener('DOMContentLoaded', function(){
     <span class="current-user-badge" id="current-user-badge" style="display:none;cursor:pointer;" title="클릭하면 로그아웃" onclick="logout()"></span>
     <button id="change-pw-btn" onclick="openChangePasswordModal()" title="비밀번호 변경" style="display:none;height:36px;width:36px;border-radius:10px;border:1px solid var(--header-border);background:transparent;color:var(--header-text2);font-size:14px;font-family:inherit;cursor:pointer;align-items:center;justify-content:center;transition:background .15s;" onmouseover="this.style.background='rgba(128,128,128,.12)'" onmouseout="this.style.background='transparent'">🔑</button>
     <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" aria-label="테마 전환" title="테마 전환"><span id="theme-icon">☀️</span></button>
-    <button onclick="syncData()" id="sync-refresh-btn" title="새로고침" style="height:36px;padding:0 14px;border-radius:10px;border:1px solid var(--header-border);background:transparent;color:var(--header-text2);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background .15s;" onmouseover="this.style.background='rgba(128,128,128,.12)'" onmouseout="this.style.background='transparent'">↻ 새로고침</button>
+    <button onclick="manualRefresh()" id="sync-refresh-btn" title="서버에서 최신 데이터 불러오기 (캐시 우회)" style="height:36px;padding:0 14px;border-radius:10px;border:1px solid var(--header-border);background:transparent;color:var(--header-text2);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background .15s;" onmouseover="this.style.background='rgba(128,128,128,.12)'" onmouseout="this.style.background='transparent'">↻ 새로고침</button>
   </div>
 </div>
 
@@ -1245,7 +1245,7 @@ window.addEventListener('DOMContentLoaded', function(){
     <div class="section-header">
       <span class="section-title">🕐 에이징 중인 수리건</span>
       <div style="display:flex;gap:8px;align-items:center;">
-        <button class="btn btn-secondary" onclick="renderAging()" style="height:34px;padding:0 12px;font-size:13px;">↻ 새로고침</button>
+<!-- (v2.79m) 탭별 새로고침 제거 — 상단 새로고침으로 통일 (탭 버튼은 화면만 다시 그려 최신 데이터가 아니었음) -->
       </div>
     </div>
     <div class="card" style="padding:14px 18px;margin-bottom:16px;background:linear-gradient(135deg,#fef3c7,#fde68a);border-color:#f59e0b;">
@@ -1265,7 +1265,7 @@ window.addEventListener('DOMContentLoaded', function(){
       <span class="section-title">🧪 검수 관리</span>
       <div style="display:flex;gap:8px;align-items:center;">
         <span id="inspect-permission-badge" style="font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;"></span>
-        <button class="btn btn-secondary" onclick="renderInspect()" style="height:34px;padding:0 12px;font-size:13px;">↻ 새로고침</button>
+<!-- (v2.79m) 탭별 새로고침 제거 — 상단 새로고침으로 통일 -->
       </div>
     </div>
 
@@ -1425,6 +1425,9 @@ window.addEventListener('DOMContentLoaded', function(){
       <button id="stocktab-ppm" onclick="switchStockTab('ppm')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
         🔍 불량 PPM
       </button>
+      <button id="stocktab-doa" onclick="switchStockTab('doa')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
+        🚫 부품 DOA
+      </button>
       <button id="stocktab-order" onclick="switchStockTab('order')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
         🛒 발주 리스트
       </button>
@@ -1443,6 +1446,9 @@ window.addEventListener('DOMContentLoaded', function(){
     </div>
     <div id="stock-usage-panel" style="display:none;">
       <div id="usage-content"></div>
+    </div>
+    <div id="stock-doa-panel" style="display:none;">
+      <div id="doa-content"></div>
     </div>
     <div id="stock-order-panel" style="display:none;">
       <div id="order-content"></div>
@@ -2854,6 +2860,34 @@ function buildLoginFromCache() {
       if(typeof buildQCGrid === 'function') buildQCGrid();
     }
   } catch(e) {}
+}
+
+/* ⭐ v2.79m: 상단 새로고침 = 진짜 새로고침 — GitHub 캐시(2분 버킷+발행 지연 5~15분)를 우회하고
+   서버(GAS)에서 신선본을 직접 받아온다. 수리건·검수·출고이력 전부. 자동 동기화(5분 주기)는
+   기존대로 캐시 채널을 쓰므로 서버 부하는 늘지 않음. */
+async function manualRefresh() {
+  if(_syncInProgress) { notify('이미 동기화 중입니다. 잠시만 기다려주세요.'); return; }
+  const btn = document.getElementById('sync-refresh-btn');
+  const _orig = btn ? btn.innerHTML : '';
+  if(btn) { btn.disabled = true; btn.innerHTML = '⏳ 서버 조회 중...'; }
+  try {
+    window._forceFreshLoad = true;   // syncData가 GitHub 캐시 대신 서버 신선본(fresh) 직행
+    await syncData(true, true);      // silent — 진행/완료 표시는 이 함수가 직접
+    // 출고 이력도 서버에서 직접 (캐시 우회) — 이미 로드된 화면 갱신 포함
+    try {
+      const r = await gasCall({ action: 'loadShipLog' });
+      if(r && Array.isArray(r.shipLog)) {
+        shipHistory = _dedupShipRows(_applyShipCancelOv(r.shipLog));
+        _shipHistoryLoaded = true;
+        window._shipOk = null; window._shipHold = null;
+      }
+    } catch(e) { console.warn('[manualRefresh] 출고이력 갱신 실패(무시):', e); }
+    try { renderAll(); } catch(e) {}
+    try { refreshInspectViews(); } catch(e) {}
+    notify('✅ 서버 최신 데이터로 갱신했어요.');
+  } finally {
+    if(btn) { btn.disabled = false; btn.innerHTML = _orig || '↻ 새로고침'; }
+  }
 }
 
 async function syncData(silent=false, force=false, _snapData=null) {
@@ -11196,6 +11230,7 @@ function buildChecks() {
     <div class="work-row-2" style="display:grid !important;grid-template-columns:1fr 1fr !important;gap:10px;margin-bottom:10px;">${_rw(WORK_ROW2)}</div>
     <div class="work-row-3" style="display:grid !important;grid-template-columns:1fr 1fr 1fr !important;gap:10px;">${_rw(WORK_ROW3)}</div>
   `;
+  try { syncEtcRule(); } catch(e) {}   // ⭐ v2.79n: 기타작업 기본 선택 (논배 포함 미체크 상태)
 }
 
 /* ⭐ v2.79e: 논배터리(백커버 포함)와 논배터리(미포함)/백커버 교체는 의미가 겹치므로 동시 선택 방지 —
@@ -11347,7 +11382,31 @@ function removeExtraPart(workKey, id) {
   try { renderDeductPreview(); } catch(e) {}   // ⭐ v2.71d: 추가 부품 제거도 미리보기 갱신
 }
 
+/* ⭐ v2.79n: 기타작업 청구 규칙 — 논배터리(백커버 포함)에는 세척·SW·검수가 포함돼 있어 기타작업을
+   함께 청구하지 않는다. 그 외 모든 등록(다른 작업만 하거나 검수만 한 경우 포함)은 기타작업이 기본
+   청구 대상 → 등록 화면의 기타작업 체크박스는 자동 관리(논배 포함 체크 = 해제, 미체크 = 강제 선택). */
+function syncEtcRule() {
+  const nb = document.querySelector('#wc-nonbat input');
+  const et = document.querySelector('#wc-etc input');
+  const card = document.getElementById('wc-etc');
+  if(!et || !card) return;
+  const nbOn = !!(nb && nb.checked);
+  const want = !nbOn;
+  et.disabled = true;   // 자동 관리 — 엔지니어가 임의로 켜고 끌 수 없음
+  if(et.checked !== want) {
+    et.checked = want;
+    card.classList.toggle('checked', want);
+    try { renderPartQtys('etc'); } catch(e) {}
+  } else {
+    card.classList.toggle('checked', want);
+  }
+  card.style.opacity = nbOn ? '.45' : '';
+  card.title = nbOn ? '논배터리(백커버 포함)에는 기타작업이 포함되어 함께 청구하지 않습니다'
+                    : '기타작업은 논배터리(백커버 포함) 외 모든 등록에 자동 포함됩니다';
+}
+
 function updatePP() {
+  try { syncEtcRule(); } catch(e) {}   // ⭐ v2.79n: 금액 계산 전에 기타작업 상태 동기화
   const cs = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
   document.getElementById('price-preview').textContent = cs.length ? `공임비 합계: ${fmt(cs.reduce((s,k)=>s+WORKS[k].price,0))}원` : '';
   try { renderDeductPreview(); } catch(e) {}   // ⭐ v2.70c: 재고 차감 미리보기 갱신
@@ -11398,7 +11457,7 @@ const getChecked = ()=>[...document.querySelectorAll('#work-checks input:checked
 function clearChecks() {
   document.querySelectorAll('#work-checks input').forEach(c=>c.checked=false);
   Object.keys(WORKS).forEach(k=>{
-    document.getElementById('wc-'+k).classList.remove('checked');
+    document.getElementById('wc-'+k)?.classList.remove('checked');   // ⭐ v2.79n: 등록 화면에 없는 키(legacy) 안전 처리
     const partsEl = document.getElementById('parts-'+k);
     if(partsEl) partsEl.style.display = 'none';
     const extraEl = document.getElementById('extra-parts-'+k);
@@ -11406,6 +11465,7 @@ function clearChecks() {
   });
   extraPartCounters = {};
   initPartQtys();
+  try { syncEtcRule(); } catch(e) {}   // ⭐ v2.79n: 초기화 후 기타작업 기본 선택 복원
   // ⭐ v2.78: T2N 재현 여부 입력 초기화
   window._t2nRepro = '';
   const _t2ta = document.getElementById('t2n-symptom');
@@ -13019,6 +13079,7 @@ async function openEditModal(id) {
       <div><div class="work-check-name">${v.label}</div><div class="work-check-price">${fmt(v.price)}원</div></div>
     </label>`;
   }).join('');
+  try { syncEtcRuleEdit(); } catch(err) {}   // ⭐ v2.79n: 논배(포함) 건은 기타작업 잠금 상태로 열기
   document.getElementById('edit-note').value = e.note || '';
   // ⭐ v2.73: B급 체크박스 동기화 (노트의 [B급] 태그 기준)
   const _ebg = document.getElementById('edit-bgrade');
@@ -13244,7 +13305,24 @@ function removeEditExtraPart(workKey, id) {
   document.getElementById('edit-'+id)?.remove();
   if(partQtys[workKey]) delete partQtys[workKey]['__extra_'+id];
 }
+/* ⭐ v2.79n: 수정 모달의 기타작업 규칙 — 논배(백커버 포함)와 기타작업 동시 청구 방지.
+   등록 화면과 달리 강제 선택은 하지 않음(과거 데이터의 금액을 임의로 바꾸지 않기 위해) —
+   논배(포함) 체크 시에만 기타작업을 해제·잠금. */
+function syncEtcRuleEdit() {
+  const nb = document.querySelector('#ewc-nonbat input');
+  const et = document.querySelector('#ewc-etc input');
+  const card = document.getElementById('ewc-etc');
+  if(!et) return;
+  const nbOn = !!(nb && nb.checked);
+  if(nbOn && et.checked) { et.checked = false; card?.classList.remove('checked'); }
+  et.disabled = nbOn;
+  if(card) {
+    card.style.opacity = nbOn ? '.45' : '';
+    card.title = nbOn ? '논배터리(백커버 포함)에는 기타작업이 포함되어 함께 청구하지 않습니다' : '';
+  }
+}
 function updateEditPP() {
+  try { syncEtcRuleEdit(); } catch(e) {}
   const cs = [...document.querySelectorAll('#edit-work-checks input:checked')].map(c=>c.value);
   document.getElementById('edit-price-preview').textContent = cs.length ? `공임비 합계: ${fmt(cs.reduce((s,k)=>s+WORKS[k].price,0))}원` : '';
   renderEditParts(cs);
@@ -16566,16 +16644,18 @@ function switchStockTab(tab) {
   const orderPanel = document.getElementById('stock-order-panel');
   const auditPanel = document.getElementById('stock-audit-panel');
   const historyPanel = document.getElementById('stock-history-panel');
+  const doaPanel = document.getElementById('stock-doa-panel');   // ⭐ v2.79m
   const historyBtn = document.getElementById('stocktab-history');
   const invBtn = document.getElementById('stocktab-inventory');
   const ppmBtn = document.getElementById('stocktab-ppm');
   const usageBtn = document.getElementById('stocktab-usage');
   const orderBtn = document.getElementById('stocktab-order');
   const auditBtn = document.getElementById('stocktab-audit');
+  const doaBtn = document.getElementById('stocktab-doa');   // ⭐ v2.79m
 
   // 모든 패널 숨기고 모든 버튼 비활성화
-  [inventoryPanel, ppmPanel, usagePanel, orderPanel, auditPanel, historyPanel].forEach(p => { if(p) p.style.display = 'none'; });
-  [invBtn, ppmBtn, usageBtn, orderBtn, auditBtn, historyBtn].forEach(b => {
+  [inventoryPanel, ppmPanel, usagePanel, orderPanel, auditPanel, historyPanel, doaPanel].forEach(p => { if(p) p.style.display = 'none'; });
+  [invBtn, ppmBtn, usageBtn, orderBtn, auditBtn, historyBtn, doaBtn].forEach(b => {
     if(b) { b.style.borderBottomColor = 'transparent'; b.style.color = 'var(--text2)'; }
   });
 
@@ -16603,8 +16683,124 @@ function switchStockTab(tab) {
     auditPanel.style.display = 'block';
     if(auditBtn) { auditBtn.style.borderBottomColor = 'var(--accent)'; auditBtn.style.color = 'var(--accent)'; }
     renderStockAudit();
+  } else if(tab === 'doa') {
+    if(doaPanel) doaPanel.style.display = 'block';
+    if(doaBtn) { doaBtn.style.borderBottomColor = 'var(--accent)'; doaBtn.style.color = 'var(--accent)'; }
+    renderDoa();
   }
 }
+
+/* ⭐ v2.79m: 부품 DOA 관리 — 슬랙 표(불량 액정 스티커 목록)를 전산화.
+   등록하면 [DOA] 태그로 재고가 자동 차감·기록되고, 아래에 부품별 집계와 상세 목록이 쌓인다.
+   ⚠ DOA 등록이 곧 재고 차감이므로, 수리 등록에서 부품 수량을 +1로 올리는 기존 방식과 병행 금지(이중 차감). */
+function _doaLogs() {
+  return (stockLog || []).filter(l => l.type === 'out' && /^DOA/.test(String(l.note || '')));
+}
+function renderDoa() {
+  const el = document.getElementById('doa-content');
+  if(!el) return;
+  const logs = _doaLogs().slice().sort((a,b) => String(b.date).localeCompare(String(a.date)));
+  const curMonth = new Date().toISOString().slice(0,7);
+  // 부품별 집계
+  const agg = {};
+  logs.forEach(l => {
+    const k = l.partName || '?';
+    if(!agg[k]) agg[k] = { total: 0, month: 0 };
+    agg[k].total += Number(l.qty)||0;
+    if(String(l.date).slice(0,7) === curMonth) agg[k].month += Number(l.qty)||0;
+  });
+  // 부품별 입고 누계 (DOA율 참고용)
+  const inSum = {};
+  (stockLog||[]).forEach(l => { if(l.type==='in') inSum[l.partName] = (inSum[l.partName]||0) + (Number(l.qty)||0); });
+  const _symOf = n => { const m = String(n||'').match(/^DOA[^\[]*\[([^\]]*)\]/); return m ? m[1] : '-'; };
+  const _d = v => { const d = new Date(v); return isNaN(d) ? '' : `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+  const partOpts = (stock||[]).map((p,i) => `<option value="${i}">${escapeHtml(p.name)}${p.model&&p.model!=='공용'?` (${p.model})`:''} — 재고 ${p.qty}</option>`).join('');
+
+  let h = `
+  <div class="card" style="margin-bottom:14px;">
+    <div class="card-title" style="margin-bottom:6px;">🚫 DOA(개봉 불량) 등록</div>
+    <div style="font-size:11.5px;color:var(--text3);margin-bottom:12px;line-height:1.6;">
+      새 부품이 개봉 시점부터 불량이면 여기에 등록하세요 — <b>재고에서 자동 차감</b>되고 아래 목록·집계에 기록됩니다.<br>
+      ⚠ DOA로 등록했으면 <b>수리 등록의 부품 수량은 1 그대로</b> 두세요 (수량 +1과 병행하면 이중 차감).
+      실물은 화살표 스티커 붙여 DOA 박스에 보관 — 재고 대사 때 이 집계와 실물을 대조합니다.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+      <div class="form-group" style="margin:0;min-width:260px;flex:1;">
+        <label class="form-label">부품</label>
+        <select id="doa-part" style="width:100%;height:36px;">${partOpts}</select>
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">수량</label>
+        <input type="number" id="doa-qty" value="1" min="1" style="width:70px;height:36px;text-align:center;">
+      </div>
+      <div class="form-group" style="margin:0;min-width:220px;flex:1;">
+        <label class="form-label">증상</label>
+        <input type="text" id="doa-sym" list="doa-sym-list" placeholder="예: 고스트 터치" style="width:100%;height:36px;">
+        <datalist id="doa-sym-list">
+          <option value="고스트 터치"></option><option value="제거 불가 이물질"></option>
+          <option value="멍/라인 불량"></option><option value="파손"></option>
+          <option value="백라이트 불량"></option><option value="동작 불가"></option>
+        </datalist>
+      </div>
+      <button class="btn btn-primary" style="height:36px;" onclick="registerDoa()">🚫 DOA 등록</button>
+    </div>
+  </div>`;
+
+  // 부품별 집계
+  const aggRows = Object.entries(agg).sort((a,b) => b[1].total - a[1].total);
+  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">부품별 DOA 집계 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 이력 기준 (재고 로그 보존 범위)</span></div>
+    <div class="table-wrap"><table>
+    <thead><tr><th>부품명</th><th style="text-align:right">이번 달</th><th style="text-align:right">누적</th><th style="text-align:right">누적 입고</th><th style="text-align:right">DOA율</th></tr></thead>
+    <tbody>${aggRows.length ? aggRows.map(([name,v]) => {
+      const inQ = inSum[name] || 0;
+      const rate = inQ > 0 ? (v.total / inQ * 100) : null;
+      return `<tr><td style="font-weight:600;">${escapeHtml(name)}</td>
+        <td style="text-align:right;">${fmt(v.month)}</td>
+        <td style="text-align:right;font-weight:700;color:var(--red);">${fmt(v.total)}</td>
+        <td style="text-align:right;color:var(--text2);">${inQ ? fmt(inQ) : '-'}</td>
+        <td style="text-align:right;">${rate !== null ? rate.toFixed(2) + '%' : '-'}</td></tr>`;
+    }).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:18px;">DOA 기록이 없습니다.</td></tr>'}</tbody>
+    </table></div></div>`;
+
+  // 상세 목록
+  h += `<div class="card" style="padding:0;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">DOA 상세 목록 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 ${Math.min(logs.length,100)}건</span></div>
+    <div class="table-wrap"><table>
+    <thead><tr><th>일시</th><th>부품</th><th style="text-align:right">수량</th><th>증상</th><th>등록자</th>${isAdmin?'<th></th>':''}</tr></thead>
+    <tbody>${logs.length ? logs.slice(0,100).map(l => `<tr>
+      <td style="white-space:nowrap;color:var(--text2);">${_d(l.date)}</td>
+      <td style="font-weight:600;">${escapeHtml(l.partName||'')}</td>
+      <td style="text-align:right;">${fmt(l.qty)}</td>
+      <td>${escapeHtml(_symOf(l.note))}</td>
+      <td>${escapeHtml(String(l.worker||'').split('::')[0])}</td>
+      ${isAdmin ? `<td><button class="btn btn-sm" onclick="undoDoa('${escapeJs(String(l.logId||''))}')" title="잘못 등록한 DOA 되돌리기 (재고 환입)">되돌리기</button></td>` : ''}
+    </tr>`).join('') : `<tr><td colspan="${isAdmin?6:5}" style="text-align:center;color:var(--text3);padding:18px;">DOA 기록이 없습니다.</td></tr>`}</tbody>
+    </table></div></div>`;
+  el.innerHTML = h;
+}
+async function registerDoa() {
+  const idx = Number(document.getElementById('doa-part')?.value);
+  const qty = Math.max(1, Number(document.getElementById('doa-qty')?.value) || 1);
+  const sym = (document.getElementById('doa-sym')?.value || '').trim();
+  const sp = stock[idx];
+  if(!sp) { notify('부품을 선택하세요.', 'error'); return; }
+  if(!sym) { notify('증상을 입력하세요 (예: 고스트 터치).', 'error'); try{document.getElementById('doa-sym').focus();}catch(e){} return; }
+  if(!confirm(`${sp.name} ${qty}개를 DOA(개봉 불량)로 등록할까요?\n재고에서 ${qty}개 차감됩니다. (증상: ${sym})`)) return;
+  const r = await adjustStockOp({ idx, delta: -qty, type: 'out', note: `DOA 불량 [${sym}]` });
+  if(r && r.ok) { notify(`🚫 DOA 등록 완료 — ${sp.name} −${qty} (실물은 스티커 붙여 DOA 박스에 보관하세요)`); }
+  const symEl = document.getElementById('doa-sym'); if(symEl) symEl.value = '';
+  renderDoa();
+}
+async function undoDoa(logId) {
+  if(!isAdmin) { notify('관리자만 되돌릴 수 있습니다.', 'error'); return; }
+  const l = (stockLog||[]).find(x => String(x.logId) === String(logId));
+  if(!l) { notify('기록을 찾지 못했습니다.', 'error'); return; }
+  const idx = stock.findIndex(p => String(p.id) === String(l.partId) || p.name === l.partName);
+  if(idx < 0) { notify('해당 부품이 재고 목록에 없습니다.', 'error'); return; }
+  if(!confirm(`${l.partName} DOA 등록을 되돌릴까요? 재고에 ${l.qty}개 환입됩니다.`)) return;
+  const r = await adjustStockOp({ idx, delta: Number(l.qty)||1, type: 'in', note: `DOA 등록 취소 (${_doaUndoRef(l)})` });
+  if(r && r.ok) notify('↩ DOA 등록을 되돌렸습니다.');
+  renderDoa();
+}
+function _doaUndoRef(l) { try { return String(l.date).slice(5,16).replace('T',' '); } catch(e) { return ''; } }
 
 function togglePpmPart(uid) {
   const body = document.getElementById(uid + '-body');
