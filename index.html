@@ -10160,12 +10160,19 @@ async function saveFinance() {
   f.indirectRate = Math.max(0, Number(g('fin-ir')?.value) || 0);
   f.fixedMonthly = Math.max(0, Number(g('fin-fixed')?.value) || 0);
   f.unitPrice   = Math.max(0, Number(g('fin-unit')?.value) || 0) || 27000;
-  f.salaries = {}; f.exclude = {};
+  f.salaries = {}; f.exclude = {}; f.overhead = {};
+  // ⭐ v2.79s: 직접/간접 구분 저장 (기본값 = T3·QC는 간접 — 기본과 다를 때만 기록)
+  const _ovDef = n => (tierMap[n] === 'T3' || (roleMap[n] || 'engineer') === 'inspector') ? 'indirect' : 'direct';
   (window._finNames || []).forEach((n, i) => {
     const v = Number(g('fin-sal-' + i)?.value);
     if(!isNaN(v) && v > 0) f.salaries[n] = v;
     if(g('fin-inc-' + i) && !g('fin-inc-' + i).checked) f.exclude[n] = true;
+    const ov = g('fin-ov-' + i)?.value;
+    if((ov === 'direct' || ov === 'indirect') && ov !== _ovDef(n)) f.overhead[n] = ov;
   });
+  // ⭐ v2.79s: 충원 시뮬레이션 입력도 저장
+  const _dm = Number(g('fin-demand')?.value); if(!isNaN(_dm) && _dm > 0) f.demand = _dm; else delete f.demand;
+  const _hs = Number(g('fin-hire-sal')?.value); if(!isNaN(_hs) && _hs > 0) f.hireSal = _hs;
   const raw = __finEnc(f);
   window.FINANCE = f; window._FINANCE_RAW = raw;
   try { localStorage.setItem('fa_finance_ov', JSON.stringify({ ts: Date.now(), raw })); } catch(e) {}
@@ -10209,16 +10216,33 @@ async function renderFinance() {
   const gone = Object.keys(revBy).filter(n => n !== MASTER_NAME && !team.includes(n));
   window._finNames = team;
 
-  let teamCost = 0, teamRevInc = 0, incCnt = 0;
+  // ⭐ v2.79s: 직접(수리) / 간접(배분) 구분 — T3(관리 전담)·QC 전담은 수리가 디폴트가 아니라
+  //   본인 매출로 인건비를 충당할 수 없음 → 간접 인건비로 보고, 본인 매출로 먼저 상계한 뒤
+  //   남는 몫을 직접 엔지니어들에게 매출 비중대로 배분한다.
+  const _ovDefault = n => (tierMap[n] === 'T3' || (roleMap[n] || 'engineer') === 'inspector') ? 'indirect' : 'direct';
+  const _ovOf = n => { const o = (f.overhead || {})[n]; return (o === 'direct' || o === 'indirect') ? o : _ovDefault(n); };
+
+  let teamCost = 0, incCnt = 0;
   const rows = team.map((n, i) => {
     const sal = f.salaries[n] || 0;
     const inc = !f.exclude[n];
     const cost = sal ? _finMonthlyCost(sal, f.indirectRate) : 0;
     const rev = revBy[n] || 0, cnt = cntBy[n] || 0;
-    const profit = rev - cost;
-    const bepCnt = cost > 0 && avgUnit > 0 ? Math.ceil(cost / avgUnit) : 0;   // 월 손익분기 건수
-    if(inc && sal) { teamCost += cost; teamRevInc += rev; incCnt++; }
-    return { n, i, sal, inc, cost, rev, cnt, profit, bepCnt };
+    const kind = _ovOf(n);
+    if(inc && sal) { teamCost += cost; incCnt++; }
+    return { n, i, sal, inc, cost, rev, cnt, kind };
+  });
+  // 간접 인건비 순부담 = Σ(간접 인력 인건비 − 본인 매출, 음수면 0) → 직접 인력에 매출 비중 배분
+  const indRows = rows.filter(r => r.inc && r.kind === 'indirect');
+  const dirRows = rows.filter(r => r.inc && r.kind === 'direct');
+  const netOverhead = indRows.reduce((s, r) => s + Math.max(0, r.cost - r.rev), 0);
+  const dirRevSum = dirRows.reduce((s, r) => s + r.rev, 0);
+  rows.forEach(r => {
+    if(r.kind === 'direct' && r.inc) {
+      r.alloc = dirRevSum > 0 ? Math.round(netOverhead * r.rev / dirRevSum) : (dirRows.length ? Math.round(netOverhead / dirRows.length) : 0);
+      r.profit = r.rev - r.cost - r.alloc;
+      r.bepCnt = avgUnit > 0 && (r.cost + r.alloc) > 0 ? Math.ceil((r.cost + r.alloc) / avgUnit) : 0;   // 배분 포함 월 BEP
+    } else { r.alloc = 0; r.profit = r.rev - r.cost; r.bepCnt = 0; }
   });
   const fixed = f.fixedMonthly || 0;
   const teamProfit = totalRev - teamCost - fixed;
@@ -10252,24 +10276,31 @@ async function renderFinance() {
 
   // ── 엔지니어별 상계 표
   h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-      👥 엔지니어별 인건비 상계 <span style="font-size:11px;color:var(--text3);font-weight:400;">연봉은 만원 단위 (예: 3050) · 포함 해제 시 팀 합계에서 제외</span>
+      👥 엔지니어별 인건비 상계 <span style="font-size:11px;color:var(--text3);font-weight:400;">연봉은 만원 단위 (예: 3050) · <b>간접(T3·QC)</b>은 본인 매출로 먼저 상계 후 남는 인건비를 직접 인력에 매출 비중대로 배분</span>
       <button class="btn btn-sm btn-primary" onclick="saveFinance()">💾 저장 (서버)</button></div>
     <div class="table-wrap"><table>
-    <thead><tr><th>포함</th><th>엔지니어</th><th style="text-align:right">연봉 (만원)</th><th style="text-align:right">월 인건비</th><th style="text-align:right">이 달 매출</th><th style="text-align:right">건수</th><th style="text-align:right">손익</th><th style="text-align:right">BEP 건수</th><th>달성</th></tr></thead>
+    <thead><tr><th>포함</th><th>구분</th><th>엔지니어</th><th style="text-align:right">연봉 (만원)</th><th style="text-align:right">월 인건비</th><th style="text-align:right">이 달 매출</th><th style="text-align:right">건수</th><th style="text-align:right">배분 부담</th><th style="text-align:right">최종 손익</th><th style="text-align:right">BEP</th><th>달성</th></tr></thead>
     <tbody>${rows.map(r => {
       const pct = r.bepCnt > 0 ? Math.min(200, Math.round(r.cnt / r.bepCnt * 100)) : 0;
-      return `<tr style="${!r.inc ? 'opacity:.45;' : ''}">
+      const isInd = r.kind === 'indirect';
+      return `<tr style="${!r.inc ? 'opacity:.45;' : ''}${isInd ? 'background:rgba(3,105,161,.05);' : ''}">
       <td><input type="checkbox" id="fin-inc-${r.i}" ${r.inc ? 'checked' : ''} onchange="saveFinance()"></td>
+      <td><select id="fin-ov-${r.i}" onchange="saveFinance()" title="간접 = 수리가 기본 업무가 아님 (T3 관리·QC 등) — 인건비를 직접 인력에 배분" style="height:28px;padding:0 4px;font-size:11px;border:1px solid var(--border2);border-radius:var(--radius-sm);color:${isInd ? '#0369a1' : 'var(--text2)'};">
+        <option value="direct" ${!isInd ? 'selected' : ''}>🔧 직접</option><option value="indirect" ${isInd ? 'selected' : ''}>👥 간접</option></select></td>
       <td style="font-weight:700;">${escapeHtml(r.n)} ${tierBadge(tierMap[r.n] || '')}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;font-weight:700;">🎓</span>' : ''}</td>
       <td style="text-align:right;"><input type="number" id="fin-sal-${r.i}" value="${r.sal || ''}" placeholder="미입력" min="0" style="width:84px;height:30px;text-align:right;padding:0 6px;border:1px solid var(--border2);border-radius:var(--radius-sm);"></td>
       <td style="text-align:right;color:var(--text2);">${r.sal ? _w(r.cost) : '<span style="color:var(--text3);">—</span>'}</td>
       <td style="text-align:right;font-weight:600;">${_w(r.rev)}</td>
       <td style="text-align:right;">${fmt(r.cnt)}</td>
-      <td style="text-align:right;">${r.sal ? _pc(r.profit) : '<span style="color:var(--text3);">—</span>'}</td>
-      <td style="text-align:right;color:var(--text2);">${r.bepCnt ? fmt(r.bepCnt) + '건' : '—'}</td>
-      <td style="min-width:90px;">${r.bepCnt ? `<div style="display:flex;align-items:center;gap:6px;"><div style="flex:1;height:7px;border-radius:99px;background:var(--surface2);overflow:hidden;"><div style="height:100%;width:${Math.min(100, pct)}%;background:${r.cnt >= r.bepCnt ? 'var(--green,#16a34a)' : '#f59e0b'};"></div></div><span style="font-size:11px;font-weight:700;color:${r.cnt >= r.bepCnt ? 'var(--green,#16a34a)' : '#d97706'};">${pct}%</span></div>` : ''}</td>
+      <td style="text-align:right;">${isInd
+        ? `<span style="font-size:11px;color:#0369a1;font-weight:700;" title="본인 매출 ${_w(r.rev)}로 상계 후 남는 ${_w(Math.max(0, r.cost - r.rev))}을 직접 인력에 배분">→ 배분</span>`
+        : (r.alloc ? `<span style="color:#0369a1;">+${_w(r.alloc)}</span>` : '<span style="color:var(--text3);">—</span>')}</td>
+      <td style="text-align:right;">${isInd ? '<span style="color:var(--text3);" title="간접 인력은 본인 손익을 따지지 않음 — 남는 인건비가 직접 인력에 배분됨">—</span>' : (r.sal || r.alloc ? _pc(r.profit) : '<span style="color:var(--text3);">—</span>')}</td>
+      <td style="text-align:right;color:var(--text2);">${!isInd && r.bepCnt ? fmt(r.bepCnt) + '건' : '—'}</td>
+      <td style="min-width:90px;">${!isInd && r.bepCnt ? `<div style="display:flex;align-items:center;gap:6px;"><div style="flex:1;height:7px;border-radius:99px;background:var(--surface2);overflow:hidden;"><div style="height:100%;width:${Math.min(100, pct)}%;background:${r.cnt >= r.bepCnt ? 'var(--green,#16a34a)' : '#f59e0b'};"></div></div><span style="font-size:11px;font-weight:700;color:${r.cnt >= r.bepCnt ? 'var(--green,#16a34a)' : '#d97706'};">${pct}%</span></div>` : ''}</td>
     </tr>`; }).join('')}
-    ${gone.map(n => `<tr style="opacity:.55;"><td></td><td>${escapeHtml(n)} <span style="font-size:10px;color:var(--text3);">퇴사·명단 외</span></td><td style="text-align:right;color:var(--text3);">—</td><td style="text-align:right;color:var(--text3);">—</td><td style="text-align:right;">${_w(revBy[n])}</td><td style="text-align:right;">${fmt(cntBy[n])}</td><td colspan="3" style="font-size:11px;color:var(--text3);">매출만 팀 합계에 포함</td></tr>`).join('')}
+    ${netOverhead > 0 ? `<tr><td colspan="11" style="padding:8px 16px;font-size:11.5px;color:#0369a1;background:rgba(3,105,161,.05);">👥 간접 인건비 순부담 <b>${_w(netOverhead)}</b> (간접 인력 인건비 − 본인 매출 상계) → 직접 ${dirRows.length}명에게 매출 비중대로 배분됨 — 각자의 "배분 부담"과 BEP에 반영</td></tr>` : ''}
+    ${gone.map(n => `<tr style="opacity:.55;"><td></td><td></td><td>${escapeHtml(n)} <span style="font-size:10px;color:var(--text3);">퇴사·명단 외</span></td><td style="text-align:right;color:var(--text3);">—</td><td style="text-align:right;color:var(--text3);">—</td><td style="text-align:right;">${_w(revBy[n])}</td><td style="text-align:right;">${fmt(cntBy[n])}</td><td colspan="4" style="font-size:11px;color:var(--text3);">매출만 팀 합계에 포함</td></tr>`).join('')}
     </tbody></table></div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;padding:12px 16px;border-top:1px solid var(--border);">
       <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">간접비율 (%) — 4대보험·퇴직금 등</label>
@@ -10302,21 +10333,81 @@ async function renderFinance() {
     </tr>`).join('')}</tbody></table></div>
     <div style="padding:10px 16px;font-size:11.5px;color:var(--text3);border-top:1px solid var(--border);">손익분기 달성률 ≈ <b>${baseRev > 0 ? Math.ceil((teamCost + fixed) / baseRev * 100) : '?'}%</b> — 이 아래로 내려가면 적자 구간입니다.</div></div>`;
 
-  // ── 최근 6개월 추이 (매출 실적 vs 현재 인건비 기준)
-  const months = [];
-  for(let k = 5; k >= 0; k--) { const d = new Date(fy, fm - 1 - k, 1); months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }
-  const trend = months.map(m => { const r = (entries || []).filter(e => String(e.date).startsWith(m)).reduce((s, e) => s + (Number(e.total) || 0), 0); return { m, rev: r, pf: r - teamCost - fixed }; });
-  const maxV = Math.max(1, ...trend.map(t => Math.max(t.rev, teamCost + fixed)));
-  h += `<div class="card" style="margin-bottom:14px;"><div style="font-size:13px;font-weight:700;margin-bottom:10px;">📊 최근 6개월 추이 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 매출은 실적, 인건비는 현재 설정 기준(과거 급여 변동 미반영)</span></div>
-    <div style="display:flex;gap:10px;align-items:flex-end;height:150px;">
-      ${trend.map(t => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end;">
-        <span style="font-size:10px;font-weight:700;color:${t.pf >= 0 ? 'var(--green,#16a34a)' : '#dc2626'};">${t.rev ? (t.pf >= 0 ? '+' : '−') + fmt(Math.abs(Math.round(t.pf / 10000))) + '만' : ''}</span>
-        <div style="width:70%;max-width:56px;background:${t.m === mv ? 'var(--accent)' : 'var(--text3)'};opacity:${t.m === mv ? 1 : .45};border-radius:6px 6px 0 0;height:${Math.round(t.rev / maxV * 100)}%;min-height:${t.rev ? 3 : 0}px;" title="${t.m} 매출 ${_w(t.rev)}"></div>
-        <span style="font-size:10.5px;color:var(--text3);">${t.m.slice(5)}월</span>
-      </div>`).join('')}
+  // ── ⭐ v2.79s: 인력 충원 시뮬레이션 — "이 추이면 1명 더 뽑았을 때 얼마가 남나"
+  //   미처리 수요(월 예상 수요 − 이 달 처리 페이스)를 새 인원이 흡수한다고 보고 증분 손익 계산.
+  //   수요가 이미 소화되고 있으면 충원은 매출 없이 비용만 늘어난다는 것도 그대로 보여줌.
+  const todayS = todayStr();
+  let wdSoFar = workdays;
+  if(mv === todayS.slice(0, 7)) {   // 이번 달이면 지금까지의 영업일로 월말 페이스 환산
+    wdSoFar = 0;
+    const dim2 = new Date(fy, fm, 0).getDate();
+    for(let d = 1; d <= dim2; d++) { const ds = `${mv}-${String(d).padStart(2, '0')}`; if(ds > todayS) break; const dow = new Date(fy, fm - 1, d).getDay(); if(dow !== 0 && dow !== 6) wdSoFar++; }
+    wdSoFar = Math.max(1, wdSoFar);
+  }
+  const projCnt = mv === todayS.slice(0, 7) ? Math.round(totalCnt / wdSoFar * workdays) : totalCnt;
+  const demand = Number(document.getElementById('fin-demand')?.value) || f.demand || (typeof kpiMap !== 'undefined' && kpiMap[mv]) || 0;
+  const hireSal = Number(document.getElementById('fin-hire-sal')?.value) || f.hireSal || 3050;
+  const unmet = Math.max(0, demand - projCnt);
+  const hireCap = KPI_STD_DAILY * workdays;                          // 정착 엔지니어 1명 월 처리력
+  const hireCost1 = _finMonthlyCost(hireSal, f.indirectRate);
+  const rampAvg = (typeof KPI_RAMP_SCHEDULE !== 'undefined' && KPI_RAMP_SCHEDULE.length)
+    ? KPI_RAMP_SCHEDULE.reduce((s, v) => s + v, 0) / KPI_RAMP_SCHEDULE.length : 8;
+  const hireRows = [1, 2, 3].map(N => {
+    const cap = N * hireCap;
+    const captured = Math.min(unmet, cap);
+    const addRev = captured * avgUnit;
+    const addCost = N * hireCost1;
+    const rampCaptured = Math.min(unmet, N * rampAvg * workdays);
+    return { N, cap, captured, addRev, addCost, delta: addRev - addCost, rampDelta: rampCaptured * avgUnit - addCost };
+  });
+  const h1 = hireRows[0];
+  const verdict = demand <= 0
+    ? `월 예상 수요를 입력하면 (보통 월 KPI ${typeof kpiMap !== 'undefined' && kpiMap[mv] ? fmt(kpiMap[mv]) + '건' : '건수'}) 충원 손익을 계산해요.`
+    : unmet <= 0
+      ? `지금 페이스(월 ${fmt(projCnt)}건 환산)로 수요 ${fmt(demand)}건을 이미 소화하고 있어요 — <b style="color:#dc2626;">충원하면 매출 증가 없이 월 ${_w(hireCost1)} 비용만 늘어납니다.</b> 물량(수요) 확보가 먼저예요.`
+      : `미처리 수요가 월 <b>${fmt(unmet)}건</b> 남아요 — 1명 충원(정착 기준 월 ${fmt(hireCap)}건) 시 매출 <b>+${_w(h1.addRev)}</b> · 인건비 +${_w(h1.addCost)} → <b style="color:${h1.delta >= 0 ? 'var(--green,#16a34a)' : '#dc2626'};">월 ${h1.delta >= 0 ? '+' : '−'}${fmt(Math.abs(Math.round(h1.delta)))}원</b> ${h1.delta >= 0 ? '이익 개선 예상' : '— 수요가 1명분에 못 미쳐 적자'}`;
+  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🧑‍🔧 인력 충원 시뮬레이션 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 이 달 페이스 월 ${fmt(projCnt)}건 환산 기준</span></div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;padding:12px 16px;">
+      <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">월 예상 수요 (티오더 물량, 건)</label>
+        <input type="number" id="fin-demand" value="${demand || ''}" placeholder="예: ${typeof kpiMap !== 'undefined' && kpiMap[mv] ? kpiMap[mv] : 800}" min="0" onchange="renderFinance()" style="width:110px;height:32px;text-align:right;padding:0 6px;"></div>
+      <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">신입 연봉 (만원)</label>
+        <input type="number" id="fin-hire-sal" value="${hireSal}" min="0" onchange="renderFinance()" style="width:90px;height:32px;text-align:right;padding:0 6px;"></div>
+      <span style="font-size:10.5px;color:var(--text3);">저장 버튼을 누르면 수요·신입 연봉도 함께 저장돼요</span>
     </div>
-    <div style="margin-top:8px;font-size:11px;color:var(--text3);">기준선(월 인건비+고정비): <b>${_w(teamCost + fixed)}</b> — 막대가 이 금액을 넘어야 흑자</div>
+    <div style="padding:0 16px 12px;font-size:12.5px;line-height:1.7;">${verdict}</div>
+    ${demand > 0 ? `<div class="table-wrap"><table>
+    <thead><tr><th>충원</th><th style="text-align:right">추가 처리력 (정착)</th><th style="text-align:right">흡수 가능 물량</th><th style="text-align:right">추가 매출</th><th style="text-align:right">추가 인건비</th><th style="text-align:right">증분 손익 (정착 후)</th><th style="text-align:right">램프업 2개월 손익</th></tr></thead>
+    <tbody>${hireRows.map(r => `<tr>
+      <td style="font-weight:700;">+${r.N}명</td>
+      <td style="text-align:right;">${fmt(r.cap)}건/월</td>
+      <td style="text-align:right;">${fmt(Math.round(r.captured))}건</td>
+      <td style="text-align:right;">${_w(r.addRev)}</td>
+      <td style="text-align:right;color:var(--text2);">${_w(r.addCost)}</td>
+      <td style="text-align:right;">${_pc(r.delta)}</td>
+      <td style="text-align:right;font-size:12px;">${_pc(r.rampDelta)} <span style="font-size:10px;color:var(--text3);">(일 ~${rampAvg.toFixed(1)}건)</span></td>
+    </tr>`).join('')}</tbody></table></div>
+    <div style="padding:10px 16px;font-size:11px;color:var(--text3);line-height:1.6;">정착 = 입사 약 2개월 후 일 ${KPI_STD_DAILY}건 기준 · 램프업 기간은 주차별 목표 평균으로 계산 — 신입 1명은 초기 2개월간 ${h1.rampDelta < 0 ? `약 ${_w(Math.abs(h1.rampDelta))}의 선투자가 필요` : '램프업 중에도 이익'}합니다. 검수·자리·공구 등 부대비용은 기타 월 고정비에 넣어 보세요.</div>` : ''}
   </div>`;
+
+  // ── ⭐ v2.79s: 월별 손익 (2026-09 개편 이후만) — 이전 달은 단가 체계가 달라 비교 무의미
+  const FIN_TREND_START = '2026-09';
+  const months = [];
+  { let d = new Date(2026, 8, 1); const end = new Date(fy, fm - 1, 1);
+    while(d <= end && months.length < 12) { months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); d = new Date(d.getFullYear(), d.getMonth() + 1, 1); } }
+  if(months.length > 1) {
+    const trend = months.map(m => { const r = (entries || []).filter(e => String(e.date).startsWith(m)).reduce((s, e) => s + (Number(e.total) || 0), 0); return { m, rev: r, pf: r - teamCost - fixed }; });
+    const maxV = Math.max(1, ...trend.map(t => Math.max(t.rev, teamCost + fixed)));
+    h += `<div class="card" style="margin-bottom:14px;"><div style="font-size:13px;font-weight:700;margin-bottom:10px;">📊 월별 손익 <span style="font-size:11px;color:var(--text3);font-weight:400;">· ${FIN_TREND_START} 단가 개편 이후만 집계 (인건비는 현재 설정 기준)</span></div>
+      <div style="display:flex;gap:10px;align-items:flex-end;height:150px;">
+        ${trend.map(t => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end;">
+          <span style="font-size:10px;font-weight:700;color:${t.pf >= 0 ? 'var(--green,#16a34a)' : '#dc2626'};">${t.rev ? (t.pf >= 0 ? '+' : '−') + fmt(Math.abs(Math.round(t.pf / 10000))) + '만' : ''}</span>
+          <div style="width:70%;max-width:56px;background:${t.m === mv ? 'var(--accent)' : 'var(--text3)'};opacity:${t.m === mv ? 1 : .45};border-radius:6px 6px 0 0;height:${Math.round(t.rev / maxV * 100)}%;min-height:${t.rev ? 3 : 0}px;" title="${t.m} 매출 ${_w(t.rev)}"></div>
+          <span style="font-size:10.5px;color:var(--text3);">${t.m.slice(5)}월</span>
+        </div>`).join('')}
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--text3);">기준선(월 인건비+고정비): <b>${_w(teamCost + fixed)}</b> — 막대가 이 금액을 넘어야 흑자</div>
+    </div>`;
+  }
   el.innerHTML = h;
 }
 
