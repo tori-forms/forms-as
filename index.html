@@ -17594,18 +17594,26 @@ function _orderAlertData() {
   const since = Math.max(now - cfg.look * 86400000, startMs);
   const lookDays = Math.max(1, (now - since) / 86400000);
   // 소모 = 기간 내 출고 − 기간 내 환입(복구·취소·DOA 되돌리기) — 되돌린 차감은 소모가 아님
-  const usedBy = {};
+  // ⭐ v2.79s 버그 수정: 팀 전체 소모를 합산해놓고 무조건 28일로 나눠서, 자동 차감 기록이
+  //   최근에야 시작된 부품은 일평균이 크게 희석되던 문제(예: 실제 60개/일 → 17개/일로 표시).
+  //   부품별로 "기간 내 첫 소모 기록일부터"의 일수로 나눈다 (과대반응 방지 하한 5일).
+  const usedBy = {}, firstOut = {};
   (stockLog || []).forEach(l => {
     const t = new Date(l.date).getTime();
     if(isNaN(t) || t < since) return;
     const q = Number(l.qty) || 0;
     const key = String(l.partName || '');
-    if(l.type === 'out') usedBy[key] = (usedBy[key] || 0) + q;
+    if(l.type === 'out') {
+      usedBy[key] = (usedBy[key] || 0) + q;
+      if(!(key in firstOut) || t < firstOut[key]) firstOut[key] = t;
+    }
     else if(l.type === 'in' && /복구|취소|환입/.test(String(l.note || ''))) usedBy[key] = (usedBy[key] || 0) - q;
   });
   const rows = (stock || []).map((p, idx) => {
     const used = Math.max(0, usedBy[p.name] || 0);
-    const avg = used / lookDays;                                 // 일평균 소모
+    const fo = firstOut[p.name];
+    const effDays = fo ? Math.min(lookDays, Math.max(5, (now - fo) / 86400000 + 1)) : lookDays;   // 실집계 일수
+    const avg = used / effDays;                                  // 일평균 소모 (팀 전체 · 실집계 기간 기준)
     const qty = Number(p.qty) || 0;
     const cover = avg > 0 ? qty / avg : Infinity;                // 커버 일수
     const rec = avg > 0 ? Math.max(0, Math.ceil(avg * (cfg.lead + cfg.op)) - qty) : 0;   // 권장 발주량
@@ -17617,7 +17625,7 @@ function _orderAlertData() {
     else if(avg > 0 && cover < cfg.lead + cfg.op) { level = 2; label = '🟡 발주 계획'; color = '#a16207'; bg = '#fef9c3'; }
     else if(belowMin)                             { level = 1; label = '🟠 최소재고 이하'; color = '#d97706'; bg = '#ffedd5'; }
     else                                          { level = 3; label = avg > 0 ? '🟢 여유' : '— 소모 없음'; color = 'var(--text3)'; bg = 'transparent'; }
-    return { p, idx, used, avg, cover, rec, belowMin, level, label, color, bg };
+    return { p, idx, used, avg, cover, rec, belowMin, level, label, color, bg, effDays };
   }).sort((a, b) => a.level - b.level || a.cover - b.cover);
   return { cfg, lookDays, rows, alertCnt: rows.filter(r => r.level <= 1).length };
 }
@@ -17655,7 +17663,8 @@ function renderOrderList() {
       <span style="font-size:12px;padding:3px 10px;border-radius:99px;background:#fef9c3;color:#a16207;font-weight:700;">발주 계획 ${nPlan}종</span>
     </div>
     <div style="font-size:11.5px;color:var(--text3);margin-top:8px;line-height:1.7;">
-      최근 <b>${cfg.look}일</b> 소모 속도로 <b>현재고가 며칠 버티는지(커버 일수)</b>를 계산해요.
+      최근 <b>${cfg.look}일</b>의 <b>팀 전체</b> 소모(수리·DOA 전부 합산, 취소·복구 제외) 속도로 <b>현재고가 며칠 버티는지(커버 일수)</b>를 계산해요.
+      소모 기록이 최근에야 시작된 부품은 <b>기록이 시작된 날부터</b>의 일평균으로 계산해 희석되지 않게 합니다 — "(N일 집계)"로 표시.
       부품 생산 리드타임이 <b>${cfg.lead}일</b>이라, 커버 일수가 <b>리드타임+${cfg.op}일(도착 후 안정 운영분)</b> 아래로 내려오면 발주 계획을 잡고,
       리드타임+14일 아래면 지금 발주해야 공백 없이 운영됩니다. 권장 발주량 = 일평균 소모 × (리드타임+운영 목표) − 현재고.
     </div>
@@ -17677,7 +17686,7 @@ function renderOrderList() {
     <tbody>${active.length ? active.map(r => `<tr>
       <td style="font-weight:600;">${escapeHtml(r.p.name)}${r.p.model && r.p.model !== '공용' ? ` <span style="font-size:10px;color:var(--text3);">(${escapeHtml(r.p.model)})</span>` : ''}${r.belowMin ? ' <span style="font-size:10px;font-weight:700;color:#d97706;">최소재고↓</span>' : ''}</td>
       <td style="text-align:right;font-weight:700;color:${r.p.qty <= 0 ? '#dc2626' : 'inherit'};">${fmt(r.p.qty)}</td>
-      <td style="text-align:right;color:var(--text2);">${r.avg > 0 ? r.avg.toFixed(1) + '개/일' : '-'}</td>
+      <td style="text-align:right;color:var(--text2);">${r.avg > 0 ? r.avg.toFixed(1) + '개/일' + (r.effDays < cfg.look - 1 ? ` <span style="font-size:10px;color:var(--text3);" title="이 부품은 소모 기록이 ${Math.round(r.effDays)}일치뿐이라 그 기간 기준으로 계산">(${Math.round(r.effDays)}일 집계)</span>` : '') : '-'}</td>
       <td style="white-space:nowrap;">${_dday(r.cover)}</td>
       <td><span style="font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:99px;background:${r.bg};color:${r.color};white-space:nowrap;">${r.label}</span></td>
       <td style="text-align:right;font-weight:800;color:var(--accent);">${r.rec > 0 ? '+' + fmt(r.rec) : '-'}</td>
@@ -17691,7 +17700,7 @@ function renderOrderList() {
     <tbody>${calm.map(r => `<tr>
       <td>${escapeHtml(r.p.name)}${r.p.model && r.p.model !== '공용' ? ` <span style="font-size:10px;color:var(--text3);">(${escapeHtml(r.p.model)})</span>` : ''}</td>
       <td style="text-align:right;">${fmt(r.p.qty)}</td>
-      <td style="text-align:right;color:var(--text2);">${r.avg > 0 ? r.avg.toFixed(1) + '개/일' : '-'}</td>
+      <td style="text-align:right;color:var(--text2);">${r.avg > 0 ? r.avg.toFixed(1) + '개/일' + (r.effDays < cfg.look - 1 ? ` <span style="font-size:10px;color:var(--text3);" title="이 부품은 소모 기록이 ${Math.round(r.effDays)}일치뿐이라 그 기간 기준으로 계산">(${Math.round(r.effDays)}일 집계)</span>` : '') : '-'}</td>
       <td style="white-space:nowrap;">${_dday(r.cover)}</td>
     </tr>`).join('')}</tbody></table></div></details>`;
 
