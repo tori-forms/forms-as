@@ -3098,6 +3098,8 @@ async function syncData(silent=false, force=false, _snapData=null) {
       // ⭐ v2.79r: 경영 분석(인건비·영업이익) 설정 — 단가 설정 객체에 실려 함께 저장/로드
       window._psSeen = true;
       try { __applyFinance(ps.finance || null); } catch(e) { console.warn('[경영 분석 로드]', e); }
+      // ⭐ v2.79t: 발주 알림 건당 소모 계수도 같은 채널로 공유
+      try { __applyOrderUsage(ps.orderUsage || null); } catch(e) { console.warn('[소모 계수 로드]', e); }
     }
     // 서버에 없으면 localStorage 폴백 (관리자 기기에서 설정된 값)
     if(!window.PARTS_PRICE) loadPriceSettings();
@@ -10069,6 +10071,7 @@ function savePriceSettings() {
   const settingsObj = { pcb, panel, board, nonbat, nonbat_nc, battery, cover, etc, newProduct: np, modelParts };   // ⭐ v2.79h
   // ⭐ v2.79r: 경영 분석 설정이 같은 객체에 실려 있으므로 단가 저장이 지우지 않게 항상 동봉
   if(window._FINANCE_RAW) settingsObj.finance = window._FINANCE_RAW;
+  if(window.ORDER_USAGE && Object.keys(window.ORDER_USAGE).length) settingsObj.orderUsage = window.ORDER_USAGE;   // ⭐ v2.79t
   const saved = JSON.parse(localStorage.getItem('formsPriceSettings') || '{}');
   localStorage.setItem('formsPriceSettings', JSON.stringify({ ...saved, ...settingsObj }));
 
@@ -10149,6 +10152,7 @@ function _priceSnapshotForSave() {
     ['pcb','panel','board','nonbat','nonbat_nc','battery','cover','etc'].forEach(k => { if(WORKS[k] && WORKS[k].price) s[k] = WORKS[k].price; });
     if(window.NEW_PRODUCT_PRICE_OVERRIDE) s.newProduct = window.NEW_PRODUCT_PRICE_OVERRIDE;
     if(window.PARTS_PRICE && window.PARTS_PRICE.modelParts) s.modelParts = window.PARTS_PRICE.modelParts;
+    if(window.ORDER_USAGE && Object.keys(window.ORDER_USAGE).length) s.orderUsage = window.ORDER_USAGE;   // ⭐ v2.79t
   } catch(e) {}
   return s;
 }
@@ -17586,6 +17590,42 @@ function saveOrderCfg() {
   try { localStorage.setItem('fa_order_cfg', JSON.stringify(c)); } catch(e) {}
   renderOrderList();
 }
+/* ⭐ v2.79t: 건당 소모 계수 — 수리 1건당 실제로 쓰는 수량 (예: 강화유리 필름 2.5).
+   재고 자동 차감 기록은 매핑 기준 1개/건이라 필름처럼 작업 중 여러 장 쓰는 소모품의
+   실소모를 못 잡음 → 계수를 입력하면 [일평균 수리 건수(정확한 데이터) × 계수]로 예측.
+   계수는 서버(단가 설정 채널)에 저장돼 모든 기기에서 공유. */
+function _orderUsage() { return (window.ORDER_USAGE && typeof window.ORDER_USAGE === 'object') ? window.ORDER_USAGE : {}; }
+function __applyOrderUsage(server) {
+  let ov = null;
+  try { ov = JSON.parse(localStorage.getItem('fa_ou_ov') || 'null'); } catch(e) {}
+  if(ov && ov.data && (Date.now() - (ov.ts || 0)) < 720000) {
+    if(JSON.stringify(server || {}) === JSON.stringify(ov.data)) { try { localStorage.removeItem('fa_ou_ov'); } catch(e) {} }
+    else server = ov.data;   // 낡은 응답 → 방금 저장한 계수 유지
+  }
+  if(server && typeof server === 'object') window.ORDER_USAGE = server;
+}
+async function saveOrderUsage() {
+  if(!isAdmin) { notify('건당 소모 계수는 관리자만 저장할 수 있습니다.', 'error'); return; }
+  const u = {};
+  (stock || []).forEach((p, i) => {
+    const el = document.getElementById('ou-' + i);
+    if(!el) return;
+    const v = Number(el.value);
+    if(!isNaN(v) && v > 0) u[p.name] = v;
+  });
+  window.ORDER_USAGE = u;
+  try { localStorage.setItem('fa_ou_ov', JSON.stringify({ ts: Date.now(), data: u })); } catch(e) {}
+  const settingsObj = _priceSnapshotForSave();
+  settingsObj.orderUsage = u;
+  if(window._FINANCE_RAW) settingsObj.finance = window._FINANCE_RAW;
+  notify('💾 계수 저장 중... (서버 반영)');
+  try {
+    const resp = await gasCall({ action: 'savePriceSettings', settingsJson: JSON.stringify(settingsObj) });
+    if(resp && resp.ok !== false) notify('✅ 건당 소모 계수 저장 완료 (모든 기기 공유)');
+    else notify('⚠ 서버 저장 실패 — 다시 시도해주세요.', 'error');
+  } catch(e) { notify('⚠ 서버 저장 실패 (네트워크) — 다시 시도해주세요.', 'error'); }
+  renderOrderList();
+}
 /* 부품별 소모 속도·커버 일수·판정 계산 (탭 배지와 화면이 공유) */
 function _orderAlertData() {
   const cfg = _orderCfg();
@@ -17609,11 +17649,24 @@ function _orderAlertData() {
     }
     else if(l.type === 'in' && /복구|취소|환입/.test(String(l.note || ''))) usedBy[key] = (usedBy[key] || 0) - q;
   });
+  // ⭐ v2.79t: 일평균 수리 건수 (수리 등록 데이터 — 가장 정확한 소모 driver)
+  //   커버 일수는 달력일 기준이므로 달력일 평균을 쓰고, 화면에는 영업일 평균도 병기.
+  const repCnt = (entries || []).filter(e => { const t = new Date(e.date).getTime(); return !isNaN(t) && t >= since; }).length;
+  const repPerDay = repCnt / lookDays;   // 달력일 평균
+  let bizDays = 0;
+  { const d0 = new Date(since); const d1 = new Date(now);
+    for(let d = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate()); d <= d1; d.setDate(d.getDate() + 1)) { const dow = d.getDay(); if(dow !== 0 && dow !== 6) bizDays++; } }
+  const repPerBiz = bizDays > 0 ? repCnt / bizDays : 0;   // 영업일 평균 (표시용)
+  const usage = _orderUsage();
   const rows = (stock || []).map((p, idx) => {
     const used = Math.max(0, usedBy[p.name] || 0);
     const fo = firstOut[p.name];
     const effDays = fo ? Math.min(lookDays, Math.max(5, (now - fo) / 86400000 + 1)) : lookDays;   // 실집계 일수
-    const avg = used / effDays;                                  // 일평균 소모 (팀 전체 · 실집계 기간 기준)
+    // ⭐ v2.79t: 계수가 입력된 부품은 [수리 건수 × 건당 소모]로 예측 (차감 기록 부정확·짧아도 OK),
+    //   없는 부품만 자동 차감 기록 기반 폴백.
+    const coef = Number(usage[p.name]) || 0;
+    const mode = (coef > 0 && repPerDay > 0) ? 'coef' : 'log';
+    const avg = mode === 'coef' ? repPerDay * coef : used / effDays;
     const qty = Number(p.qty) || 0;
     const cover = avg > 0 ? qty / avg : Infinity;                // 커버 일수
     const rec = avg > 0 ? Math.max(0, Math.ceil(avg * (cfg.lead + cfg.op)) - qty) : 0;   // 권장 발주량
@@ -17625,9 +17678,9 @@ function _orderAlertData() {
     else if(avg > 0 && cover < cfg.lead + cfg.op) { level = 2; label = '🟡 발주 계획'; color = '#a16207'; bg = '#fef9c3'; }
     else if(belowMin)                             { level = 1; label = '🟠 최소재고 이하'; color = '#d97706'; bg = '#ffedd5'; }
     else                                          { level = 3; label = avg > 0 ? '🟢 여유' : '— 소모 없음'; color = 'var(--text3)'; bg = 'transparent'; }
-    return { p, idx, used, avg, cover, rec, belowMin, level, label, color, bg, effDays };
+    return { p, idx, used, avg, cover, rec, belowMin, level, label, color, bg, effDays, coef, mode };
   }).sort((a, b) => a.level - b.level || a.cover - b.cover);
-  return { cfg, lookDays, rows, alertCnt: rows.filter(r => r.level <= 1).length };
+  return { cfg, lookDays, rows, alertCnt: rows.filter(r => r.level <= 1).length, repCnt, repPerDay, repPerBiz, bizDays };
 }
 function updateOrderBadge() {
   const b = document.getElementById('order-tab-badge');
@@ -17640,7 +17693,7 @@ function updateOrderBadge() {
 function renderOrderList() {
   const el = document.getElementById('order-content');
   if(!el) return;
-  const { cfg, rows, alertCnt } = _orderAlertData();
+  const { cfg, rows, alertCnt, repCnt, repPerDay, repPerBiz, bizDays } = _orderAlertData();
   updateOrderBadge();
   if(!(stock || []).length) {
     el.innerHTML = `<div class="empty"><div class="empty-icon">📦</div>등록된 부품이 없습니다.</div>`;
@@ -17662,11 +17715,14 @@ function renderOrderList() {
       <span style="font-size:12px;padding:3px 10px;border-radius:99px;background:#ffedd5;color:#d97706;font-weight:700;">발주 준비 ${nPrep}종</span>
       <span style="font-size:12px;padding:3px 10px;border-radius:99px;background:#fef9c3;color:#a16207;font-weight:700;">발주 계획 ${nPlan}종</span>
     </div>
+    <div style="font-size:12px;font-weight:700;margin-top:10px;padding:8px 12px;border-radius:8px;background:var(--surface2);">
+      🔧 최근 ${cfg.look}일 팀 수리 <b style="color:var(--accent);">${fmt(repCnt)}건</b> — 영업일 평균 <b style="color:var(--accent);">${repPerBiz.toFixed(1)}건/일</b> <span style="font-size:10.5px;color:var(--text3);font-weight:400;">(주말 포함 달력일 평균 ${repPerDay.toFixed(1)}건/일 — 커버 일수 계산엔 이 값 사용)</span>
+    </div>
     <div style="font-size:11.5px;color:var(--text3);margin-top:8px;line-height:1.7;">
-      최근 <b>${cfg.look}일</b>의 <b>팀 전체</b> 소모(수리·DOA 전부 합산, 취소·복구 제외) 속도로 <b>현재고가 며칠 버티는지(커버 일수)</b>를 계산해요.
-      소모 기록이 최근에야 시작된 부품은 <b>기록이 시작된 날부터</b>의 일평균으로 계산해 희석되지 않게 합니다 — "(N일 집계)"로 표시.
-      부품 생산 리드타임이 <b>${cfg.lead}일</b>이라, 커버 일수가 <b>리드타임+${cfg.op}일(도착 후 안정 운영분)</b> 아래로 내려오면 발주 계획을 잡고,
-      리드타임+14일 아래면 지금 발주해야 공백 없이 운영됩니다. 권장 발주량 = 일평균 소모 × (리드타임+운영 목표) − 현재고.
+      <b>건당 소모</b>를 입력한 부품은 <b>수리 건수 × 계수</b>로 소모를 예측해요 — 필름처럼 1건에 2~3개 쓰는 소모품도 정확하게 잡힙니다 (수리 건수는 등록 데이터라 정확).
+      계수가 없는 부품만 자동 차감 기록으로 추정하는데, 기록이 실소모와 다르면 계수를 입력하는 게 맞아요.
+      커버 일수가 <b>리드타임 ${cfg.lead}일 + ${cfg.op}일(도착 후 안정 운영분)</b> 아래로 내려오면 발주 계획, 리드타임+14일 아래면 지금 발주해야 공백이 없습니다.
+      권장 발주량 = 일평균 소모 × (리드타임+운영 목표) − 현재고.
     </div>
     <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">
       <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">리드타임 (발주→입고, 일)</label>
@@ -17675,6 +17731,8 @@ function renderOrderList() {
         <input type="number" id="ord-op" value="${cfg.op}" min="1" onchange="saveOrderCfg()" style="width:80px;height:32px;text-align:center;"></div>
       <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">소모 집계 기간 (일)</label>
         <input type="number" id="ord-look" value="${cfg.look}" min="7" onchange="saveOrderCfg()" style="width:80px;height:32px;text-align:center;"></div>
+      ${isAdmin ? `<button class="btn btn-sm btn-primary" style="height:32px;" onclick="saveOrderUsage()">💾 계수 저장 (서버)</button>
+      <span style="font-size:10.5px;color:var(--text3);">아래 표의 "건당 소모"를 채우고 저장 — 모든 기기에 공유돼요</span>` : ''}
     </div>
   </div>`;
 
@@ -17682,25 +17740,31 @@ function renderOrderList() {
   const calm = rows.filter(r => r.level === 3);
   h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">발주 필요·계획 부품 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 커버 일수 짧은 순</span></div>
     <div class="table-wrap"><table>
-    <thead><tr><th>부품명</th><th style="text-align:right">현재고</th><th style="text-align:right">일평균 소모</th><th>예상 소진</th><th>판정</th><th style="text-align:right">권장 발주량</th></tr></thead>
+    <thead><tr><th>부품명</th><th style="text-align:right">현재고</th><th style="text-align:center" title="수리 1건당 실제 소모 개수 — 입력하면 수리 건수 × 계수로 예측">건당 소모</th><th style="text-align:right">일평균 소모</th><th>예상 소진</th><th>판정</th><th style="text-align:right">권장 발주량</th></tr></thead>
     <tbody>${active.length ? active.map(r => `<tr>
       <td style="font-weight:600;">${escapeHtml(r.p.name)}${r.p.model && r.p.model !== '공용' ? ` <span style="font-size:10px;color:var(--text3);">(${escapeHtml(r.p.model)})</span>` : ''}${r.belowMin ? ' <span style="font-size:10px;font-weight:700;color:#d97706;">최소재고↓</span>' : ''}</td>
       <td style="text-align:right;font-weight:700;color:${r.p.qty <= 0 ? '#dc2626' : 'inherit'};">${fmt(r.p.qty)}</td>
-      <td style="text-align:right;color:var(--text2);">${r.avg > 0 ? r.avg.toFixed(1) + '개/일' + (r.effDays < cfg.look - 1 ? ` <span style="font-size:10px;color:var(--text3);" title="이 부품은 소모 기록이 ${Math.round(r.effDays)}일치뿐이라 그 기간 기준으로 계산">(${Math.round(r.effDays)}일 집계)</span>` : '') : '-'}</td>
+      <td style="text-align:center;">${isAdmin ? `<input type="number" id="ou-${r.idx}" value="${r.coef || ''}" placeholder="자동" min="0" step="0.1" title="수리 1건당 실소모 개수 (예: 필름 2.5) — 입력 후 [계수 저장]" style="width:58px;height:28px;text-align:center;padding:0 4px;border:1px solid ${r.coef ? 'var(--accent)' : 'var(--border2)'};border-radius:var(--radius-sm);">` : (r.coef ? r.coef : '<span style="color:var(--text3);">-</span>')}</td>
+      <td style="text-align:right;color:var(--text2);">${r.mode === 'coef'
+        ? `<b>${r.avg.toFixed(1)}개/일</b><div style="font-size:10px;color:var(--text3);">수리 ${repPerDay.toFixed(1)}건/일 × ${r.coef}</div>`
+        : (r.avg > 0 ? `<span title="자동 차감 기록 기준 (${fmt(r.used)}개/${Math.round(r.effDays)}일) — 실소모와 다르면 건당 소모 계수를 입력하세요">${r.avg.toFixed(1)}개/일</span>` : '-')}</td>
       <td style="white-space:nowrap;">${_dday(r.cover)}</td>
       <td><span style="font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:99px;background:${r.bg};color:${r.color};white-space:nowrap;">${r.label}</span></td>
       <td style="text-align:right;font-weight:800;color:var(--accent);">${r.rec > 0 ? '+' + fmt(r.rec) : '-'}</td>
-    </tr>`).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px;">✅ 지금 발주가 필요한 부품이 없습니다 — 모든 부품이 리드타임+운영 목표 이상 커버돼요.</td></tr>`}</tbody>
+    </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">✅ 지금 발주가 필요한 부품이 없습니다 — 모든 부품이 리드타임+운영 목표 이상 커버돼요.</td></tr>`}</tbody>
     </table></div></div>`;
 
   // 여유·소모 없음 부품 (접힘)
   h += `<details class="card" style="padding:0;"><summary style="padding:12px 16px;font-size:12.5px;font-weight:700;cursor:pointer;color:var(--text2);">🟢 여유·소모 없음 부품 ${calm.length}종 <span style="font-size:11px;color:var(--text3);font-weight:400;">— 펼쳐서 확인</span></summary>
     <div class="table-wrap"><table>
-    <thead><tr><th>부품명</th><th style="text-align:right">현재고</th><th style="text-align:right">일평균 소모</th><th>예상 소진</th></tr></thead>
+    <thead><tr><th>부품명</th><th style="text-align:right">현재고</th><th style="text-align:center" title="수리 1건당 실제 소모 개수">건당 소모</th><th style="text-align:right">일평균 소모</th><th>예상 소진</th></tr></thead>
     <tbody>${calm.map(r => `<tr>
       <td>${escapeHtml(r.p.name)}${r.p.model && r.p.model !== '공용' ? ` <span style="font-size:10px;color:var(--text3);">(${escapeHtml(r.p.model)})</span>` : ''}</td>
       <td style="text-align:right;">${fmt(r.p.qty)}</td>
-      <td style="text-align:right;color:var(--text2);">${r.avg > 0 ? r.avg.toFixed(1) + '개/일' + (r.effDays < cfg.look - 1 ? ` <span style="font-size:10px;color:var(--text3);" title="이 부품은 소모 기록이 ${Math.round(r.effDays)}일치뿐이라 그 기간 기준으로 계산">(${Math.round(r.effDays)}일 집계)</span>` : '') : '-'}</td>
+      <td style="text-align:center;">${isAdmin ? `<input type="number" id="ou-${r.idx}" value="${r.coef || ''}" placeholder="자동" min="0" step="0.1" title="수리 1건당 실소모 개수 — 입력 후 [계수 저장]" style="width:58px;height:28px;text-align:center;padding:0 4px;border:1px solid ${r.coef ? 'var(--accent)' : 'var(--border2)'};border-radius:var(--radius-sm);">` : (r.coef ? r.coef : '<span style="color:var(--text3);">-</span>')}</td>
+      <td style="text-align:right;color:var(--text2);">${r.mode === 'coef'
+        ? `<b>${r.avg.toFixed(1)}개/일</b><div style="font-size:10px;color:var(--text3);">수리 ${repPerDay.toFixed(1)}건/일 × ${r.coef}</div>`
+        : (r.avg > 0 ? `<span title="자동 차감 기록 기준 (${fmt(r.used)}개/${Math.round(r.effDays)}일)">${r.avg.toFixed(1)}개/일</span>` : '-')}</td>
       <td style="white-space:nowrap;">${_dday(r.cover)}</td>
     </tr>`).join('')}</tbody></table></div></details>`;
 
