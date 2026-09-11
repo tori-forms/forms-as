@@ -1606,6 +1606,21 @@ window.addEventListener('DOMContentLoaded', function(){
           <div id="nbmig-list" style="margin-top:10px;font-size:12px;font-family:'JetBrains Mono',monospace;line-height:1.8;max-height:180px;overflow-y:auto;"></div>
         </div>
 
+        <!-- ⭐ v2.79t: 교품 예상 수리비 복구 — 9/3~9/7 부품비 누락분 -->
+        <div style="margin-bottom:24px;padding:14px;border:1px solid #f59e0b55;border-radius:10px;background:#fffbeb0d;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px;">🔁 교품 예상 수리비 복구 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 9/3~9/7 부품비 누락분</span></div>
+          <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;line-height:1.6;">
+            단가 개편 직후 기종별 부품비가 비어 있던 기간에 등록된 교품 건은 예상 수리비가 <b>공임만(4만원대)</b>으로 저장돼,
+            수리불가 기준(11만원 이상)에 안 맞아 보입니다. 현재 단가+부품비로 재계산해 복구해요 —
+            시리얼·엔지니어·처리일·사유·메모는 그대로 유지됩니다.</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button class="btn" onclick="scanExcFix()">🔍 대상 검색</button>
+            <button class="btn btn-primary" id="excfix-run-btn" onclick="runExcFix()" style="display:none;">⚡ 복구 실행</button>
+            <span id="excfix-status" style="font-size:12px;color:var(--text2);"></span>
+          </div>
+          <div id="excfix-list" style="margin-top:10px;font-size:12px;font-family:'JetBrains Mono',monospace;line-height:1.8;max-height:180px;overflow-y:auto;"></div>
+        </div>
+
         <!-- 새제품 단가 -->
         <div style="margin-bottom:24px;">
           <div style="font-size:13px;font-weight:700;margin-bottom:10px;">📦 새제품 기준 단가</div>
@@ -10018,6 +10033,76 @@ async function runNbMigration() {
   notify(fail.length ? `⚠ ${ok}건 처리, ${fail.length}건 실패 — 다시 검색해 재실행하세요.` : `✅ ${ok}건 전환·복구 완료`);
 }
 
+/* ⭐ v2.79t: 교품 예상 수리비 복구 — 9/3~9/7 기종별 부품비가 비어 있던 기간의 교품 건은
+   예상 수리비가 공임만(44,330 등)으로 저장됨. 현재 단가+부품비로 재계산해 복구.
+   updateExchange 액션이 없어 addExchange(같은 내용·새 id) → deleteExchange(옛 id) 순으로 교체 —
+   시리얼·엔지니어·처리일·사유·메모 전부 원본 유지, 예상 수리비만 바뀜. */
+function _excFixScan() {
+  const out = [];
+  const mpAll = (window.PARTS_PRICE && window.PARTS_PRICE.modelParts) || {};
+  (exchangeList || []).forEach(x => {
+    let works = x.works;
+    if(!Array.isArray(works)) { try { works = JSON.parse(works || '[]'); } catch(e) { works = []; } }
+    if(!works.length) return;
+    const mp = mpAll[x.model] || mpAll[normalizeModel(x.model)] || {};
+    const labor = works.reduce((s, k) => s + ((WORKS[k] && WORKS[k].price) || 0), 0);
+    // 부품비 키: nonbat_full(legacy)은 매핑상 nonbat과 동일 구성
+    const parts = works.reduce((s, k) => s + (Number(mp[k === 'nonbat_full' ? 'nonbat' : k]) || 0), 0);
+    const expected = labor + parts;
+    const cur = Number(x.estimatedCost) || 0;
+    // 대상: 저장값이 수리불가 기준(11만) 미만인데 재계산하면 기준 이상 — 부품비 누락 확정 패턴
+    if(cur > 0 && cur < 110000 && expected >= 110000 && (expected - cur) > 1000) out.push({ x, works, expected, cur });
+  });
+  return out;
+}
+function scanExcFix() {
+  if(!isFullAdmin()) { notify('마스터만 실행할 수 있습니다.', 'error'); return; }
+  const mpAll = (window.PARTS_PRICE && window.PARTS_PRICE.modelParts) || {};
+  if(!Object.keys(mpAll).length) { notify('기종별 부품비가 아직 로드되지 않았어요 — 새로고침 후 다시 시도하세요.', 'error'); return; }
+  const list = _excFixScan();
+  window._excFixList = list;
+  const st = document.getElementById('excfix-status');
+  const box = document.getElementById('excfix-list');
+  const runBtn = document.getElementById('excfix-run-btn');
+  if(!list.length) { st.textContent = '복구 대상 없음 ✅'; box.innerHTML = ''; runBtn.style.display = 'none'; return; }
+  st.textContent = `대상 ${list.length}건`;
+  runBtn.style.display = '';
+  box.innerHTML = list.map(v => `<div>${escapeHtml(String(v.x.serial))} · ${escapeHtml(String(v.x.model||''))} · ${String(v.x.date).slice(0,10)} — ${fmt(v.cur)}원 → <b style="color:var(--accent);">${fmt(v.expected)}원</b></div>`).join('');
+}
+async function runExcFix() {
+  if(!isFullAdmin()) { notify('마스터만 실행할 수 있습니다.', 'error'); return; }
+  const list = window._excFixList || [];
+  if(!list.length) { notify('먼저 [대상 검색]을 눌러주세요.', 'error'); return; }
+  if(!confirm(`교품 ${list.length}건의 예상 수리비를 현재 단가+부품비 기준으로 복구합니다.\n시리얼·엔지니어·처리일·사유는 그대로 유지됩니다. 진행할까요?`)) return;
+  const st = document.getElementById('excfix-status');
+  const runBtn = document.getElementById('excfix-run-btn');
+  runBtn.disabled = true;
+  let ok = 0; const fail = [];
+  let idBase = Date.now();
+  for(let i = 0; i < list.length; i++) {
+    const v = list[i]; const x = v.x;
+    st.textContent = `처리 중... ${i+1}/${list.length}`;
+    try {
+      const newId = idBase + i;
+      const rA = await gasCall({ action: 'addExchange', id: newId, serial: String(x.serial||''), worker: String(x.worker||''),
+        model: String(x.model||''), reason: String(x.reason||'비용초과'), note: String(x.note||''),
+        works: JSON.stringify(v.works), estimatedCost: v.expected, date: String(x.date||'') });
+      if(rA && rA.ok === false) { fail.push(x.serial); continue; }
+      const rD = await gasCall({ action: 'deleteExchange', id: String(x.id) });
+      if(rD && rD.ok === false) { fail.push(x.serial + '(옛 행 삭제 실패 — 중복 확인 필요)'); }
+      // 로컬 즉시 반영
+      x.id = String(newId); x.estimatedCost = v.expected; x.works = v.works;
+      ok++;
+    } catch(err) { fail.push(x.serial); }
+  }
+  runBtn.disabled = false; runBtn.style.display = 'none';
+  window._excFixList = [];
+  window._shipOk = null; window._shipHold = null;
+  st.textContent = `완료: ${ok}건 복구${fail.length ? ` · 실패 ${fail.length}건 (${fail.slice(0,5).join(', ')}${fail.length>5?' 외':''}) — [대상 검색]으로 재확인 후 다시 실행` : ' ✅'}`;
+  try { renderExchangeList(); } catch(err) {}
+  notify(fail.length ? `⚠ ${ok}건 복구, ${fail.length}건 실패 — 다시 검색해 재실행하세요.` : `✅ 교품 ${ok}건 예상 수리비 복구 완료 (고객 대시보드에는 5~15분 내 반영)`);
+}
+
 function savePriceSettings() {
   // ⭐ v2.66a: 데이터 미로드 상태 저장 차단 — 부품비가 로드 전(전부 0 표시)일 때 저장하면
   //   0이 서버를 통째로 덮어 기존 부품비가 소실됨 (실제 발생한 사고의 재발 방지)
@@ -17678,7 +17763,9 @@ function _orderAlertData() {
     else if(avg > 0 && cover < cfg.lead + cfg.op) { level = 2; label = '🟡 발주 계획'; color = '#a16207'; bg = '#fef9c3'; }
     else if(belowMin)                             { level = 1; label = '🟠 최소재고 이하'; color = '#d97706'; bg = '#ffedd5'; }
     else                                          { level = 3; label = avg > 0 ? '🟢 여유' : '— 소모 없음'; color = 'var(--text3)'; bg = 'transparent'; }
-    return { p, idx, used, avg, cover, rec, belowMin, level, label, color, bg, effDays, coef, mode };
+    // ⭐ 소모품(필름류·consumable 체크)인데 계수 미입력 → 1건당 여러 개 쓰는 실소모를 기록이 못 잡으므로 입력 권장 표시
+    const needCoef = mode === 'log' && (Number(p.consumable) === 1 || /필름/.test(String(p.name || '')));
+    return { p, idx, used, avg, cover, rec, belowMin, level, label, color, bg, effDays, coef, mode, needCoef };
   }).sort((a, b) => a.level - b.level || a.cover - b.cover);
   return { cfg, lookDays, rows, alertCnt: rows.filter(r => r.level <= 1).length, repCnt, repPerDay, repPerBiz, bizDays };
 }
@@ -17744,10 +17831,10 @@ function renderOrderList() {
     <tbody>${active.length ? active.map(r => `<tr>
       <td style="font-weight:600;">${escapeHtml(r.p.name)}${r.p.model && r.p.model !== '공용' ? ` <span style="font-size:10px;color:var(--text3);">(${escapeHtml(r.p.model)})</span>` : ''}${r.belowMin ? ' <span style="font-size:10px;font-weight:700;color:#d97706;">최소재고↓</span>' : ''}</td>
       <td style="text-align:right;font-weight:700;color:${r.p.qty <= 0 ? '#dc2626' : 'inherit'};">${fmt(r.p.qty)}</td>
-      <td style="text-align:center;">${isAdmin ? `<input type="number" id="ou-${r.idx}" value="${r.coef || ''}" placeholder="자동" min="0" step="0.1" title="수리 1건당 실소모 개수 (예: 필름 2.5) — 입력 후 [계수 저장]" style="width:58px;height:28px;text-align:center;padding:0 4px;border:1px solid ${r.coef ? 'var(--accent)' : 'var(--border2)'};border-radius:var(--radius-sm);">` : (r.coef ? r.coef : '<span style="color:var(--text3);">-</span>')}</td>
+      <td style="text-align:center;white-space:nowrap;">${isAdmin ? `<input type="number" id="ou-${r.idx}" value="${r.coef || ''}" placeholder="1.0" min="0" step="0.1" title="수리 1건당 실소모 개수 (예: 필름 2.5) — 입력 후 [계수 저장]" style="width:66px;height:28px;font-size:12px;text-align:center;padding:0 4px;border:1.5px solid ${r.coef ? 'var(--accent)' : (r.needCoef ? '#d97706' : 'var(--border2)')};border-radius:var(--radius-sm);${r.needCoef ? 'background:#fff7ed22;' : ''}">` : (r.coef ? r.coef : '<span style="color:var(--text3);">-</span>')}</td>
       <td style="text-align:right;color:var(--text2);">${r.mode === 'coef'
         ? `<b>${r.avg.toFixed(1)}개/일</b><div style="font-size:10px;color:var(--text3);">수리 ${repPerDay.toFixed(1)}건/일 × ${r.coef}</div>`
-        : (r.avg > 0 ? `<span title="자동 차감 기록 기준 (${fmt(r.used)}개/${Math.round(r.effDays)}일) — 실소모와 다르면 건당 소모 계수를 입력하세요">${r.avg.toFixed(1)}개/일</span>` : '-')}</td>
+        : (r.avg > 0 ? `<span title="자동 차감 기록 기준 (${fmt(r.used)}개/${Math.round(r.effDays)}일) — 차감 기록은 1건=매핑 수량만 잡혀서, 실제로 더 쓰는 소모품은 이 값이 실소모보다 낮게 나옵니다">${r.avg.toFixed(1)}개/일</span>${r.needCoef ? `<div style="font-size:10px;font-weight:700;color:#d97706;">⚠ 소모품 — 1건당 실소모(2~3개 등)를 왼쪽에 입력해야 정확</div>` : ''}` : '-')}</td>
       <td style="white-space:nowrap;">${_dday(r.cover)}</td>
       <td><span style="font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:99px;background:${r.bg};color:${r.color};white-space:nowrap;">${r.label}</span></td>
       <td style="text-align:right;font-weight:800;color:var(--accent);">${r.rec > 0 ? '+' + fmt(r.rec) : '-'}</td>
@@ -17761,10 +17848,10 @@ function renderOrderList() {
     <tbody>${calm.map(r => `<tr>
       <td>${escapeHtml(r.p.name)}${r.p.model && r.p.model !== '공용' ? ` <span style="font-size:10px;color:var(--text3);">(${escapeHtml(r.p.model)})</span>` : ''}</td>
       <td style="text-align:right;">${fmt(r.p.qty)}</td>
-      <td style="text-align:center;">${isAdmin ? `<input type="number" id="ou-${r.idx}" value="${r.coef || ''}" placeholder="자동" min="0" step="0.1" title="수리 1건당 실소모 개수 — 입력 후 [계수 저장]" style="width:58px;height:28px;text-align:center;padding:0 4px;border:1px solid ${r.coef ? 'var(--accent)' : 'var(--border2)'};border-radius:var(--radius-sm);">` : (r.coef ? r.coef : '<span style="color:var(--text3);">-</span>')}</td>
+      <td style="text-align:center;white-space:nowrap;">${isAdmin ? `<input type="number" id="ou-${r.idx}" value="${r.coef || ''}" placeholder="1.0" min="0" step="0.1" title="수리 1건당 실소모 개수 — 입력 후 [계수 저장]" style="width:66px;height:28px;font-size:12px;text-align:center;padding:0 4px;border:1.5px solid ${r.coef ? 'var(--accent)' : (r.needCoef ? '#d97706' : 'var(--border2)')};border-radius:var(--radius-sm);">` : (r.coef ? r.coef : '<span style="color:var(--text3);">-</span>')}</td>
       <td style="text-align:right;color:var(--text2);">${r.mode === 'coef'
         ? `<b>${r.avg.toFixed(1)}개/일</b><div style="font-size:10px;color:var(--text3);">수리 ${repPerDay.toFixed(1)}건/일 × ${r.coef}</div>`
-        : (r.avg > 0 ? `<span title="자동 차감 기록 기준 (${fmt(r.used)}개/${Math.round(r.effDays)}일)">${r.avg.toFixed(1)}개/일</span>` : '-')}</td>
+        : (r.avg > 0 ? `<span title="자동 차감 기록 기준 (${fmt(r.used)}개/${Math.round(r.effDays)}일)">${r.avg.toFixed(1)}개/일</span>${r.needCoef ? `<div style="font-size:10px;font-weight:700;color:#d97706;">⚠ 소모품 — 1건당 실소모(2~3개 등)를 왼쪽에 입력해야 정확</div>` : ''}` : (r.needCoef ? '<div style="font-size:10px;font-weight:700;color:#d97706;">⚠ 소모품 — 계수 입력 필요</div>' : '-'))}</td>
       <td style="white-space:nowrap;">${_dday(r.cover)}</td>
     </tr>`).join('')}</tbody></table></div></details>`;
 
