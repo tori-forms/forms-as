@@ -10298,7 +10298,22 @@ async function renderFinance() {
   monthEntries.forEach(e => { const n = e.worker || '?'; revBy[n] = (revBy[n] || 0) + (Number(e.total) || 0); cntBy[n] = (cntBy[n] || 0) + 1; });
   const totalRev = monthEntries.reduce((s, e) => s + (Number(e.total) || 0), 0);
   const totalCnt = monthEntries.length;
-  const avgUnit = totalCnt > 0 ? Math.round(totalRev / totalCnt) : (f.unitPrice || 27000);
+  // ⭐ v2.79u: 기준 건당가 = 그 달 '출고 완료' 건 평균 청구액 (무상 재작업 제외) — 청구는 출고 기준이라
+  //   등록 건 평균보다 안정적이고, 월이 지나면 값이 고정됨. 출고가 없으면 등록 평균 → 수동 입력값 순 폴백.
+  let shipAvgUnit = 0, shipAvgCnt = 0;
+  try {
+    let sum = 0, cnt = 0;
+    (shipHistory || []).forEach(h => {
+      if(!shipDateKey(h.shipDate).startsWith(mv)) return;
+      const en = findEntryBySerial(h.serial, h.shipDate);
+      if(en && typeof isFreeEntry === 'function' && isFreeEntry(en)) return;   // 무상 재작업 제외
+      const t = Number((en && en.total) != null ? en.total : (h.fee || 0));
+      if(t > 0) { sum += t; cnt++; }
+    });
+    if(cnt > 0) { shipAvgUnit = Math.round(sum / cnt); shipAvgCnt = cnt; }
+  } catch(e) {}
+  const avgUnit = shipAvgUnit || (totalCnt > 0 ? Math.round(totalRev / totalCnt) : (f.unitPrice || 27000));
+  const avgUnitSrc = shipAvgUnit ? `이 달 출고 ${fmt(shipAvgCnt)}건 평균` : (totalCnt > 0 ? '등록 건 평균 (출고 없음)' : '수동 기준값');
 
   // 분석 대상: 현재 명단(활동중, 마스터 제외) + 이 달 매출 있는 퇴사자(참고 표기)
   const team = (workers || []).filter(n => n !== MASTER_NAME && isActiveWorker(n));
@@ -10365,7 +10380,7 @@ async function renderFinance() {
   h += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px;">
     <div class="card" style="padding:14px 16px;"><div style="font-size:11px;color:var(--text3);font-weight:700;">이 달 매출 (공임비)</div>
       <div style="font-size:20px;font-weight:800;margin-top:4px;">${_w(totalRev)}</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:2px;">${fmt(totalCnt)}건 · 평균 ${_w(avgUnit)}/건</div></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">${fmt(totalCnt)}건 · 기준 건당가 <b>${_w(avgUnit)}</b> <span title="BEP·시나리오·충원 계산에 쓰는 건당 단가 — ${avgUnitSrc}">(${avgUnitSrc})</span></div></div>
     <div class="card" style="padding:14px 16px;"><div style="font-size:11px;color:var(--text3);font-weight:700;">월 인건비 (간접비 ${f.indirectRate}% 포함)</div>
       <div style="font-size:20px;font-weight:800;margin-top:4px;">${_w(teamCost)}</div>
       <div style="font-size:11px;color:var(--text3);margin-top:2px;">${incCnt}명 반영${fixed ? ` · 고정비 ${_w(fixed)} 별도` : ''}</div></div>
