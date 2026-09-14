@@ -9980,8 +9980,11 @@ function _nbMigScan() {
   const NEWP = k => WORKS[k]?.price || 0;
   const out = [];
   (entries || []).forEach(e => {
-    if(String(e.date) < '2026-09-03') return;
     const ws = parseWorks(e.works);
+    // ⭐ v2.79v: 임시 키(nonbat_full)가 있으면 등록일과 무관하게 검사 — 9/3 이전 등록건이라도
+    //   이후 수정 과정에서 임시 키·매크로 금액(18,700+7,900=26,600)이 붙을 수 있음 (실사례: 9/1 등록 출고건).
+    //   임시 키는 개편 당일에만 존재했으므로 과거 정상 데이터가 오검출될 일은 없음.
+    if(String(e.date) < '2026-09-03' && !ws.includes('nonbat_full')) return;
     const t = Number(e.total);
     if(!ws.length || t === 0) return;   // 무상 재작업(0원) 등 제외
     // 임시 키 정리: nonbat_full → nonbat (중복 제거)
