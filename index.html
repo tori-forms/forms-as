@@ -8380,7 +8380,7 @@ function renderShipDashboard(list) {
   const PP = window.PARTS_PRICE || {};
   const totalParts = mapped.reduce((s,x) => {
     const modelParts = PP.modelParts?.[x.model] || {};
-    return s + x.works.reduce((ws, k) => ws + (modelParts[k]||0), 0);
+    return s + partsAmtOf(modelParts, x.works);   // ⭐ v2.79v: 공통(1건 1회) 포함·이중 계산 방지
   }, 0);
   const totalRepair = totalFee + totalParts;
   const totalNew    = totalCount * NEW_PRODUCT_PRICE;
@@ -8519,7 +8519,7 @@ function renderShipDashboard(list) {
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     if(!monthMap[key]) monthMap[key] = { count:0, fee:0, parts:0, total:0 };
     const modelParts = PP2.modelParts?.[x.model] || {};
-    const partsAmt = x.works.reduce((ws, k) => ws + (modelParts[k]||0), 0);
+    const partsAmt = partsAmtOf(modelParts, x.works);   // ⭐ v2.79v
     monthMap[key].count++;
     monthMap[key].fee += x.fee;
     monthMap[key].parts += partsAmt;
@@ -9872,6 +9872,14 @@ function getModelList() {
   return [...new Set([...fromData, ...fromSaved, ...fromServer])].sort();
 }
 
+/* ⭐ v2.79v: 기종 부품비 합계 — 작업별 합 + '공통(1건 1회)' 1회.
+   액정유리필름·후면 보호필름처럼 어떤 작업을 하든 수리 1건당 1회만 들어가는 부품은
+   작업별 금액에 넣으면 복합 수리(예: 논배+PCB)에서 이중 계산됨 → _common 칸에 1회만. */
+function partsAmtOf(modelParts, works) {
+  const mp = modelParts || {};
+  const sum = (works || []).reduce((s, k) => s + (Number(mp[k === 'nonbat_full' ? 'nonbat' : k]) || 0), 0);
+  return sum + ((works && works.length) ? (Number(mp._common) || 0) : 0);
+}
 function renderModelPartsTable() {
   const el = document.getElementById('model-parts-price-table');
   if(!el) return;
@@ -9917,9 +9925,26 @@ function renderModelPartsTable() {
                   </div>
                 </td>`).join('')}
             </tr>`).join('')}
+          <tr style="background:#fffbeb18;">
+            <td style="padding:8px 12px;border:1px solid var(--border);font-weight:600;">
+              <span style="font-size:11px;font-weight:700;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:99px;">📎 공통 (1건 1회)</span>
+            </td>
+            ${models.map(m => `
+              <td style="padding:6px 8px;border:1px solid var(--border);text-align:center;">
+                <div style="display:flex;align-items:center;gap:4px;justify-content:center;">
+                <input type="number" id="mp-${m}-_common" value="${(mp[m]&&mp[m]._common)||0}"
+                    style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;border-color:#f59e0b;" min="0">
+                  <span style="font-size:11px;color:var(--text3);white-space:nowrap;flex-shrink:0;">원</span>
+                </div>
+              </td>`).join('')}
+          </tr>
         </tbody>
       </table>
-    </div>`;
+    </div>
+    <div style="margin-top:8px;font-size:11.5px;color:var(--text3);line-height:1.6;">
+      📎 <b>공통 (1건 1회)</b>: 액정유리필름·후면 보호필름처럼 <b>어떤 작업을 하든 수리 1건당 1회</b>만 들어가는 부품비.
+      작업별 금액에 넣으면 복합 수리(논배+PCB 등)에서 <b>이중 계산</b>되니, 각 작업 금액에서 필름값을 빼고 여기에 1회만 넣어주세요 —
+      교품 예상 수리비·부품비 집계·고객 대시보드 전부 [작업 합계 + 공통 1회]로 계산됩니다.</div>`;
 }
 
 function addModelToPrice() {
@@ -10046,8 +10071,7 @@ function _excFixScan() {
     if(!works.length) return;
     const mp = mpAll[x.model] || mpAll[normalizeModel(x.model)] || {};
     const labor = works.reduce((s, k) => s + ((WORKS[k] && WORKS[k].price) || 0), 0);
-    // 부품비 키: nonbat_full(legacy)은 매핑상 nonbat과 동일 구성
-    const parts = works.reduce((s, k) => s + (Number(mp[k === 'nonbat_full' ? 'nonbat' : k]) || 0), 0);
+    const parts = partsAmtOf(mp, works);   // ⭐ v2.79v: 공통(1건 1회) 포함 · nonbat_full→nonbat
     const expected = labor + parts;
     const cur = Number(x.estimatedCost) || 0;
     // 대상: 저장값이 수리불가 기준(11만) 미만인데 재계산하면 기준 이상 — 부품비 누락 확정 패턴
@@ -10136,7 +10160,7 @@ function savePriceSettings() {
   const modelParts = {};
   models.forEach(m => {
     modelParts[m] = {};
-    Object.keys(WORKS).filter(k => k !== 'nonbat_full').forEach(k => {   // ⭐ v2.79i: 임시 키 제외
+    Object.keys(WORKS).filter(k => k !== 'nonbat_full').concat(['_common']).forEach(k => {   // ⭐ v2.79v: 공통(1건 1회) 포함
       const val = Number(document.getElementById(`mp-${m}-${k}`)?.value) || 0;
       modelParts[m][k] = val;
     });
@@ -10262,6 +10286,8 @@ async function saveFinance() {
   // ⭐ v2.79s: 충원 시뮬레이션 입력도 저장
   const _dm = Number(g('fin-demand')?.value); if(!isNaN(_dm) && _dm > 0) f.demand = _dm; else delete f.demand;
   const _hs = Number(g('fin-hire-sal')?.value); if(!isNaN(_hs) && _hs > 0) f.hireSal = _hs;
+  // ⭐ v2.79v: 실질 가동일 (시나리오·충원 계산 기준, 기본 17일)
+  const _od = Number(g('fin-opdays')?.value); if(!isNaN(_od) && _od > 0) f.opDays = _od;
   const raw = __finEnc(f);
   window.FINANCE = f; window._FINANCE_RAW = raw;
   try { localStorage.setItem('fa_finance_ov', JSON.stringify({ ts: Date.now(), raw })); } catch(e) {}
@@ -10436,12 +10462,16 @@ async function renderFinance() {
   // ── 달성률 시나리오 (엑셀 재현) — 팀 일 목표 기준
   const midD = new Date(fy, fm - 1, 15);
   const teamDaily = team.filter(n => !f.exclude[n]).reduce((s, n) => s + (getPersonalDailyTarget(n, midD) || 0), 0);
-  const baseRev = teamDaily * workdays * avgUnit;
+  // ⭐ v2.79v: 실질 가동일 — 달력상 영업일(20~22일)이 아니라 연차·휴무 감안한 실제 가동일 기준 (기본 17일, 조정·저장 가능)
+  const opD = Math.max(1, Number(document.getElementById('fin-opdays')?.value) || f.opDays || 17);
+  const baseRev = teamDaily * opD * avgUnit;
   const scen = [1, 0.9, 0.8, 0.6, 0.4, 0.2, 0].map(rate => {
     const rev = baseRev * rate, pf = rev - teamCost - fixed;
     return { rate, rev, pf, mg: rev > 0 ? pf / rev * 100 : null, daily: teamDaily * rate };
   });
-  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">📐 달성률 시나리오 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 팀 일 목표 ${fmt(teamDaily)}건 × ${workdays}일 × 건당 ${_w(avgUnit)} 기준</span></div>
+  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">📐 달성률 시나리오 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 팀 일 목표 ${fmt(teamDaily)}건 × 가동</span>
+    <input type="number" id="fin-opdays" value="${opD}" min="1" max="26" onchange="renderFinance()" title="실질 가동일 — 연차·휴무 감안 (저장 버튼으로 서버 저장)" style="width:56px;height:28px;text-align:center;padding:0 4px;border:1px solid var(--border2);border-radius:var(--radius-sm);">
+    <span style="font-size:11px;color:var(--text3);font-weight:400;">일 × 건당 ${_w(avgUnit)} 기준 <span style="color:var(--text3);">(달력 영업일 ${workdays}일과 별개 — 연차·휴무 반영)</span></span></div>
     <div class="table-wrap"><table>
     <thead><tr><th>달성률</th><th style="text-align:right">일 건수</th><th style="text-align:right">월 매출</th><th style="text-align:right">영업이익</th><th style="text-align:right">이익률</th></tr></thead>
     <tbody>${scen.map(s => `<tr style="${s.pf >= 0 ? 'background:rgba(45,212,191,.07);' : ''}">
@@ -10468,7 +10498,7 @@ async function renderFinance() {
   const demand = Number(document.getElementById('fin-demand')?.value) || f.demand || (typeof kpiMap !== 'undefined' && kpiMap[mv]) || 0;
   const hireSal = Number(document.getElementById('fin-hire-sal')?.value) || f.hireSal || 3050;
   const unmet = Math.max(0, demand - projCnt);
-  const hireCap = KPI_STD_DAILY * workdays;                          // 정착 엔지니어 1명 월 처리력
+  const hireCap = KPI_STD_DAILY * opD;                               // 정착 엔지니어 1명 월 처리력 (실질 가동일 기준)
   const hireCost1 = _finMonthlyCost(hireSal, f.indirectRate);
   const rampAvg = (typeof KPI_RAMP_SCHEDULE !== 'undefined' && KPI_RAMP_SCHEDULE.length)
     ? KPI_RAMP_SCHEDULE.reduce((s, v) => s + v, 0) / KPI_RAMP_SCHEDULE.length : 8;
@@ -10477,7 +10507,7 @@ async function renderFinance() {
     const captured = Math.min(unmet, cap);
     const addRev = captured * avgUnit;
     const addCost = N * hireCost1;
-    const rampCaptured = Math.min(unmet, N * rampAvg * workdays);
+    const rampCaptured = Math.min(unmet, N * rampAvg * opD);
     return { N, cap, captured, addRev, addCost, delta: addRev - addCost, rampDelta: rampCaptured * avgUnit - addCost };
   });
   const h1 = hireRows[0];
@@ -14851,7 +14881,7 @@ function excUpdatePreview() {
   const PP = window.PARTS_PRICE || {};
   const modelParts = PP.modelParts?.[model] || {};
   const labor = works.reduce((s, k) => s + (WORKS[k]?.price || 0), 0);
-  const parts = works.reduce((s, k) => s + (modelParts[k] || 0), 0);
+  const parts = partsAmtOf(modelParts, works);   // ⭐ v2.79v: 공통(1건 1회) 포함
   const total = labor + parts;
   // 체크된 항목 시각 강조
   document.querySelectorAll('.exc-wc').forEach(lbl => {
@@ -14922,7 +14952,7 @@ async function registerExchange() {
   const PP = window.PARTS_PRICE || {};
   const modelParts = PP.modelParts?.[model] || {};
   const labor = works.reduce((s, k) => s + (WORKS[k]?.price || 0), 0);
-  const partsAmt = works.reduce((s, k) => s + (modelParts[k] || 0), 0);
+  const partsAmt = partsAmtOf(modelParts, works);   // ⭐ v2.79v: 공통(1건 1회) 포함
   const estimatedCost = labor + partsAmt;
   const id = Date.now();
   const date = new Date().toISOString();
