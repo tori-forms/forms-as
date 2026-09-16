@@ -13572,6 +13572,7 @@ async function openEditModal(id) {
   const e = entries.find(x=>String(x.id)===String(id)); if(!e) return;
   if(!canDelete(e)){ notify('수정 권한이 없습니다.','error'); return; }
   // ⭐ load 경량화로 출고완료 건은 parts가 비어있음 → 수정 시 상세를 따로 불러옴
+  let _detailPre = false;   // ⭐ v2.79y: 이 경로에서 이미 서버 상세를 받았으면 재확인 불필요
   if((!e.parts || (typeof e.parts==='object' && !Object.keys(e.parts).length) || e.parts==='') && e.status==='shipped') {
     let _detailOk = false;
     try {
@@ -13598,6 +13599,7 @@ async function openEditModal(id) {
       notify('부품 상세를 불러오지 못했습니다 — 잠시 후 수정을 다시 열어주세요. (부품 오염 방지를 위해 수정을 중단합니다)', 'error');
       return;
     }
+    _detailPre = true;   // ⭐ v2.79y: 방금 시트에서 직접 받은 값 = 서버 기준
   }
   editTargetId = id;
   window._editPartsTouched = false;   // ⭐ v2.79x: 부품 서버 검증용 — 아직 사용자가 안 만짐
@@ -13675,19 +13677,43 @@ async function openEditModal(id) {
     if(_eps && _lk) _eps.style.display = 'none';
   }
   document.getElementById('edit-modal').classList.add('open');
-  // ⭐ v2.79x: 부품·수량은 엔지니어의 '반영 확인' 기준 — 캐시가 아니라 서버 시트를 직접 확인해 표시.
-  //   (위 출고건 경로에서 이미 상세를 받아왔으면 그 자체가 서버 기준)
-  try { _verifyEditParts(id); } catch(err) {}
+  // ⭐ v2.79y: 부품·수량은 엔지니어의 '반영 확인' 기준 — 캐시를 먼저 보여주지 않고,
+  //   서버 시트를 직접 읽은 값으로만 부품 영역을 렌더한다 (그동안 ⏳ 표시).
+  //   (위 출고건 경로에서 이미 상세를 받아왔으면 그 자체가 서버 기준이라 바로 렌더)
+  try { _verifyEditParts(id, _detailPre); } catch(err) {}
 }
-/* ⭐ v2.79x: 수정 모달 부품 구성 서버 검증 — 열자마자 getEntryDetail(시트 직독)로 대조.
-   캐시(최대 15분 지연)가 낡아 부품·수량이 다르면 서버 값으로 갱신해 표시하고,
-   사용자가 이미 수량을 만졌으면 덮지 않고 경고만 띄운다. */
-async function _verifyEditParts(id) {
+/* ⭐ v2.79y: 수정 모달 부품 구성 = 서버 시트 직독 값만 표시.
+   - 열면 부품 영역에 ⏳ 표시 → getEntryDetail(시트 직독) 결과로만 렌더 (캐시를 먼저 보여주지 않음)
+   - 5초 넘게 늦으면 일단 캐시로 렌더(🟡)하고, 응답이 오면 안 만졌을 때만 서버값으로 갱신
+   - 서버 확인 실패 시에만 캐시 렌더 + 🟡 경고 (조용히 넘어가지 않음)
+   - 엔지니어가 팝업 안에서 +/-로 바꾼 값은 즉시 반영되며 서버 응답이 절대 덮지 않음 */
+async function _verifyEditParts(id, preFetched) {
   const badge = document.getElementById('edit-parts-fresh');
   const _set = (h) => { if(badge) badge.innerHTML = h; };
+  const _renderNow = () => {
+    const e2 = entries.find(x => String(x.id) === String(id));
+    if(!e2) return;
+    try { initPartQtys(); renderEditParts(parseWorks(e2.works)); } catch(err) {}
+  };
+  // 출고건 경로에서 이미 시트 상세를 받아 e.parts에 실었음 → 그 값이 곧 서버 기준
+  if(preFetched) {
+    _set('<span style="font-size:11px;font-weight:700;color:#16a34a;">🟢 서버 기준 확인됨</span>');
+    return;
+  }
+  // 캐시를 먼저 보여주지 않음 — 부품 영역을 ⏳로 덮고 서버 응답으로만 렌더
+  let _rendered = false;   // 캐시(타임아웃/실패)로라도 렌더했는지
+  const cont = document.getElementById('edit-parts-container');
+  if(cont) cont.innerHTML = '<div style="padding:14px 8px;text-align:center;font-size:12.5px;color:var(--text3);">⏳ 서버에서 부품 저장값을 확인하는 중...</div>';
   _set('<span style="font-size:11px;color:var(--text3);">⏳ 서버 확인 중...</span>');
+  const _timer = setTimeout(() => {
+    if(String(editTargetId) !== String(id) || _rendered) return;
+    _rendered = true;
+    _renderNow();   // 너무 오래 기다리게 하지 않음 — 일단 캐시로, 응답 오면 갱신
+    _set('<span style="font-size:11px;font-weight:700;color:#d97706;">🟡 서버 확인이 늦어요 — 캐시 기준 표시 중 (곧 자동 갱신)</span>');
+  }, 5000);
   try {
     const res = await gasCall({ action: 'getEntryDetail', id });
+    clearTimeout(_timer);
     if(String(editTargetId) !== String(id)) return;   // 그 사이 모달이 닫히거나 다른 건으로 바뀜
     if(!res || !res.detail) throw new Error('no detail');
     // parts 파싱 — 시트 저장 형식(JSON / a=1&b=2 / a=1|b=2) 모두 지원
@@ -13705,19 +13731,26 @@ async function _verifyEditParts(id) {
     if(!e) return;
     const differs = JSON.stringify(e.parts || {}) !== JSON.stringify(sp || {});
     if(differs && Object.keys(sp).length) {
-      e.parts = sp;   // 서버 시트가 진실
+      e.parts = sp;   // 서버 시트가 진실 — 저장 시 재고 delta도 서버 저장값 기준으로 정산되게
       if(!window._editPartsTouched) {
-        try { initPartQtys(); renderEditParts(parseWorks(e.works)); } catch(err) {}
-        _set('<span style="font-size:11px;font-weight:700;color:#16a34a;">🟢 서버 기준으로 갱신됨</span>');
-        notify('부품 구성을 서버 기준으로 갱신했어요 — 화면에 보이는 수량이 실제 저장값입니다.');
+        const _wasStale = _rendered;   // 타임아웃으로 캐시가 이미 보였던 경우만 '갱신' 안내
+        _rendered = true;
+        _renderNow();
+        _set('<span style="font-size:11px;font-weight:700;color:#16a34a;">🟢 서버 기준 확인됨</span>');
+        if(_wasStale) notify('부품 구성을 서버 기준으로 갱신했어요 — 화면에 보이는 수량이 실제 저장값입니다.');
       } else {
+        // 엔지니어가 이미 만진 값은 절대 덮지 않음
         _set('<span style="font-size:11px;font-weight:700;color:#d97706;">🟠 서버 저장값과 달랐음 — 수량을 다시 확인하세요</span>');
       }
     } else {
+      e.parts = Object.keys(sp).length ? sp : e.parts;
+      if(!_rendered) { _rendered = true; _renderNow(); }
       _set('<span style="font-size:11px;font-weight:700;color:#16a34a;">🟢 서버 기준 확인됨</span>');
     }
   } catch(err) {
+    clearTimeout(_timer);
     if(String(editTargetId) !== String(id)) return;
+    if(!_rendered) { _rendered = true; _renderNow(); }   // 실패해도 편집은 가능해야 — 캐시로 렌더
     _set('<span style="font-size:11px;font-weight:700;color:#d97706;">🟡 서버 확인 실패 — 표시값은 캐시 기준일 수 있어요</span>');
   }
 }
