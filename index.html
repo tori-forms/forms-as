@@ -3054,7 +3054,8 @@ async function syncData(silent=false, force=false, _snapData=null) {
       stock = data.stock || [];
       stockLog = data.stockLog || [];
       _applyInternalOverrides();   // ⭐ v2.69b: 10분 내 변경한 내부전용 체크가 낡은 페이로드에 덮이지 않게
-      _applyStockQtyOverrides();   // ⭐ v2.70b: 10분 내 바꾼 수량도 낡은 페이로드에 덮이지 않게 (새로고침 대응)
+      _applyStockQtyOverrides();   // ⭐ v2.70b→v2.79w: 20분 내 바꾼 수량도 낡은 페이로드에 덮이지 않게
+      try { _applyStockStructOverrides(); } catch(e) {}   // ⭐ v2.79w: 부품 추가·수정·삭제도 20분 보호
     }
     // ⭐ 작업별 부품 매핑 (관리자가 화면에서 설정) — 있으면 WORKS 대신 사용
     if(data.workPartsMap && Object.keys(data.workPartsMap).length) {
@@ -3537,7 +3538,9 @@ function updateColorRow(autoWhite) {
   const row = document.getElementById('color-row');
   if(!row) return;
   const _nmC = normalizeModel(getModel());
-  const isS2 = _nmC === 'S2N' || _nmC === 'S2';   // ⭐ v2.79b: 배터리 유지 S2도 색상 선택 대상
+  // ⭐ v2.79w 버그 수정: normalizeModel이 'S2'/'S2N'을 전부 'S2_N'으로 반환하도록 바뀐 뒤
+  //   이 비교('S2N'/'S2')가 영영 false → S2 색상 선택 행이 사라지고 필수 검증도 무력화됐던 문제.
+  const isS2 = _nmC === 'S2_N' || _nmC === 'S2N' || _nmC === 'S2';   // S2 계열 전부 (S2PRO 계열 제외)
   row.style.display = isS2 ? '' : 'none';
   if(!isS2) { window._regColor = ''; return; }
   if(autoWhite) window._regColor = '화이트';
@@ -18261,6 +18264,13 @@ async function savePart() {
     if(internal) window._newPartInternalId = newId;   // ⭐ v2.69a: 구조 저장 후 전용 액션으로 확정
     _logs.push({logId:'l'+Date.now()+'n', partId:newId, partName:name, type:'in', qty:qty, note:`신규 부품 등록 · 재고 0 → ${qty}`, date:_now(), worker:currentUser||''});
   }
+  // ⭐ v2.79w: 구조 변경 로컬 보호 — 낡은 GitHub 스냅샷(5~15분 지연)이 방금의 추가·수정을 되돌리지 않게
+  try {
+    const _pid = editPartId || (stock[stock.length - 1] && stock[stock.length - 1].id);
+    const _pp = (stock || []).find(x => String(x.id) === String(_pid));
+    if(_pp) _rememberPartStruct(_pp);
+    if(!editPartId && _pp) _rememberStockQty(_pp.id, _pp.qty);   // 신규 부품 초기 수량도 보호
+  } catch(e) {}
   await saveStockToServer();
   if(window._newPartInternalId) {   // ⭐ v2.69a: 신규 내부 전용 확정
     try { await gasCall({ action:'setPartInternal', partId: window._newPartInternalId, internal:'1' }); _rememberInternal(window._newPartInternalId, 1); } catch(e) {}
@@ -18283,6 +18293,7 @@ function deletePart(id) {
   const p = stock.find(x=>x.id===id); if(!p) return;
   openModal('부품 삭제', `"${p.name}" 부품을 삭제할까요?`, async()=>{
     stock = stock.filter(x=>x.id!==id);
+    _rememberPartDelete(id);   // ⭐ v2.79w: 낡은 스냅샷이 삭제한 부품을 부활시키지 않게 (20분 보호)
     await saveStockToServer();
     const log = {logId:'l'+Date.now()+'d', partId:id, partName:p.name, type:'adjust', qty:Number(p.qty||0), note:`부품 삭제 · 재고 ${p.qty||0} → 0`, date:new Date().toISOString(), worker:currentUser||''};
     stockLog.push(log);
@@ -18331,11 +18342,64 @@ function _applyStockQtyOverrides() {
     const now = Date.now();
     let dirty = false;
     Object.keys(m).forEach(id => {
-      if(now - (m[id].t || 0) > 10 * 60 * 1000) { delete m[id]; dirty = true; return; }
+      if(now - (m[id].t || 0) > 20 * 60 * 1000) { delete m[id]; dirty = true; return; }   // ⭐ v2.79w: 10→20분 (GitHub 발행 지연 최대 15분 커버)
       const s = (stock || []).find(x => String(x.id) === id);
       if(s && Number(s.qty) !== Number(m[id].q)) s.qty = Number(m[id].q);
     });
     if(dirty) localStorage.setItem('fa_stockqty_ov', JSON.stringify(m));
+  } catch(e) {}
+}
+
+/* ⭐ v2.79w: 부품 '구조' 변경(추가·이름/기종/카테고리/최소재고 수정·삭제) 로컬 보호 —
+   수량은 위 오버라이드가 지켰지만 구조 변경은 무방비라, 저장 2분 뒤부터 낡은 GitHub 스냅샷
+   (발행 5~15분 지연)이 재고 목록을 통째로 되돌렸음: 새 부품 사라짐 / 수정 원복 / 삭제 부활.
+   20분간 로컬 기억이 낡은 페이로드를 이기고, 서버가 같은 값으로 발행하면 자동 수렴·해제. */
+function _rememberPartStruct(p) {
+  try {
+    const m = JSON.parse(localStorage.getItem('fa_stockstruct_ov') || '{}');
+    m[String(p.id)] = { t: Date.now(), p: { id: p.id, name: p.name, category: p.category || '', qty: Number(p.qty) || 0, minQty: Number(p.minQty) || 0, model: p.model || '공용', consumable: p.consumable ? 1 : 0, internal: p.internal ? 1 : 0 } };
+    localStorage.setItem('fa_stockstruct_ov', JSON.stringify(m));
+  } catch(e) {}
+}
+function _rememberPartDelete(id) {
+  try {
+    const m = JSON.parse(localStorage.getItem('fa_stockdel_ov') || '{}');
+    m[String(id)] = Date.now();
+    localStorage.setItem('fa_stockdel_ov', JSON.stringify(m));
+  } catch(e) {}
+}
+function _applyStockStructOverrides() {
+  const TTL = 20 * 60 * 1000;
+  const now = Date.now();
+  // 삭제 보호: 지운 부품이 낡은 페이로드로 부활하지 않게
+  try {
+    const del = JSON.parse(localStorage.getItem('fa_stockdel_ov') || '{}');
+    let dDirty = false;
+    Object.keys(del).forEach(id => {
+      if(now - (del[id] || 0) > TTL) { delete del[id]; dDirty = true; return; }
+      const i = (stock || []).findIndex(x => String(x.id) === id);
+      if(i > -1) stock.splice(i, 1);
+      else { delete del[id]; dDirty = true; }   // 서버도 지웠음 → 수렴, 해제
+    });
+    if(dDirty) localStorage.setItem('fa_stockdel_ov', JSON.stringify(del));
+  } catch(e) {}
+  // 추가·수정 보호: 이름/기종/카테고리/최소재고/내부전용 유지, 없어진 신규 부품 복원 (수량은 qty 오버라이드 담당)
+  try {
+    const m = JSON.parse(localStorage.getItem('fa_stockstruct_ov') || '{}');
+    let dirty = false;
+    Object.keys(m).forEach(id => {
+      if(now - (m[id].t || 0) > TTL) { delete m[id]; dirty = true; return; }
+      const ov = m[id].p;
+      const s = (stock || []).find(x => String(x.id) === id);
+      if(!s) { stock.push({ ...ov }); return; }   // 낡은 페이로드에 아직 없음 → 신규 부품 복원
+      const same = String(s.name) === String(ov.name) && String(s.category || '') === String(ov.category || '') &&
+        Number(s.minQty || 0) === Number(ov.minQty || 0) && String(s.model || '공용') === String(ov.model || '공용') &&
+        (s.internal ? 1 : 0) === (ov.internal ? 1 : 0);
+      if(same) { delete m[id]; dirty = true; return; }   // 서버 발행이 따라옴 → 수렴, 해제
+      s.name = ov.name; s.category = ov.category; s.minQty = ov.minQty; s.model = ov.model; s.internal = ov.internal;
+      if(ov.consumable) s.consumable = 1;
+    });
+    if(dirty) localStorage.setItem('fa_stockstruct_ov', JSON.stringify(m));
   } catch(e) {}
 }
 
