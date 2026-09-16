@@ -1413,7 +1413,8 @@ window.addEventListener('DOMContentLoaded', function(){
   <div id="tab-stock" class="section">
     <div class="section-header">
       <span class="section-title">📦 재고 관리</span>
-      <div style="display:flex;gap:8px;">
+      <span id="stock-fresh-badge" style="margin-left:10px;"></span>
+      <div style="display:flex;gap:8px;margin-left:auto;">
         <button class="btn btn-sm btn-primary" onclick="openAddPartModal()" id="add-part-btn" style="display:none;">+ 부품 추가</button>
       </div>
     </div>
@@ -2183,7 +2184,7 @@ window.addEventListener('DOMContentLoaded', function(){
       </div>
       <div id="edit-price-preview" style="font-size:13px;color:var(--text2);margin-bottom:16px;"></div>
       <div id="edit-parts-section" style="margin-bottom:8px;display:none;">
-        <label class="form-label">부품 수량 조정</label>
+        <label class="form-label">부품 수량 조정 <span id="edit-parts-fresh" style="margin-left:6px;font-weight:400;"></span></label>
         <div id="edit-quality-flags" style="margin:2px 0 8px;"></div>
         <div id="edit-parts-container" style="margin-top:6px;padding:10px;background:var(--surface);border:1px solid var(--border2);border-radius:8px;"></div>
       </div>
@@ -2898,6 +2899,47 @@ function buildLoginFromCache() {
 /* ⭐ v2.79m: 상단 새로고침 = 진짜 새로고침 — GitHub 캐시(2분 버킷+발행 지연 5~15분)를 우회하고
    서버(GAS)에서 신선본을 직접 받아온다. 수리건·검수·출고이력 전부. 자동 동기화(5분 주기)는
    기존대로 캐시 채널을 쓰므로 서버 부하는 늘지 않음. */
+/* ⭐ v2.79x: 재고 서버 직행 확인 — 재고 탭을 열 때마다(90초 스로틀) GAS 신선본으로 동기화.
+   엔지니어가 보는 재고 숫자가 "지금 서버 기준"임을 보장 → 낡은 화면 보고 또 조정하는 사고 차단. */
+async function ensureFreshStock(throttleMs = 90000) {
+  if(window._stockFreshBusy) return false;
+  if(typeof _syncInProgress !== 'undefined' && _syncInProgress) return false;   // 다른 동기화 진행 중 — 확인 도장 안 찍음
+  if(Date.now() - (window._stockFreshCheckedAt || 0) < throttleMs) return true;
+  window._stockFreshBusy = true;
+  try { updateStockFreshBadge('checking'); } catch(e) {}
+  try {
+    window._forceFreshLoad = true;
+    await syncData(true, true);
+    window._stockFreshCheckedAt = Date.now();
+    try {
+      const active = document.querySelector('#stocktab-order[style*="var(--accent)"]') ? 'order'
+        : document.querySelector('#stocktab-doa[style*="var(--accent)"]') ? 'doa'
+        : document.querySelector('#stocktab-audit[style*="var(--accent)"]') ? 'audit'
+        : document.querySelector('#stocktab-history[style*="var(--accent)"]') ? 'history' : 'inventory';
+      if(active === 'inventory') renderStock();
+      else if(active === 'order') renderOrderList();
+      else if(active === 'doa') renderDoa();
+      else if(active === 'audit') renderStockAudit();
+      else if(active === 'history') renderStockHistory();
+    } catch(e) {}
+    return true;
+  } catch(e) { console.warn('[재고 서버 확인 실패]', e); return false; }
+  finally { window._stockFreshBusy = false; try { updateStockFreshBadge(); } catch(e) {} }
+}
+/* 재고 탭 신선도 배지 — 방금 서버 기준인지, 캐시 표시 중인지 한눈에 */
+function updateStockFreshBadge(state) {
+  const el = document.getElementById('stock-fresh-badge');
+  if(!el) return;
+  if(state === 'checking') { el.innerHTML = '<span style="font-size:11.5px;font-weight:700;color:var(--text3);">⏳ 서버 재고 확인 중...</span>'; return; }
+  const t = window._stockFreshCheckedAt || 0;
+  const age = Date.now() - t;
+  if(t && age < 5 * 60 * 1000) {
+    const d = new Date(t);
+    el.innerHTML = `<span style="font-size:11.5px;font-weight:700;color:#16a34a;">🟢 서버 기준 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')} 확인</span>`;
+  } else {
+    el.innerHTML = '<span style="font-size:11.5px;font-weight:700;color:#d97706;">🟡 캐시 표시 중 — 숫자가 의심되면 상단 🔄 새로고침</span>';
+  }
+}
 async function manualRefresh() {
   if(_syncInProgress) { notify('이미 동기화 중입니다. 잠시만 기다려주세요.'); return; }
   const btn = document.getElementById('sync-refresh-btn');
@@ -2941,6 +2983,7 @@ async function syncData(silent=false, force=false, _snapData=null) {
   if(!silent) notifyPersist('데이터 불러오는 중...');
   try {
     let data;
+    let _srcFresh = false;   // ⭐ v2.79x: 이 페이로드가 서버(GAS) 직행본인지 — 재고 신선도 판단용
     if(_isSnap) {
       data = _snapData;   // ⭐ v2.59f: 마지막 성공 응답으로 즉시 렌더 (네트워크는 곧이어 별도 실행)
     } else if(window._forceFreshLoad) {
@@ -2948,6 +2991,7 @@ async function syncData(silent=false, force=false, _snapData=null) {
       //   서버가 버전 검증 후 필요 시 재빌드하므로 '실제 시트 상태'가 보장됨 (read-your-writes)
       window._forceFreshLoad = false;
       data = await gasCall({action:'load', noShip:1, fresh:1});
+      _srcFresh = true;
     } else {
       // ⭐ v2.61: 읽기 1순위 = GitHub CDN (echo 구간 없음, 통상 수백 ms). 실패/낡음 시 GAS 폴백
       try {
@@ -2955,10 +2999,12 @@ async function syncData(silent=false, force=false, _snapData=null) {
       } catch(eGh) {
         try {
           data = await gasCall({action:'load', noShip:1});
+          _srcFresh = true;
         } catch(e1) {
           // ⭐ timeout 등 1차 실패 시 1회 재시도 (데이터가 많아 가끔 느림)
           console.warn('[syncData] 1차 실패, 재시도:', e1 && e1.message);
           data = await gasCall({action:'load', noShip:1});
+          _srcFresh = true;
         }
       }
     }
@@ -3048,14 +3094,24 @@ async function syncData(silent=false, force=false, _snapData=null) {
     // ⭐ v2.64b: 내가 방금 변경한 재고는 낡은 서버/GitHub 데이터가 덮지 않음 (2분 보호).
     //   서버에는 saveStock·addStockLog 멱등 재전송으로 내 값이 확실히 반영되므로,
     //   보호가 끝난 뒤의 동기화는 자연히 같은 값으로 수렴한다.
+    // ⭐ v2.79x: 재고의 근본 규칙 — "낡은 데이터는 새 데이터를 절대 못 덮는다".
+    //   페이로드의 서버 발행 시각(serverTime)이 마지막으로 화면에 적용된 재고 시각보다 과거면
+    //   재고/이력은 통째로 건너뜀. (GitHub 스냅샷은 5~15분 지연 — 이 뒤집기가
+    //   "조정했는데 옛날 숫자가 다시 떠서 또 조정 → 이중 조정" 사고의 뿌리였음)
+    const _plMs = (() => { try { const t = new Date(data.serverTime).getTime(); return isNaN(t) ? 0 : t; } catch(e) { return 0; } })();
     if(window._stockDirtyUntil && Date.now() < window._stockDirtyUntil) {
       console.log('[재고보호] 최근 변경 보호 중 — 서버 재고/이력 적용 건너뜀');
+    } else if(!_isSnap && !_srcFresh && _plMs && (window._stockAppliedMs || 0) > _plMs && (stock || []).length) {   // 서버 직행(fresh)은 진실 — 가드는 캐시 페이로드에만
+      console.log('[재고보호] 페이로드가 화면보다 낡음(' + Math.round(((window._stockAppliedMs||0) - _plMs)/1000) + 's) — 재고 적용 건너뜀');
     } else {
       stock = data.stock || [];
       stockLog = data.stockLog || [];
+      if(_plMs) window._stockAppliedMs = Math.max(window._stockAppliedMs || 0, _plMs);
+      if(_srcFresh) { window._stockFreshCheckedAt = Date.now(); }   // ⭐ 서버 직행 확인 시각 (신선도 배지)
       _applyInternalOverrides();   // ⭐ v2.69b: 10분 내 변경한 내부전용 체크가 낡은 페이로드에 덮이지 않게
       _applyStockQtyOverrides();   // ⭐ v2.70b→v2.79w: 20분 내 바꾼 수량도 낡은 페이로드에 덮이지 않게
       try { _applyStockStructOverrides(); } catch(e) {}   // ⭐ v2.79w: 부품 추가·수정·삭제도 20분 보호
+      try { updateStockFreshBadge(); } catch(e) {}
     }
     // ⭐ 작업별 부품 매핑 (관리자가 화면에서 설정) — 있으면 WORKS 대신 사용
     if(data.workPartsMap && Object.keys(data.workPartsMap).length) {
@@ -11587,7 +11643,7 @@ function switchTab(name, btn) {
   if(name==='workers') renderWorkers();
   if(name==='kpi') renderKPI();
   if(name==='report') renderReport();
-  if(name==='stock') { switchStockTab('inventory'); }
+  if(name==='stock') { switchStockTab('inventory'); try { ensureFreshStock(); } catch(e) {} }   // ⭐ v2.79x: 탭 열 때 서버 재고 직행 확인
   if(name==='docs') renderDocs();
   if(name==='shipping') { initShipping(); }
   if(name==='shipview') { setSvFilter('all', true); }
@@ -11780,6 +11836,7 @@ function togglePartsSection(k) {
   if(toggleBtn) toggleBtn.textContent = isOpen ? `▼ 부품 보기 (${visibleParts.length}개)` : `▲ 부품 숨기기`;
 }
 function changeQty(workKey, partName, delta) {
+  window._editPartsTouched = true;   // ⭐ v2.79x: 서버 검증이 사용자가 만진 수량을 덮지 않게
   if(!partQtys[workKey]) partQtys[workKey] = {};
   const model = getModel();
   const defQty = getWorkParts(workKey, model).find(p=>p.name===partName)?.qty ?? 1;
@@ -13543,6 +13600,7 @@ async function openEditModal(id) {
     }
   }
   editTargetId = id;
+  window._editPartsTouched = false;   // ⭐ v2.79x: 부품 서버 검증용 — 아직 사용자가 안 만짐
   // ⭐ v2.78: 출고 완료 건은 관리자(T3·T4) 외에는 수리메모(특이사항)·B급 표기만 수정 가능.
   //   작업 항목·공임·부품·시리얼·기종을 사후에 바꾸면 이미 발행된 견적·계산서와 어긋나기 때문 (청구 확정 보호).
   let _lockShipped = false;
@@ -13617,6 +13675,51 @@ async function openEditModal(id) {
     if(_eps && _lk) _eps.style.display = 'none';
   }
   document.getElementById('edit-modal').classList.add('open');
+  // ⭐ v2.79x: 부품·수량은 엔지니어의 '반영 확인' 기준 — 캐시가 아니라 서버 시트를 직접 확인해 표시.
+  //   (위 출고건 경로에서 이미 상세를 받아왔으면 그 자체가 서버 기준)
+  try { _verifyEditParts(id); } catch(err) {}
+}
+/* ⭐ v2.79x: 수정 모달 부품 구성 서버 검증 — 열자마자 getEntryDetail(시트 직독)로 대조.
+   캐시(최대 15분 지연)가 낡아 부품·수량이 다르면 서버 값으로 갱신해 표시하고,
+   사용자가 이미 수량을 만졌으면 덮지 않고 경고만 띄운다. */
+async function _verifyEditParts(id) {
+  const badge = document.getElementById('edit-parts-fresh');
+  const _set = (h) => { if(badge) badge.innerHTML = h; };
+  _set('<span style="font-size:11px;color:var(--text3);">⏳ 서버 확인 중...</span>');
+  try {
+    const res = await gasCall({ action: 'getEntryDetail', id });
+    if(String(editTargetId) !== String(id)) return;   // 그 사이 모달이 닫히거나 다른 건으로 바뀜
+    if(!res || !res.detail) throw new Error('no detail');
+    // parts 파싱 — 시트 저장 형식(JSON / a=1&b=2 / a=1|b=2) 모두 지원
+    let sp = {};
+    const pj = res.detail.parts;
+    if(pj && typeof pj === 'object') sp = pj;
+    else if(pj && typeof pj === 'string') {
+      const t = pj.trim();
+      if(t.startsWith('{')) { try { sp = JSON.parse(t); } catch(e) {} }
+      else if(t) {
+        t.split(/[&|]/).forEach(kv => { const [k, v] = kv.split('='); if(k) { try { sp[decodeURIComponent(k)] = Number(v) || 0; } catch(e) {} } });
+      }
+    }
+    const e = entries.find(x => String(x.id) === String(id));
+    if(!e) return;
+    const differs = JSON.stringify(e.parts || {}) !== JSON.stringify(sp || {});
+    if(differs && Object.keys(sp).length) {
+      e.parts = sp;   // 서버 시트가 진실
+      if(!window._editPartsTouched) {
+        try { initPartQtys(); renderEditParts(parseWorks(e.works)); } catch(err) {}
+        _set('<span style="font-size:11px;font-weight:700;color:#16a34a;">🟢 서버 기준으로 갱신됨</span>');
+        notify('부품 구성을 서버 기준으로 갱신했어요 — 화면에 보이는 수량이 실제 저장값입니다.');
+      } else {
+        _set('<span style="font-size:11px;font-weight:700;color:#d97706;">🟠 서버 저장값과 달랐음 — 수량을 다시 확인하세요</span>');
+      }
+    } else {
+      _set('<span style="font-size:11px;font-weight:700;color:#16a34a;">🟢 서버 기준 확인됨</span>');
+    }
+  } catch(err) {
+    if(String(editTargetId) !== String(id)) return;
+    _set('<span style="font-size:11px;font-weight:700;color:#d97706;">🟡 서버 확인 실패 — 표시값은 캐시 기준일 수 있어요</span>');
+  }
 }
 // ⭐ v2.77c: 수정 모달을 닫을 때 부품 수량표(partQtys) 초기화 — 등록 화면과 전역을 공유하는 구조라,
 //   초기화 없이 닫으면 직전 수정 건의 부품 수량이 다음 '수리 등록'에 그대로 유입되어
@@ -13774,6 +13877,7 @@ function _appendEditExtraRow(workKey, id, name, qty, fixed) {
 }
 let editExtraCounters = {};
 function addEditExtraPart(workKey) {
+  window._editPartsTouched = true;   // ⭐ v2.79x
   if(!editExtraCounters[workKey]) editExtraCounters[workKey] = 0;
   const idx = editExtraCounters[workKey]++;
   const id = `eextra-${workKey}-${idx}-${Date.now()%100000}`;
@@ -17720,6 +17824,7 @@ function renderStock() {
   }
   el.innerHTML = h;
   try { updateOrderBadge(); } catch(e) {}   // ⭐ v2.79q: 발주 알림 배지 갱신
+  try { updateStockFreshBadge(); } catch(e) {}   // ⭐ v2.79x: 신선도 배지
 }
 function setStockModelFilter(v){ window._stockModelFilter = v; renderStock(); }
 
@@ -18125,6 +18230,13 @@ function exportReconCSV() {
   notify('재고 대사표 내보내기 완료!');
 }
 async function applyStockAudit() {
+  // ⭐ v2.79x: 실사(set)는 절대값 덮어쓰기라 낡은 화면 기준이면 위험 — 3분 내 서버 확인이 없으면
+  //   먼저 서버 재고를 받아온 뒤 화면을 갱신하고, 숫자 재확인 후 다시 누르게 함.
+  if(Date.now() - (window._stockFreshCheckedAt || 0) > 3 * 60 * 1000) {
+    notify('서버 최신 재고를 확인하고 있어요 — 갱신된 숫자를 확인한 뒤 다시 [실사 반영]을 눌러주세요.', 'error');
+    ensureFreshStock(0);
+    return;
+  }
   if(!isAdmin) { notify('관리자만 가능합니다.','error'); return; }
   const changes = [];
   (stock||[]).forEach(p => {
@@ -18575,12 +18687,13 @@ async function adjustStockOp(o) {   // o: { idx, delta? | set?, type, note }
     const prev = Number(res.prev !== undefined ? res.prev : sp.qty);
     sp.qty = Number(res.qty);
     _rememberStockQty(sp.id, sp.qty);   // ⭐ v2.70b: 새로고침해도 10분간 내 값 유지 (낡은 캐시 방어)
-    if(prev === Number(res.qty)) { window._stockDirtyUntil = Date.now() + 120000; return res; }   // ⭐ v2.68e: 무변화 — 로그 소음 방지
+    if(prev === Number(res.qty)) { window._stockDirtyUntil = Date.now() + 120000; window._stockAppliedMs = Math.max(window._stockAppliedMs || 0, Date.now() + (serverTimeOffset || 0)); return res; }   // ⭐ v2.68e: 무변화 — 로그 소음 방지
     stockLog.push({ logId, partId: sp.id, partName: sp.name,
       type: o.type || (o.set !== undefined ? 'adjust' : (Number(o.delta) < 0 ? 'out' : 'in')),
       qty: Math.abs(o.set !== undefined ? (Number(res.qty) - prev) : Number(o.delta || 0)),
       note: `${o.note ? o.note + ' · ' : ''}재고 ${prev} → ${res.qty}`, date: new Date().toISOString(), worker: currentUser || '' });
     window._stockDirtyUntil = Date.now() + 120000;
+  window._stockAppliedMs = Math.max(window._stockAppliedMs || 0, Date.now() + (serverTimeOffset || 0));   // ⭐ v2.79x
   }
   return res;
 }
@@ -18635,6 +18748,7 @@ async function adjustStockBatchOps(ops) {   // ops: [{idx, delta?|set?, type, no
     }
   });
   window._stockDirtyUntil = Date.now() + 120000;
+  window._stockAppliedMs = Math.max(window._stockAppliedMs || 0, Date.now() + (serverTimeOffset || 0));   // ⭐ v2.79x
   if(anyChange) { try { renderStock(); } catch(e) {} }
   return res.results;
 }
@@ -18643,6 +18757,7 @@ async function saveStockToServer() {
   // ⭐ v2.64b: 재고 변경 보호 — 지금부터 2분간 낡은 동기화 데이터가 로컬 재고/이력을 덮지 못함.
   //   (등록 차감 직후 낡은 재고가 덮여, 삭제 복구가 잘못된 기준값에서 +1 되던 부풀림 버그 차단)
   window._stockDirtyUntil = Date.now() + 120000;
+  window._stockAppliedMs = Math.max(window._stockAppliedMs || 0, Date.now() + (serverTimeOffset || 0));   // ⭐ v2.79x
   // ⭐ 안전 가드: 데이터가 제대로 로드되지 않았으면 저장 금지
   //   (load 실패/지연 상태에서 빈·불완전 stock으로 시트 전체를 덮어쓰면 기종 등 데이터 유실 → 참사 방지)
   if(!window._dataLoaded) {
