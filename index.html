@@ -10422,6 +10422,8 @@ function _grWeeklySeries(n, maxWeeks = 260) {
 }
 /* 전체 인원 공통 집계 1회 패스 — 품질(누적 + 최근 60일/이전 60일)·재인입 유발(누적+최근)·월별 출고(전 기간) */
 function _grAggregates() {
+  // 같은 데이터로 한 렌더에서 두 번 불려도 1회만 계산 (entries/inspections 참조가 바뀌면 재계산)
+  if(window._grAggMemo && window._grAggMemo.e === entries && window._grAggMemo.i === inspections && (Date.now() - window._grAggMemo.t) < 30000) return window._grAggMemo.v;
   const now = Date.now(), cut = now - 60 * 86400000, cut2 = cut - 60 * 86400000;
   // 시리얼 → 등록건 인덱스 (검수·출고·재인입 역추적 공용)
   const idx = new Map();
@@ -10440,6 +10442,8 @@ function _grAggregates() {
   };
   // 검수: 수리건 단위로 불합격 여부 집계 (같은 건 재검수 중복 방지) — 누적 + 최근/이전 60일
   const qCur = {}, qPrev = {}, qAll = {};   // {worker: {entryId: hasFail}}
+  const defBy = {};    // {worker: {불량유형: 건수}} — 최근 60일 fail
+  const qMonth = {};   // {'worker|YYYY-MM': {entryId: hasFail}}
   (inspections || []).forEach(i => {
     if(i.result !== 'pass' && i.result !== 'fail') return;
     const t = new Date(i.inspectedAt || 0).getTime();
@@ -10455,6 +10459,22 @@ function _grAggregates() {
     mark(qAll);
     if(t >= cut) mark(qCur);
     else if(t >= cut2) mark(qPrev);
+    // 불량 유형 분포 (최근 60일, fail 판정만) — "어떤 품질이 떨어지는지"
+    if(i.result === 'fail' && t >= cut) {
+      if(!defBy[w]) defBy[w] = {};
+      let tps = [];
+      try { tps = parseDefectTypes(i.defectTypes) || []; } catch(err) {}
+      if(!tps.length) tps = ['미분류'];
+      tps.forEach(tp => { defBy[w][tp] = (defBy[w][tp] || 0) + 1; });
+    }
+    // 월별 검수 품질 (우수 엔지니어 평가용) — 수리건 단위 dedupe
+    const mk2 = String(i.inspectedAt || '').slice(0, 7);
+    if(mk2.length === 7) {
+      const mkey = w + '|' + mk2;
+      if(!qMonth[mkey]) qMonth[mkey] = {};
+      qMonth[mkey][k] = qMonth[mkey][k] || i.result === 'fail';
+      if(i.result === 'fail') qMonth[mkey][k] = true;
+    }
   });
   // 재인입 유발: 재인입(2차+)의 직전 작업자에게 귀속 — 누적 + 최근 60일
   const reBy = {}, reAllBy = {};
@@ -10474,6 +10494,16 @@ function _grAggregates() {
       if(t >= cut) reBy[w] = (reBy[w] || 0) + 1;
     }
   });
+  // 교품 처리 건수 (worker × month) — 전 기간
+  const excBy = {};
+  try {
+    (typeof exchangeList !== 'undefined' ? exchangeList : (exchange || [])).forEach(x => {
+      const mk = String(x.date || '').slice(0, 7);
+      if(mk.length !== 7) return;
+      const w = String(x.worker || '').split('::')[0];
+      excBy[w + '|' + mk] = (excBy[w + '|' + mk] || 0) + 1;
+    });
+  } catch(e) {}
   // 월별 출고 건수 (worker × month) — 전 기간
   const shipBy = {};   // {'worker|m': n}
   try {
@@ -10491,14 +10521,19 @@ function _grAggregates() {
     const ids = Object.keys(m);
     return { ins: ids.length, fail: ids.filter(k => m[k]).length };
   };
-  return {
+  const _ret = {
     quality: w => {
       const c = qOf(qCur, w), p = qOf(qPrev, w), a = qOf(qAll, w);
       return { ins: c.ins, fail: c.fail, insPrev: p.ins, failPrev: p.fail,
                insAll: a.ins, failAll: a.fail, reentry: reBy[w] || 0, reentryAll: reAllBy[w] || 0 };
     },
-    ship: (w, m) => shipBy[w + '|' + m] || 0
+    ship: (w, m) => shipBy[w + '|' + m] || 0,
+    exc: (w, m) => excBy[w + '|' + m] || 0,
+    defects: w => Object.entries(defBy[w] || {}).sort((a, b) => b[1] - a[1]),
+    qMonth: (w, m) => { const mm = qMonth[w + '|' + m] || {}; const ids = Object.keys(mm); return { ins: ids.length, fail: ids.filter(k => mm[k]).length }; }
   };
+  window._grAggMemo = { e: entries, i: inspections, t: Date.now(), v: _ret };
+  return _ret;
 }
 function _grVerdict(n, weeks, q) {
   let tw = null;
@@ -10578,6 +10613,79 @@ function _grSvg(weeks) {
     ${dots}${ticks}
   </svg>`;
 }
+
+/* ⭐ v2.81: 이 달의 엔지니어 (포상 참고) — 수리 등록·실제 출고·품질을 투명한 공식으로 종합해
+   부문별 우수자와 종합 1·2·3등을 표시. 공식과 원자료를 전부 함께 보여줘 시비 없이 쓸 수 있게. */
+function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
+  const cand = team.filter(n => _ovOf(n) === 'direct');
+  if(cand.length < 2) return '';
+  // 전월 키
+  const [ay, am] = mv.split('-').map(Number);
+  const pd = new Date(ay, am - 2, 1);
+  const pmv = `${pd.getFullYear()}-${String(pd.getMonth() + 1).padStart(2, '0')}`;
+  const rows = cand.map(n => {
+    const reg = cntBy[n] || 0;
+    const ship = agg.ship(n, mv);
+    const exc = agg.exc(n, mv);
+    const q = agg.qMonth(n, mv);
+    const qp = agg.qMonth(n, pmv);
+    const rate = q.ins >= 10 ? q.fail / q.ins * 100 : null;          // 이 달 불합격률 (검수 10건 미만은 평가 제외)
+    const ratePrev = qp.ins >= 10 ? qp.fail / qp.ins * 100 : null;   // 전월
+    return { n, reg, ship, exc, q, rate, ratePrev, improve: (rate !== null && ratePrev !== null) ? ratePrev - rate : null };
+  });
+  const maxReg = Math.max(1, ...rows.map(r => r.reg));
+  const maxShip = Math.max(0, ...rows.map(r => r.ship));
+  // 품질점: 불합격률 1%당 −5점 (0~100). 표본 부족(검수<10건)은 팀 평균 품질점으로 중립 처리.
+  const rated = rows.filter(r => r.rate !== null);
+  const teamQAvg = rated.length ? rated.reduce((sm, r) => sm + Math.max(0, 100 - r.rate * 5), 0) / rated.length : 80;
+  rows.forEach(r => {
+    r.qScore = r.rate !== null ? Math.max(0, 100 - r.rate * 5) : teamQAvg;
+    r.qNeutral = r.rate === null;
+    r.regScore = r.reg / maxReg * 100;
+    r.shipScore = maxShip > 0 ? r.ship / maxShip * 100 : 0;
+    // 종합 = 수리 등록 40% + 실제 출고 25% + 품질 35% (출고 데이터 없는 달은 등록 65%)
+    r.total = maxShip > 0
+      ? r.regScore * 0.40 + r.shipScore * 0.25 + r.qScore * 0.35
+      : r.regScore * 0.65 + r.qScore * 0.35;
+  });
+  const ranked = rows.slice().sort((a, b) => b.total - a.total);
+  const medal = i => ['🥇', '🥈', '🥉'][i] || `${i + 1}위`;
+  // 부문별 우수
+  const bestReg = rows.slice().sort((a, b) => b.reg - a.reg)[0];
+  const bestShip = maxShip > 0 ? rows.slice().sort((a, b) => b.ship - a.ship)[0] : null;
+  const qRows = rows.filter(r => r.rate !== null);
+  const bestQ = qRows.length ? qRows.slice().sort((a, b) => a.rate - b.rate)[0] : null;
+  const impRows = rows.filter(r => r.improve !== null && r.improve > 0);
+  const bestImp = impRows.length ? impRows.slice().sort((a, b) => b.improve - a.improve)[0] : null;
+  const aw = (icon, title, who, detail) => `<div style="flex:1;min-width:160px;background:var(--surface2,rgba(148,163,184,.07));border-radius:10px;padding:10px 14px;">
+    <div style="font-size:11px;color:var(--text3);font-weight:700;">${icon} ${title}</div>
+    <div style="font-size:15px;font-weight:800;margin-top:2px;">${who ? escapeHtml(who.n) : '<span style="font-size:12px;color:var(--text3);font-weight:400;">해당자 없음</span>'}</div>
+    ${who ? `<div style="font-size:11px;color:var(--text2);">${detail}</div>` : ''}
+  </div>`;
+  return `<div class="card" style="padding:0;margin-bottom:14px;">
+    <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🏆 이 달의 엔지니어 <span style="font-size:11px;color:var(--text3);font-weight:400;">· ${mv} · 포상 참고용 — 공식·원자료 전부 공개 기준</span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;padding:12px 16px;">
+      ${aw('🔧', '수리왕 (수리 등록 최다)', bestReg && bestReg.reg > 0 ? bestReg : null, bestReg ? `${fmt(bestReg.reg)}건 등록` : '')}
+      ${aw('🚚', '출고왕 (실제 출고 최다)', bestShip, bestShip ? `${fmt(bestShip.ship)}대 출고` : '')}
+      ${aw('💎', '품질왕 (불합격률 최저)', bestQ, bestQ ? `불합격률 ${bestQ.rate.toFixed(1)}% (검수 ${fmt(bestQ.q.ins)}건)` : '')}
+      ${aw('📈', '품질 도약왕 (전월 대비 개선)', bestImp, bestImp ? `${bestImp.ratePrev.toFixed(1)}% → ${bestImp.rate.toFixed(1)}% (${bestImp.improve.toFixed(1)}%p 개선)` : '')}
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>순위</th><th>엔지니어</th><th style="text-align:right">수리 등록</th><th style="text-align:right">실제 출고</th><th style="text-align:right">교품 처리</th><th style="text-align:right">검수 불합격률</th><th style="text-align:right">품질점</th><th style="text-align:right">종합점</th></tr></thead>
+      <tbody>${ranked.map((r, i) => `<tr style="${i === 0 ? 'background:rgba(250,204,21,.08);' : ''}">
+        <td style="font-weight:800;font-size:${i < 3 ? '15px' : '12px'};">${medal(i)}</td>
+        <td style="font-weight:700;">${escapeHtml(r.n)} ${tierBadge(tierMap[r.n] || '')}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;">🎓</span>' : ''}</td>
+        <td style="text-align:right;">${fmt(r.reg)}건</td>
+        <td style="text-align:right;">${fmt(r.ship)}대</td>
+        <td style="text-align:right;color:var(--text2);">${fmt(r.exc)}건</td>
+        <td style="text-align:right;">${r.rate !== null ? `${r.rate.toFixed(1)}% <span style="font-size:10px;color:var(--text3);">(${fmt(r.q.ins)}건)</span>` : '<span style="color:var(--text3);font-size:11px;" title="이 달 검수 10건 미만 — 품질점은 팀 평균으로 중립 처리">표본 부족</span>'}</td>
+        <td style="text-align:right;">${r.qScore.toFixed(0)}${r.qNeutral ? '<span style="font-size:10px;color:var(--text3);">*</span>' : ''}</td>
+        <td style="text-align:right;font-weight:800;color:${i === 0 ? '#d97706' : 'var(--text)'};">${r.total.toFixed(1)}</td>
+      </tr>`).join('')}</tbody></table></div>
+    <div style="padding:10px 16px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">종합점 = 수리 등록 40% + 실제 출고 25% + 품질 35%${maxShip > 0 ? '' : ' (이 달 출고 데이터 없음 → 등록 65% + 품질 35%)'} · 등록·출고는 팀 최다 대비 %, 품질점 = 100 − 불합격률×5 · *표본 부족(검수 10건 미만)은 팀 평균 품질점으로 중립 처리 · 교품 처리는 참고 표기(점수 미반영)</div>
+  </div>`;
+}
+
 function _finGrowthHtml(team, _ovOf) {
   const cand = team.filter(n => _ovOf(n) === 'direct');
   if(!cand.length) return '';
@@ -10601,29 +10709,31 @@ function _finGrowthHtml(team, _ovOf) {
       while(d <= end && monKeys.length < 36) { monKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); d = new Date(d.getFullYear(), d.getMonth() + 1, 1); } }
     const mstat = monKeys.map(m => {
       const mine = (entries || []).filter(e => String(e.worker || '').split('::')[0] === n && String(e.date).startsWith(m));
-      return { m, cnt: mine.length, ship: agg.ship(n, m), rev: mine.reduce((s, e) => s + (Number(e.total) || 0), 0) };
+      return { m, cnt: mine.length, ship: agg.ship(n, m), exc: agg.exc(n, m), rev: mine.reduce((s, e) => s + (Number(e.total) || 0), 0) };
     });
+    const defs = agg.defects(n);
     const totalAll = (entries || []).filter(e => String(e.worker || '').split('::')[0] === n).length;
     return `<div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <span style="font-size:14px;font-weight:800;">${escapeHtml(n)}</span> ${tierBadge(tierMap[n] || '')}
         ${mentoringMap[n] ? '<span style="font-size:10px;color:#7c3aed;font-weight:700;">🎓 교육 중</span>' : ''}
-        <span style="font-size:11px;color:var(--text3);">${hire ? `입사 ${hire} · ${v.tw !== null ? v.tw + '주차' : ''}` : '입사일 미설정 (등록 시작 기준 집계)'} · 누적 등록 ${fmt(totalAll)}건</span>
+        <span style="font-size:11px;color:var(--text3);">${hire ? `입사 ${hire} · ${v.tw !== null ? v.tw + '주차' : ''}` : '입사일 미설정 (등록 시작 기준 집계)'} · 누적 수리 등록 ${fmt(totalAll)}건</span>
         <span style="margin-left:auto;font-size:12px;font-weight:800;color:${v.color};">${v.icon} ${v.label}</span>
       </div>
       <div style="margin:10px 0 4px;">${_grSvg(weeks)}</div>
       <div style="display:flex;gap:14px;font-size:10.5px;color:var(--text3);margin-bottom:8px;">
-        <span><span style="display:inline-block;width:14px;height:3px;background:var(--accent,#6366f1);border-radius:2px;vertical-align:middle;"></span> 주별 일평균 등록(건/영업일)</span>
+        <span><span style="display:inline-block;width:14px;height:3px;background:var(--accent,#6366f1);border-radius:2px;vertical-align:middle;"></span> 주별 일평균 수리 등록(건/영업일)</span>
         <span><span style="display:inline-block;width:14px;border-top:2px dashed #94a3b8;vertical-align:middle;"></span> 주차별 목표</span>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px;margin-bottom:10px;">
         ${mstat.map(t => `<div style="background:var(--surface2,rgba(148,163,184,.07));border-radius:9px;padding:8px 10px;">
           <div style="font-size:10px;color:var(--text3);font-weight:700;">${Number(t.m.slice(5))}월 <span style="font-weight:400;">'${t.m.slice(2, 4)}</span></div>
-          <div style="font-size:12px;margin-top:2px;">등록 <b>${fmt(t.cnt)}</b> · 출고 <b>${fmt(t.ship)}</b></div>
-          <div style="font-size:11px;color:var(--text2);">매출 ${fmt(t.rev)}원</div>
+          <div style="font-size:12px;margin-top:2px;">수리 등록 <b>${fmt(t.cnt)}</b> · 실제 출고 <b>${fmt(t.ship)}</b></div>
+          <div style="font-size:11px;color:var(--text2);">교품 처리 ${fmt(t.exc)} · 매출 ${fmt(t.rev)}원</div>
         </div>`).join('')}
       </div>
-      <div style="font-size:12px;line-height:1.7;color:var(--text2);">${v.notes.map(x => `· ${x}`).join('<br>')}</div>
+      <div style="font-size:12px;line-height:1.7;color:var(--text2);">${v.notes.map(x => `· ${x}`).join('<br>')}
+        ${defs.length ? `<br>· 불량 유형 (최근 60일 불합격): ${defs.slice(0, 4).map(([tp, c]) => `<b>${escapeHtml(tp)}</b> ${c}건`).join(' · ')}${defs.length > 4 ? ' 외' : ''} — 어떤 품질이 약한지 여기서 확인` : ''}</div>
       ${v.qWarn.length ? `<div style="margin-top:6px;font-size:11.5px;font-weight:700;color:#d97706;">${v.qWarn.join('<br>')}</div>` : ''}
     </div>`;
   }).join('');
@@ -10631,7 +10741,7 @@ function _finGrowthHtml(team, _ovOf) {
     <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">📈 엔지니어 성장 분석
       <span style="font-size:11px;color:var(--text3);font-weight:400;">· 입사~현재 전 기간 — 주별 일평균(영업일 기준) vs 입사 주차별 목표 · 월별 등록·출고·매출 · 품질(누적+최근 60일)</span></div>
     <div style="padding:14px 16px;display:grid;gap:12px;">${cards}</div>
-    <div style="padding:10px 16px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">소견은 위 수치(달성률·4주 추세·검수 불합격률·재인입)만으로 만든 규칙 기반 참고 지표예요 — 대행일·검수 지원 등 그래프에 안 잡히는 기여가 있을 수 있으니 최종 판단은 근거 수치와 함께 보세요.</div>
+    <div style="padding:10px 16px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">수리 등록 = 수리 완료로 전산에 올린 건 · 실제 출고 = 그 달 출고 확정된 본인 수리분 — 품질 불량으로 재작업하면 출고가 늦어져 등록과 출고 수가 벌어질 수 있어요. 소견은 위 수치(달성률·4주 추세·검수 불합격률·재인입)만으로 만든 규칙 기반 참고 지표예요 — 대행일·검수 지원 등 그래프에 안 잡히는 기여가 있을 수 있으니 최종 판단은 근거 수치와 함께 보세요.</div>
   </div>`;
 }
 
@@ -10799,6 +10909,9 @@ async function renderFinance() {
 
   // ── ⭐ v2.80: 엔지니어 성장 분석
   try { h += _finGrowthHtml(team, _ovOf); } catch(err) { console.warn('성장 분석 렌더 실패', err); }
+
+  // ── ⭐ v2.81: 이 달의 엔지니어 (포상 참고)
+  try { h += _finAwardsHtml(mv, team, _ovOf, _grAggregates(), cntBy); } catch(err) { console.warn('우수 엔지니어 렌더 실패', err); }
 
   // ── 달성률 시나리오 (엑셀 재현) — 팀 일 목표 기준
   const midD = new Date(fy, fm - 1, 15);
