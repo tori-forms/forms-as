@@ -10374,6 +10374,241 @@ async function saveFinance() {
 }
 /* 월 인건비(원) = 연봉(만원)×10,000×(1+간접비율%) ÷ 12 */
 function _finMonthlyCost(salaryMan, irPct) { return Math.round(salaryMan * 10000 * (1 + (irPct || 0) / 100) / 12); }
+
+/* ═══════════ ⭐ v2.80: 엔지니어 성장 분석 (경영 분석 내, T4 전용) ═══════════
+   입사(또는 첫 등록)부터 현재까지 주별 일평균 생산성을 목표 램프업과 겹쳐 보여주고,
+   품질(검수 불합격률)·재인입 유발까지 합쳐 "계속 데리고 갈 만한가"의 근거를 제시.
+   소견은 규칙 기반 — 어떤 수치로 그렇게 판단했는지 근거를 전부 함께 표기한다. */
+function _grBizDays(from, to) {
+  let c = 0;
+  const d = new Date(from); d.setHours(0, 0, 0, 0);
+  const end = new Date(to); end.setHours(0, 0, 0, 0);
+  const hol = (typeof window !== 'undefined' && Array.isArray(window.COMPANY_HOLIDAYS)) ? window.COMPANY_HOLIDAYS : [];
+  while(d <= end) {
+    const dow = d.getDay();
+    const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if(dow !== 0 && dow !== 6 && !hol.includes(ds)) c++;
+    d.setDate(d.getDate() + 1);
+  }
+  return c;
+}
+function _grWeeklySeries(n, maxWeeks = 26) {
+  const mine = (entries || []).filter(e => String(e.worker || '').split('::')[0] === n);
+  let start = hireDateMap[n] ? new Date(String(hireDateMap[n]).slice(0, 10) + 'T00:00:00') : null;
+  if(start && isNaN(start)) start = null;
+  let firstE = null;
+  mine.forEach(e => { const t = new Date(e.date); if(!isNaN(t) && (!firstE || t < firstE)) firstE = t; });
+  if(!start) start = firstE;
+  if(firstE && start && firstE < start) start = firstE;
+  if(!start) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const ws = new Date(start); ws.setHours(0, 0, 0, 0);
+  ws.setDate(ws.getDate() - ((ws.getDay() + 6) % 7));   // 그 주 월요일
+  const weeks = [];
+  for(let cur = new Date(ws); cur <= today; cur.setDate(cur.getDate() + 7)) {
+    const wEnd = new Date(cur); wEnd.setDate(wEnd.getDate() + 6);
+    const from = cur < start ? new Date(start) : new Date(cur);
+    const to = wEnd > today ? new Date(today) : wEnd;
+    if(from > to) continue;
+    const biz = _grBizDays(from, to);
+    const toX = new Date(to); toX.setDate(toX.getDate() + 1);
+    const cnt = mine.filter(e => { const t = new Date(e.date); return t >= from && t < toX; }).length;
+    let target = null;
+    try { target = tenureDailyTarget(n, new Date(cur.getTime() + 3.5 * 86400000)); } catch(e) {}
+    if(target === null || target === undefined) target = KPI_STD_DAILY;
+    weeks.push({ from: new Date(from), cnt, biz, daily: biz > 0 ? cnt / biz : 0, target });
+  }
+  return weeks.slice(-maxWeeks);
+}
+/* 전체 인원 공통 집계 1회 패스 — 품질(60일/이전 60일)·재인입 유발·월별 출고 */
+function _grAggregates(monKeys) {
+  const now = Date.now(), cut = now - 60 * 86400000, cut2 = cut - 60 * 86400000;
+  // 시리얼 → 등록건 인덱스 (검수·출고·재인입 역추적 공용)
+  const idx = new Map();
+  (entries || []).forEach(e => {
+    const k = normalizeSerial(e.serial);
+    if(!idx.has(k)) idx.set(k, []);
+    idx.get(k).push(e);
+  });
+  idx.forEach(a => a.sort((x, y) => new Date(x.date) - new Date(y.date)));
+  const entryAt = (serial, ref) => {
+    const a = idx.get(normalizeSerial(serial)); if(!a || !a.length) return null;
+    const rt = new Date(ref || 0).getTime() || Infinity;
+    let best = null;
+    a.forEach(e => { const t = new Date(e.date).getTime(); if(t <= rt) best = e; });
+    return best || a[0];
+  };
+  // 검수: 수리건 단위로 불합격 여부 집계 (같은 건 재검수 중복 방지)
+  const qCur = {}, qPrev = {};   // {worker: {entryId: hasFail}}
+  (inspections || []).forEach(i => {
+    if(i.result !== 'pass' && i.result !== 'fail') return;
+    const t = new Date(i.inspectedAt || 0).getTime();
+    if(!(t >= cut2)) return;
+    const e = entryAt(i.serial, i.inspectedAt);
+    if(!e) return;
+    const w = String(e.worker || '').split('::')[0];
+    const bucket = t >= cut ? qCur : qPrev;
+    if(!bucket[w]) bucket[w] = {};
+    const k = String(e.id);
+    bucket[w][k] = bucket[w][k] || i.result === 'fail';
+    if(i.result === 'fail') bucket[w][k] = true;
+  });
+  // 재인입 유발: 최근 60일 접수된 재인입(2차+)의 직전 작업자에게 귀속
+  const reBy = {};
+  (entries || []).forEach(e2 => {
+    const r = parseReentry(e2); if(!r) return;
+    const t = new Date(e2.date).getTime(); if(!(t >= cut)) return;
+    const a = idx.get(normalizeSerial(e2.serial)) || [];
+    let prev = null;
+    a.forEach(p => {
+      if(String(p.id) === String(e2.id)) return;
+      const pt = new Date(p.date).getTime();
+      if(pt < t && (!prev || pt > new Date(prev.date).getTime())) prev = p;
+    });
+    if(prev) { const w = String(prev.worker || '').split('::')[0]; reBy[w] = (reBy[w] || 0) + 1; }
+  });
+  // 월별 출고 건수 (worker × month)
+  const shipBy = {};   // {'worker|m': n}
+  try {
+    (shipHistory || []).forEach(h2 => {
+      const mk = shipDateKey(h2.shipDate).slice(0, 7);
+      if(!monKeys.includes(mk)) return;
+      const en = entryAt(h2.serial, h2.shipDate);
+      if(!en) return;
+      const w = String(en.worker || '').split('::')[0];
+      shipBy[w + '|' + mk] = (shipBy[w + '|' + mk] || 0) + 1;
+    });
+  } catch(e) {}
+  const qOf = (bucket, w) => {
+    const m = bucket[w] || {};
+    const ids = Object.keys(m);
+    return { ins: ids.length, fail: ids.filter(k => m[k]).length };
+  };
+  return {
+    quality: w => { const c = qOf(qCur, w), p = qOf(qPrev, w); return { ins: c.ins, fail: c.fail, insPrev: p.ins, failPrev: p.fail, reentry: reBy[w] || 0 }; },
+    ship: (w, m) => shipBy[w + '|' + m] || 0
+  };
+}
+function _grVerdict(n, weeks, q) {
+  let tw = null;
+  try { tw = tenureWeek(n); } catch(e) {}
+  const wl = weeks || [];
+  const _agg = arr => { const c = arr.reduce((s, w) => s + w.cnt, 0), b = arr.reduce((s, w) => s + w.biz, 0); return b > 0 ? c / b : null; };
+  const recent = _agg(wl.slice(-4));
+  const prevAvg = _agg(wl.slice(-8, -4));
+  const lastTarget = wl.length ? (wl[wl.length - 1].target || KPI_STD_DAILY) : KPI_STD_DAILY;
+  const attain = (recent !== null && lastTarget > 0) ? recent / lastTarget : null;
+  const growth = (recent !== null && prevAvg !== null && prevAvg > 0) ? (recent - prevAvg) / prevAvg : null;
+  const failRate = q.ins >= 5 ? q.fail / q.ins * 100 : null;
+  const failRatePrev = q.insPrev >= 5 ? q.failPrev / q.insPrev * 100 : null;
+  const notes = [];
+  if(recent !== null) notes.push(`최근 4주 일평균 <b>${recent.toFixed(1)}건</b> · 목표 ${lastTarget}건 → 달성 <b>${attain !== null ? Math.round(attain * 100) : '?'}%</b>`);
+  if(growth !== null) notes.push(`직전 4주(일 ${prevAvg.toFixed(1)}건) 대비 <b>${growth >= 0 ? '+' : ''}${Math.round(growth * 100)}%</b>`);
+  if(failRate !== null) notes.push(`최근 60일 검수 불합격률 <b>${failRate.toFixed(1)}%</b>${failRatePrev !== null ? ` (이전 60일 ${failRatePrev.toFixed(1)}%${failRate < failRatePrev ? ' → 개선' : failRate > failRatePrev ? ' → 악화' : ''})` : ''} · 검수 ${q.ins}건 기준`);
+  else if(q.ins > 0) notes.push(`최근 60일 검수 ${q.ins}건 중 불합격 ${q.fail}건 (표본 적음)`);
+  if(q.reentry) notes.push(`최근 60일 본인 수리분 재인입 <b>${q.reentry}건</b>`);
+  const ramping = tw !== null && tw <= KPI_RAMP_SCHEDULE.length + 2;
+  let icon, label, color;
+  if((tw !== null && tw < 4 && wl.length < 4) || recent === null || wl.length < 3) {
+    icon = '⏳'; label = '데이터 축적 중 — 판단은 아직 일러요'; color = 'var(--text3)';
+  } else if(attain >= 0.95 && (growth === null || growth >= -0.05)) {
+    icon = '🟢'; label = ramping ? '목표 조기 소화 — 성장 빠름, 유지 강력 권장' : '안착 — 목표를 안정적으로 소화, 유지 권장'; color = '#16a34a';
+  } else if(ramping && attain >= 0.85) {
+    icon = '🔵'; label = '램프업 정상 궤도 — 성장 여지 큼, 계속 가볼 가치 충분'; color = '#0369a1';
+  } else if(growth !== null && growth >= 0.15) {
+    icon = '🟢'; label = '상승 추세 — 성장 중, 유지 권장'; color = '#16a34a';
+  } else if(ramping && attain !== null && attain < 0.7) {
+    icon = '🟠'; label = '램프업 지연 — 교육·업무 배치 점검 필요'; color = '#d97706';
+  } else if(!ramping && attain !== null && attain < 0.7 && (growth === null || growth <= 0)) {
+    icon = '🔴'; label = '정체 — 면담으로 원인 파악 권장'; color = '#dc2626';
+  } else {
+    icon = '🟠'; label = '관찰 필요 — 목표엔 못 미치지만 흐름은 유지 중'; color = '#d97706';
+  }
+  const qWarn = [];
+  if(failRate !== null && failRate >= 8) qWarn.push(`⚠ 검수 불합격률 ${failRate.toFixed(1)}% — 속도보다 품질 점검이 먼저`);
+  if(q.reentry >= 3) qWarn.push(`⚠ 재인입 유발 ${q.reentry}건/60일 — 수리 품질 확인 필요`);
+  return { icon, label, color, notes, qWarn, tw };
+}
+function _grSvg(weeks) {
+  if(!weeks || !weeks.length) return '';
+  const W = 560, H = 118, P = { l: 26, r: 8, t: 10, b: 18 };
+  const rawMax = Math.max(KPI_STD_DAILY, ...weeks.map(w => Math.max(w.daily, w.target || 0)));
+  const maxY = rawMax * 1.15 || 1;
+  const x = i => P.l + (W - P.l - P.r) * (weeks.length === 1 ? 0.5 : i / (weeks.length - 1));
+  const y = v => H - P.b - (H - P.t - P.b) * (v / maxY);
+  const dPts = weeks.map((w, i) => `${x(i).toFixed(1)},${y(w.daily).toFixed(1)}`).join(' ');
+  const tPts = weeks.map((w, i) => `${x(i).toFixed(1)},${y(w.target || 0).toFixed(1)}`).join(' ');
+  let ticks = '', lastM = -1;
+  weeks.forEach((w, i) => {
+    const m = w.from.getMonth();
+    if(m !== lastM) { ticks += `<text x="${x(i).toFixed(1)}" y="${H - 4}" font-size="9" fill="#94a3b8" text-anchor="middle">${m + 1}월</text>`; lastM = m; }
+  });
+  const dots = weeks.map((w, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(w.daily).toFixed(1)}" r="2.6" fill="var(--accent,#6366f1)"><title>${w.from.getMonth() + 1}/${w.from.getDate()} 주 — 등록 ${w.cnt}건 / 영업일 ${w.biz}일 = 일 ${w.daily.toFixed(1)}건 (주간 목표 일 ${w.target}건)</title></circle>`).join('');
+  const grid = [0.33, 0.66, 1].map(f => {
+    const v = rawMax * f;
+    return `<line x1="${P.l}" y1="${y(v).toFixed(1)}" x2="${W - P.r}" y2="${y(v).toFixed(1)}" stroke="#e2e8f0" stroke-opacity="0.5" stroke-dasharray="2,3" stroke-width="1"/><text x="2" y="${(y(v) + 3).toFixed(1)}" font-size="9" fill="#94a3b8">${v.toFixed(0)}</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;" role="img" aria-label="주별 일평균 생산성 추이">
+    ${grid}
+    <polyline points="${tPts}" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5,4"/>
+    <polygon points="${x(0).toFixed(1)},${y(0).toFixed(1)} ${dPts} ${x(weeks.length - 1).toFixed(1)},${y(0).toFixed(1)}" fill="var(--accent,#6366f1)" opacity="0.08"/>
+    <polyline points="${dPts}" fill="none" stroke="var(--accent,#6366f1)" stroke-width="2"/>
+    ${dots}${ticks}
+  </svg>`;
+}
+function _finGrowthHtml(team, _ovOf) {
+  const cand = team.filter(n => _ovOf(n) === 'direct');
+  if(!cand.length) return '';
+  const now = new Date();
+  const monKeys = [];
+  for(let k = 2; k >= 0; k--) { const d = new Date(now.getFullYear(), now.getMonth() - k, 1); monKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }
+  const agg = _grAggregates(monKeys);
+  const cards = cand.map(n => {
+    const weeks = _grWeeklySeries(n);
+    const hire = hireDateMap[n] ? String(hireDateMap[n]).slice(0, 10) : null;
+    if(!weeks || !weeks.length) {
+      return `<div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;">
+        <div style="font-weight:800;">${escapeHtml(n)} ${tierBadge(tierMap[n] || '')}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:6px;">아직 집계할 수리 기록이 없어요${hire ? ` (입사 ${hire})` : ''}.</div></div>`;
+    }
+    const q = agg.quality(n);
+    const v = _grVerdict(n, weeks, q);
+    const mstat = monKeys.map(m => {
+      const mine = (entries || []).filter(e => String(e.worker || '').split('::')[0] === n && String(e.date).startsWith(m));
+      return { m, cnt: mine.length, ship: agg.ship(n, m), rev: mine.reduce((s, e) => s + (Number(e.total) || 0), 0) };
+    });
+    const totalAll = (entries || []).filter(e => String(e.worker || '').split('::')[0] === n).length;
+    return `<div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:14px;font-weight:800;">${escapeHtml(n)}</span> ${tierBadge(tierMap[n] || '')}
+        ${mentoringMap[n] ? '<span style="font-size:10px;color:#7c3aed;font-weight:700;">🎓 교육 중</span>' : ''}
+        <span style="font-size:11px;color:var(--text3);">${hire ? `입사 ${hire} · ${v.tw !== null ? v.tw + '주차' : ''}` : '입사일 미설정 (등록 시작 기준 집계)'} · 누적 등록 ${fmt(totalAll)}건</span>
+        <span style="margin-left:auto;font-size:12px;font-weight:800;color:${v.color};">${v.icon} ${v.label}</span>
+      </div>
+      <div style="margin:10px 0 4px;">${_grSvg(weeks)}</div>
+      <div style="display:flex;gap:14px;font-size:10.5px;color:var(--text3);margin-bottom:8px;">
+        <span><span style="display:inline-block;width:14px;height:3px;background:var(--accent,#6366f1);border-radius:2px;vertical-align:middle;"></span> 주별 일평균 등록(건/영업일)</span>
+        <span><span style="display:inline-block;width:14px;border-top:2px dashed #94a3b8;vertical-align:middle;"></span> 주차별 목표</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px;">
+        ${mstat.map(t => `<div style="background:var(--surface2,rgba(148,163,184,.07));border-radius:9px;padding:8px 10px;">
+          <div style="font-size:10px;color:var(--text3);font-weight:700;">${t.m.slice(5)}월</div>
+          <div style="font-size:12px;margin-top:2px;">등록 <b>${fmt(t.cnt)}</b> · 출고 <b>${fmt(t.ship)}</b></div>
+          <div style="font-size:11px;color:var(--text2);">매출 ${fmt(t.rev)}원</div>
+        </div>`).join('')}
+      </div>
+      <div style="font-size:12px;line-height:1.7;color:var(--text2);">${v.notes.map(x => `· ${x}`).join('<br>')}</div>
+      ${v.qWarn.length ? `<div style="margin-top:6px;font-size:11.5px;font-weight:700;color:#d97706;">${v.qWarn.join('<br>')}</div>` : ''}
+    </div>`;
+  }).join('');
+  return `<div class="card" style="padding:0;margin-bottom:14px;">
+    <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">📈 엔지니어 성장 분석
+      <span style="font-size:11px;color:var(--text3);font-weight:400;">· 입사~현재 주별 일평균(영업일 기준) vs 램프업 목표 · 검수·재인입 품질 포함 · 최근 6개월 표시</span></div>
+    <div style="padding:14px 16px;display:grid;gap:12px;">${cards}</div>
+    <div style="padding:10px 16px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">소견은 위 수치(달성률·4주 추세·검수 불합격률·재인입)만으로 만든 규칙 기반 참고 지표예요 — 대행일·검수 지원 등 그래프에 안 잡히는 기여가 있을 수 있으니 최종 판단은 근거 수치와 함께 보세요.</div>
+  </div>`;
+}
+
 async function renderFinance() {
   const el = document.getElementById('finance-content');
   if(!el) return;
@@ -10521,6 +10756,11 @@ async function renderFinance() {
     ${gone.map(n => `<tr style="opacity:.55;"><td></td><td></td><td>${escapeHtml(n)} <span style="font-size:10px;color:var(--text3);">퇴사·명단 외</span></td><td style="text-align:right;color:var(--text3);">—</td><td style="text-align:right;color:var(--text3);">—</td><td style="text-align:right;">${_w(revBy[n])}</td><td style="text-align:right;">${fmt(cntBy[n])}</td><td colspan="4" style="font-size:11px;color:var(--text3);">매출만 팀 합계에 포함</td></tr>`).join('')}
     </tbody></table></div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;padding:12px 16px;border-top:1px solid var(--border);">
+      <div style="padding:6px 14px;border:1.5px solid var(--accent,#6366f1);border-radius:10px;background:rgba(99,102,241,.06);">
+        <div style="font-size:11px;color:var(--text3);font-weight:700;">📌 ${fm}월 평균 기준건당가</div>
+        <div style="font-size:21px;font-weight:800;color:var(--accent,#6366f1);">${_w(avgUnit)}</div>
+        <div style="font-size:10px;color:var(--text3);">${avgUnitSrc} · BEP·시나리오·충원 계산 기준</div>
+      </div>
       <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">간접비율 (%) — 4대보험·퇴직금 등</label>
         <input type="number" id="fin-ir" value="${f.indirectRate}" min="0" step="0.5" style="width:90px;height:32px;text-align:right;padding:0 6px;"></div>
       <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">기타 월 고정비 (원) — 임대료·공구 등</label>
@@ -10530,6 +10770,9 @@ async function renderFinance() {
       <button class="btn btn-sm btn-primary" style="height:32px;" onclick="saveFinance()">💾 저장 (서버)</button>
       <span style="font-size:10.5px;color:var(--text3);line-height:1.5;">저장하면 서버에 올라가 다른 기기에서도 보여요.<br>⚠ 급여는 민감정보 — 화면은 T4 전용이지만 데이터 채널을 파고들면 복원 가능한 수준의 보호입니다.</span>
     </div></div>`;
+
+  // ── ⭐ v2.80: 엔지니어 성장 분석
+  try { h += _finGrowthHtml(team, _ovOf); } catch(err) { console.warn('성장 분석 렌더 실패', err); }
 
   // ── 달성률 시나리오 (엑셀 재현) — 팀 일 목표 기준
   const midD = new Date(fy, fm - 1, 15);
@@ -10569,6 +10812,9 @@ async function renderFinance() {
   const projCnt = mv === todayS.slice(0, 7) ? Math.round(totalCnt / wdSoFar * workdays) : totalCnt;
   const demand = Number(document.getElementById('fin-demand')?.value) || f.demand || (typeof kpiMap !== 'undefined' && kpiMap[mv]) || 0;
   const hireSal = Number(document.getElementById('fin-hire-sal')?.value) || f.hireSal || 3050;
+  // ⭐ v2.80: 평균 수리 기준가도 조정 가능 — 단가가 바뀔 시나리오를 바로 시험 (비우면 이 달 자동값)
+  const _suRaw = document.getElementById('fin-sim-unit')?.value;
+  const simUnit = (_suRaw !== undefined && _suRaw !== '' && Number(_suRaw) > 0) ? Number(_suRaw) : avgUnit;
   const unmet = Math.max(0, demand - projCnt);
   const hireCap = KPI_STD_DAILY * opD;                               // 정착 엔지니어 1명 월 처리력 (실질 가동일 기준)
   const hireCost1 = _finMonthlyCost(hireSal, f.indirectRate);
@@ -10577,10 +10823,10 @@ async function renderFinance() {
   const hireRows = [1, 2, 3].map(N => {
     const cap = N * hireCap;
     const captured = Math.min(unmet, cap);
-    const addRev = captured * avgUnit;
+    const addRev = captured * simUnit;
     const addCost = N * hireCost1;
     const rampCaptured = Math.min(unmet, N * rampAvg * opD);
-    return { N, cap, captured, addRev, addCost, delta: addRev - addCost, rampDelta: rampCaptured * avgUnit - addCost };
+    return { N, cap, captured, addRev, addCost, delta: addRev - addCost, rampDelta: rampCaptured * simUnit - addCost };
   });
   const h1 = hireRows[0];
   const verdict = demand <= 0
@@ -10588,13 +10834,15 @@ async function renderFinance() {
     : unmet <= 0
       ? `지금 페이스(월 ${fmt(projCnt)}건 환산)로 수요 ${fmt(demand)}건을 이미 소화하고 있어요 — <b style="color:#dc2626;">충원하면 매출 증가 없이 월 ${_w(hireCost1)} 비용만 늘어납니다.</b> 물량(수요) 확보가 먼저예요.`
       : `미처리 수요가 월 <b>${fmt(unmet)}건</b> 남아요 — 1명 충원(정착 기준 월 ${fmt(hireCap)}건) 시 매출 <b>+${_w(h1.addRev)}</b> · 인건비 +${_w(h1.addCost)} → <b style="color:${h1.delta >= 0 ? 'var(--green,#16a34a)' : '#dc2626'};">월 ${h1.delta >= 0 ? '+' : '−'}${fmt(Math.abs(Math.round(h1.delta)))}원</b> ${h1.delta >= 0 ? '이익 개선 예상' : '— 수요가 1명분에 못 미쳐 적자'}`;
-  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🧑‍🔧 인력 충원 시뮬레이션 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 이 달 페이스 월 ${fmt(projCnt)}건 환산 기준</span></div>
+  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🧑‍🔧 인력 충원 시뮬레이션 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 이 달 페이스 월 ${fmt(projCnt)}건 환산 · 건당 ${_w(simUnit)}${simUnit !== avgUnit ? ' <b style="color:#d97706;">(수동 조정 중)</b>' : ' (자동)'} 기준</span></div>
     <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;padding:12px 16px;">
       <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">월 예상 수요 (티오더 물량, 건)</label>
         <input type="number" id="fin-demand" value="${demand || ''}" placeholder="예: ${typeof kpiMap !== 'undefined' && kpiMap[mv] ? kpiMap[mv] : 800}" min="0" onchange="renderFinance()" style="width:110px;height:32px;text-align:right;padding:0 6px;"></div>
       <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">신입 연봉 (만원)</label>
         <input type="number" id="fin-hire-sal" value="${hireSal}" min="0" onchange="renderFinance()" style="width:90px;height:32px;text-align:right;padding:0 6px;"></div>
-      <span style="font-size:10.5px;color:var(--text3);">저장 버튼을 누르면 수요·신입 연봉도 함께 저장돼요</span>
+      <div><label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px;">평균 수리 기준가 (원) — 비우면 자동</label>
+        <input type="number" id="fin-sim-unit" value="${simUnit !== avgUnit ? simUnit : ''}" placeholder="${avgUnit}" min="0" step="100" onchange="renderFinance()" title="이 달 평균(${_w(avgUnit)}) 대신 다른 단가로 시뮬레이션 — 비우면 자동값으로 복귀" style="width:110px;height:32px;text-align:right;padding:0 6px;"></div>
+      <span style="font-size:10.5px;color:var(--text3);">저장 버튼을 누르면 수요·신입 연봉도 함께 저장돼요 · 기준가는 시뮬 전용(저장 안 됨)</span>
     </div>
     <div style="padding:0 16px 12px;font-size:12.5px;line-height:1.7;">${verdict}</div>
     ${demand > 0 ? `<div class="table-wrap"><table>
