@@ -2257,7 +2257,7 @@ const MASTER_NAME = '마스터'; // ⭐ v2.75b: 계정명 변경(최민규→마
 const _isAdminUser = (name) => {
   if(name === MASTER_NAME) return true; // 마스터는 항상 관리자
   const tier = (typeof tierMap !== 'undefined') ? tierMap[name] : null;
-  return tier === 'T3' || tier === 'T4';
+  return tier === LEAD_TIER() || tier === ADMIN_TIER();
 };
 
 // ⭐ v2.79j: WORKS의 하드코딩 parts 전면 제거 — 여기 적힌 옛 부품명(FPC보드(S2_N&S2pro_N) 등)은
@@ -2454,12 +2454,18 @@ const DEFECT_TYPES = {
 
 // === 검수 권한 체크 함수 ===
 // 검수 가능: 역할이 inspector/both 이거나 티어 T3 이상 (T4 포함)
+// 검수 '판정' 권한 — QC(inspector/both) + 파트장·총괄 (⭐ v2.82a: 새 체계에서 T3 시니어는 판정 불가)
 function canInspect(name) {
   if(!name) return false;
   const role = roleMap[name] || 'engineer';
   if(role === 'inspector' || role === 'both') return true;
-  const tierStr = String(tierMap[name] || '');
-  const tierNum = parseInt(tierStr.replace(/[^0-9]/g, '')) || 0;
+  const tier = String(tierMap[name] || '');
+  return tier === LEAD_TIER() || tier === ADMIN_TIER();
+}
+// 품질 대시보드 '열람' 권한 — 판정 권한자 + T3 이상 (⭐ v2.82a: 새 체계에서 T3 시니어부터 열람 가능)
+function canSeeQualityDash(name) {
+  if(canInspect(name)) return true;
+  const tierNum = parseInt(String(tierMap[name] || '').replace(/[^0-9]/g, '')) || 0;
   return tierNum >= 3;
 }
 function isInspector(name) {
@@ -2547,7 +2553,7 @@ function isRepairEngineer(name) {
   if(name === MASTER_NAME) return false;
   if(!isActiveWorker(name)) return false;
   const tier = tierMap[name];
-  if(tier === 'T4') return false;
+  if(tier === 'T4' || tier === 'T5') return false;   // ⭐ v2.82: 새 체계 T4=파트장, T5=총괄 — 둘 다 제외... 단 구체계 T4만 있을 땐 기존과 동일
   const role = roleMap[name] || 'engineer';
   if(role === 'inspector') return false;
   return true;
@@ -2577,7 +2583,7 @@ function getPersonalDailyTarget(name, asOf) {
   if(!isRepairEngineer(name)) return 0;
   // ⭐ v2.79q: T3(파트장)는 2026-09-10부터 수리 목표 제외 — 사람 관리 전담으로 전환
   //   (이전 날짜는 기존 정책 유지: v2.70s 관리·교육 병행 일 6건 — 과거 미달 기록이 소급 변동하지 않게)
-  if(tierMap[name] === 'T3') return refStr >= T3_MANAGE_START ? 0 : T3_STD_DAILY;
+  if(tierMap[name] === LEAD_TIER()) return refStr >= T3_MANAGE_START ? 0 : T3_STD_DAILY;   // ⭐ v2.82: 파트장(구 T3/신 T4) 관리 전담
   // 입사일 기준 그 시점 일 목표 (입사일 없으면 정착 기준)
   return tenureDailyTarget(name, ref) || KPI_STD_DAILY;
 }
@@ -3717,6 +3723,7 @@ const TIER_COLORS = {
   T2: { bg:'#f4ede4', color:'#a0522d', border:'#cd7f32', label:'T2' },
   T3: { bg:'#f0f0f0', color:'#707070', border:'#aaa', label:'T3' },
   T4: { bg:'#fffbe6', color:'#b8860b', border:'#ffd700', label:'T4' },
+  T5: { bg:'#f3e8ff', color:'#7c3aed', border:'#a855f7', label:'T5' },
 };
 function tierBadge(tier) {
   if(!tier || !TIER_COLORS[tier]) return '';
@@ -3727,16 +3734,26 @@ let currentUser = null;
 let isAdmin = false;
 
 /* ─── 권한 헬퍼 (tier 기반) ─── */
-// T4 = 팀장 (전체 관리자)
+// ⭐ v2.82 직급 개편: 마스터 T5 · 파트장 T4 · 엔지니어 T3~T1.
+//   하위호환 — 명단에 T5가 아직 없으면 기존 체계(T4=총괄, T3=파트장)로 동작.
+//   T5가 등록되는 순간 자동으로 새 체계 적용 (파트장 화면이 총괄 화면으로 새는 일 없음).
+function _newTierScheme() {
+  try { return (workers || []).some(w => tierMap[w] === 'T5'); } catch(e) { return false; }
+}
+function ADMIN_TIER() { return _newTierScheme() ? 'T5' : 'T4'; }
+function LEAD_TIER() { return _newTierScheme() ? 'T4' : 'T3'; }
+// 총괄 관리자 (마스터)
 function isFullAdmin() {
   if(!currentUser) return false;
-  return tierMap[currentUser] === 'T4';
+  if(currentUser === MASTER_NAME) return true;   // 안전장치 — 직급이 꼬여도 마스터는 잠기지 않음
+  return tierMap[currentUser] === ADMIN_TIER();
 }
 
-// T3 = 파트장 (본인 파트만 관리)
+// 파트장 (본인 파트만 관리)
 function isPartMaster() {
   if(!currentUser) return false;
-  return tierMap[currentUser] === 'T3';
+  if(isFullAdmin()) return false;
+  return tierMap[currentUser] === LEAD_TIER();
 }
 
 // 현재 사용자의 파트 (T4면 'all')
@@ -3749,9 +3766,12 @@ function currentUserPart() {
 // 현재 사용자가 특정 작업자를 관리할 수 있나?
 function canManageWorker(workerName) {
   if(!currentUser || !workerName) return false;
-  if(isFullAdmin()) return true;  // T4는 모두 관리
-  if(!isPartMaster()) return false;  // T1, T2는 권한 없음
-  // T3 (파트장): 같은 파트만
+  if(isFullAdmin()) return true;  // 총괄은 모두 관리
+  if(!isPartMaster()) return false;  // 일반 엔지니어는 권한 없음
+  // ⭐ v2.82b: 파트장은 총괄(마스터·ADMIN_TIER)을 절대 관리할 수 없음
+  //   — 총괄을 강등시켜 T5를 없애면 구체계 폴백으로 T4가 총괄이 되는 권한 탈취 경로 차단
+  if(workerName === MASTER_NAME || tierMap[workerName] === ADMIN_TIER()) return false;
+  // 파트장: 같은 파트만
   const myPart = currentUserPart();
   const workerPart = partMap[workerName] || '';
   return myPart && myPart === workerPart;
@@ -3809,12 +3829,12 @@ function buildAdminGrid() {
   const adminSet = new Set(ADMINS);
   workers.forEach(w => {
     const tier = tierMap[w];
-    if(tier === 'T3' || tier === 'T4') adminSet.add(w);
+    if(tier === LEAD_TIER() || tier === ADMIN_TIER()) adminSet.add(w);
   });
-  // T4(팀장)는 뒤에, T3(파트장)는 앞에, 나머지는 가나다순
+  // 총괄은 뒤에, 파트장은 앞에, 나머지는 가나다순
   const sorted = [...adminSet].sort((a, b) => {
-    const aT4 = tierMap[a] === 'T4';
-    const bT4 = tierMap[b] === 'T4';
+    const aT4 = tierMap[a] === ADMIN_TIER();
+    const bT4 = tierMap[b] === ADMIN_TIER();
     if(aT4 && !bT4) return 1;
     if(!aT4 && bT4) return -1;
     return a.localeCompare(b, 'ko');
@@ -5521,7 +5541,7 @@ function renderInspect() {
   // ⭐ v2.25: 품질 대시보드 버튼은 QC 권한자(T3/T4/inspector/both)만 보임
   const dashBtn = document.getElementById('inspect-subtab-dashboard');
   if(dashBtn) {
-    dashBtn.style.display = canInspect(currentUser) ? '' : 'none';
+    dashBtn.style.display = canSeeQualityDash(currentUser) ? '' : 'none';
   }
 
   // 현재 활성 서브탭에 따라 렌더
@@ -6204,8 +6224,8 @@ function switchInspectSubtab(which) {
     renderDefectList();
   } else if(which === 'dashboard') {
     if(!dashBtn || !dashPanel) return;
-    // ⭐ 품질 대시보드는 QC(inspector/both) + T3/T4만 — 권한 없으면 검수대기로
-    if(!canInspect(currentUser)) { switchInspectSubtab('wait'); return; }
+    // ⭐ v2.82a: 품질 대시보드 열람 = QC + T3 이상 (판정 권한과 분리)
+    if(!canSeeQualityDash(currentUser)) { switchInspectSubtab('wait'); return; }
     dashBtn.style.borderBottomColor = '#8b5cf6';
     dashBtn.style.color = '#8b5cf6';
     dashBtn.style.fontWeight = '700';
@@ -10347,7 +10367,7 @@ async function saveFinance() {
   f.unitPrice   = Math.max(0, Number(g('fin-unit')?.value) || 0) || 27000;
   f.salaries = {}; f.exclude = {}; f.overhead = {};
   // ⭐ v2.79s: 직접/간접 구분 저장 (기본값 = T3·QC는 간접 — 기본과 다를 때만 기록)
-  const _ovDef = n => (tierMap[n] === 'T3' || (roleMap[n] || 'engineer') === 'inspector') ? 'indirect' : 'direct';
+  const _ovDef = n => (tierMap[n] === LEAD_TIER() || (roleMap[n] || 'engineer') === 'inspector') ? 'indirect' : 'direct';
   (window._finNames || []).forEach((n, i) => {
     const v = Number(g('fin-sal-' + i)?.value);
     if(!isNaN(v) && v > 0) f.salaries[n] = v;
@@ -10803,7 +10823,7 @@ async function renderFinance() {
   // ⭐ v2.79s: 직접(수리) / 간접(배분) 구분 — T3(관리 전담)·QC 전담은 수리가 디폴트가 아니라
   //   본인 매출로 인건비를 충당할 수 없음 → 간접 인건비로 보고, 본인 매출로 먼저 상계한 뒤
   //   남는 몫을 직접 엔지니어들에게 매출 비중대로 배분한다.
-  const _ovDefault = n => (tierMap[n] === 'T3' || (roleMap[n] || 'engineer') === 'inspector') ? 'indirect' : 'direct';
+  const _ovDefault = n => (tierMap[n] === LEAD_TIER() || (roleMap[n] || 'engineer') === 'inspector') ? 'indirect' : 'direct';
   const _ovOf = n => { const o = (f.overhead || {})[n]; return (o === 'direct' || o === 'indirect') ? o : _ovDefault(n); };
 
   // ⭐ v2.79u: 입사일 반영 — 조회 달에 아직 입사 전이면 인건비 0(제외), 월중 입사면 일할 계산.
@@ -15365,7 +15385,7 @@ async function renderSummary() {
     if(w === MASTER_NAME) {bc='badge-blue';bt='관리자';pc='prog-ok';blockAccent='var(--border)';blockStyle='';}
     else if(acting){bc='badge-blue';bt='👑 파트장 대행';pc='prog-ok';blockAccent='#d97706';blockStyle='box-shadow:0 0 0 2px #d97706;';}
     else if(mentoringMap[w]){bc='badge-blue';bt='🎓 교육 중';pc='prog-ok';blockAccent='#7c3aed';blockStyle='';}
-    else if(!target && tierMap[w]==='T3'){bc='badge-blue';bt='👥 관리 전담';pc='prog-ok';blockAccent='var(--border)';blockStyle='';}   // ⭐ v2.79q: T3 = 사람 관리 역할
+    else if(!target && tierMap[w]===LEAD_TIER()){bc='badge-blue';bt='👥 관리 전담';pc='prog-ok';blockAccent='var(--border)';blockStyle='';}   // ⭐ v2.79q: T3 = 사람 관리 역할
     else if(!target){bc='badge-blue';bt='학습 중';pc='prog-ok';blockAccent='var(--border)';blockStyle='';}
     else if(diff>0){bc='badge-over';bt=`⭐ ${diff}건 초과`;pc='prog-over';blockAccent='#6366f1';blockStyle='box-shadow:0 0 0 2px #6366f1,0 4px 16px rgba(99,102,241,.18);';}
     else if(diff<0){bc='badge-under';bt=`${Math.abs(diff)}건 미달`;pc='prog-under';blockAccent='var(--red)';blockStyle='box-shadow:0 0 0 2px var(--red);';}
@@ -16595,7 +16615,7 @@ async function renderReport() {
       stage = `<span style="font-weight:600;color:var(--text3);">퇴사·계정 삭제</span> <span style="font-size:10px;color:var(--text3);">실적만 표기 · 미달 미집계</span>`;   // ⭐ v2.70s
     } else if(mentoringMap[r.name]) {
       stage = `<span style="font-weight:700;color:#7c3aed;">🎓 교육 중</span> <span style="font-size:10px;color:var(--text3);">목표 면제 · 실적만 집계</span>`;
-    } else if(tierMap[r.name] === 'T3' && !(r.manual != null && r.manual > 0)) {
+    } else if(tierMap[r.name] === LEAD_TIER() && !(r.manual != null && r.manual > 0)) {
       // ⭐ v2.79q: T3는 2026-09-10부터 사람 관리 전담 (수리 목표 제외) — 이전 달 리포트는 기존 병행 기준 표기
       stage = (monthVal >= T3_MANAGE_START.slice(0,7))
         ? `<span style="font-weight:700;color:#0369a1;">👥 관리 전담</span> <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#e0f2fe;color:#0369a1;">파트장 · 수리 목표 제외 (${T3_MANAGE_START.slice(5).replace('-','/')}~)</span>`
@@ -17247,7 +17267,9 @@ function renderWorkers() {
     // 권한별 부여 가능한 tier
     // T4(팀장) → T1~T4 모두 부여 가능
     // T3(파트장) → T1, T2만 부여 가능 (T3, T4는 팀장이 부여)
-    const allowedTiers = isFullAdmin() ? ['T1','T2','T3','T4'] : ['T1','T2'];
+    const allowedTiers = isFullAdmin()
+      ? (_newTierScheme() ? ['T1','T2','T3','T4','T5'] : ['T1','T2','T3','T4','T5'])
+      : (_newTierScheme() ? ['T1','T2','T3'] : ['T1','T2']);
     // 파트 옵션도 제한 (파트 마스터는 본인 파트로만 지정 가능)
     const allowedParts = isFullAdmin()
       ? [['nonbat','논배터리'],['battery','배터리'],['all','전체']]
@@ -17268,7 +17290,7 @@ function renderWorkers() {
         ${partBadge(part)}
         <span style="font-size:12px;color:var(--text2);">오늘 ${ct}건 / 전체 ${ca}건</span>
         ${mentoringMap[w] ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#ede9fe;color:#7c3aed;">🎓 교육 중</span>' : ''}
-        ${tier==='T3' ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#e0f2fe;color:#0369a1;">👥 관리 전담</span>' : ''}
+        ${tier===LEAD_TIER() ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#e0f2fe;color:#0369a1;">👥 관리 전담</span>' : ''}
         ${(actingDaysMap[w]||[]).length ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#fff7ed;color:#d97706;" title="파트장 대행일: ${(actingDaysMap[w]||[]).join(', ')}">👑 대행 ${(actingDaysMap[w]||[]).length}일${isActingDay(w, todayStr()) ? ' · 오늘' : ''}</span>` : ''}
         ${tenureLabel}
       </div>
@@ -17289,7 +17311,7 @@ function renderWorkers() {
         </select>
         <input type="date" value="${hireVal}" onchange="saveWorkerHireDate('${w}',this.value)" title="입사일 (주차별 KPI 목표 산정)" style="height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);" />
         <button onclick="saveMentoring('${w}',${mentoringMap[w]?'false':'true'})" title="교육 중 (켜면 KPI 목표 면제 · 실적은 그대로 집계)" style="height:30px;padding:0 10px;font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;border:1px solid ${mentoringMap[w]?'#7c3aed':'var(--border2)'};background:${mentoringMap[w]?'#ede9fe':'transparent'};color:${mentoringMap[w]?'#7c3aed':'var(--text2)'};">🎓 교육${mentoringMap[w]?' 중':''}</button>
-        ${tier==='T2' ? (() => { const _act = isActingDay(w, todayStr()); return `
+        ${(tier==='T2' || (tier==='T3' && _newTierScheme())) ? (() => { const _act = isActingDay(w, todayStr()); return `
         <input type="date" id="act-d-${_wi}" value="${todayStr()}" title="대행일 — 지난 날짜를 골라 놓친 대행 기록을 나중에 등록/해제할 수 있어요" style="height:30px;padding:0 6px;font-size:11px;border:1px solid ${_act?'#d97706':'var(--border2)'};border-radius:var(--radius-sm);color:var(--text2);" />
         <button onclick="toggleActingDay('${escapeJs(w)}', document.getElementById('act-d-${_wi}')?.value)" title="파트장 대행 (T3 휴무일 — 왼쪽 날짜의 대행 기록을 등록/해제. 기본 오늘, 지난 날짜 소급 등록 가능)" style="height:30px;padding:0 10px;font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;border:1px solid ${_act?'#d97706':'var(--border2)'};background:${_act?'#fff7ed':'transparent'};color:${_act?'#d97706':'var(--text2)'};">👑 대행${_act?' (오늘 중)':''}</button>`; })() : ''}
 <input type="number" min="0" step="1" placeholder="자동" value="${dtVal!==undefined&&dtVal!==null?dtVal:''}" onchange="saveWorkerDailyTarget('${w}',this.value)" title="일일 목표 직접 지정 (비우면 입사일 기준 자동)" style="width:64px;height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);text-align:right;" />
@@ -17344,11 +17366,22 @@ async function saveTier(name, tier) {
     renderWorkers();  // UI 원복
     return;
   }
-  // T3(파트장)는 T3, T4 부여 불가 (파트장은 T1, T2만 부여 가능)
-  if((tier === 'T3' || tier === 'T4') && !isFullAdmin()) {
-    notify(tier + '(는) 팀장(T4)만 부여할 수 있습니다.', 'error');
+  // 파트장은 파트장·총괄 직급 부여 불가
+  if((tier === LEAD_TIER() || tier === ADMIN_TIER()) && !isFullAdmin()) {
+    notify(tier + '(는) 총괄만 부여할 수 있습니다.', 'error');
     renderWorkers();
     return;
+  }
+  // ⭐ v2.82b: 파트장은 현재 파트장·총괄 직급자의 직급을 바꿀 수 없음 (강등 차단 — 방어 이중화)
+  if((tierMap[name] === LEAD_TIER() || tierMap[name] === ADMIN_TIER() || name === MASTER_NAME) && !isFullAdmin()) {
+    notify('파트장·총괄의 직급 변경은 총괄만 할 수 있습니다.', 'error');
+    renderWorkers();
+    return;
+  }
+  // ⭐ v2.82b: 마지막 총괄(T5)을 강등하면 구체계(T4=총괄)로 되돌아감 — 총괄 본인에게도 경고
+  if(_newTierScheme() && tierMap[name] === 'T5' && tier !== 'T5') {
+    const otherT5 = (workers || []).some(w => w !== name && tierMap[w] === 'T5');
+    if(!otherT5 && !window.confirm('⚠ 마지막 총괄(T5)을 내리면 직급 체계가 구체계로 되돌아가 T4(파트장)가 총괄 권한을 갖게 됩니다.\n정말 변경할까요?')) { renderWorkers(); return; }
   }
   const oldTier = tierMap[name];
   tierMap[name] = tier || undefined;
