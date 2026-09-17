@@ -10650,9 +10650,8 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
   });
   const ranked = rows.slice().sort((a, b) => b.total - a.total);
   const medal = i => ['🥇', '🥈', '🥉'][i] || `${i + 1}위`;
-  // 부문별 우수
-  const bestReg = rows.slice().sort((a, b) => b.reg - a.reg)[0];
-  const bestShip = maxShip > 0 ? rows.slice().sort((a, b) => b.ship - a.ship)[0] : null;
+  // 부문별 우수 — 수리·출고는 합산 1개 부문 (따로 나눌 이유가 없음)
+  const bestCombo = rows.slice().sort((a, b) => (b.reg + b.ship) - (a.reg + a.ship))[0];
   const qRows = rows.filter(r => r.rate !== null);
   const bestQ = qRows.length ? qRows.slice().sort((a, b) => a.rate - b.rate)[0] : null;
   const impRows = rows.filter(r => r.improve !== null && r.improve > 0);
@@ -10665,8 +10664,7 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
   return `<div class="card" style="padding:0;margin-bottom:14px;">
     <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🏆 이 달의 엔지니어 <span style="font-size:11px;color:var(--text3);font-weight:400;">· ${mv} · 포상 참고용 — 공식·원자료 전부 공개 기준</span></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;padding:12px 16px;">
-      ${aw('🔧', '수리왕 (수리 등록 최다)', bestReg && bestReg.reg > 0 ? bestReg : null, bestReg ? `${fmt(bestReg.reg)}건 등록` : '')}
-      ${aw('🚚', '출고왕 (실제 출고 최다)', bestShip, bestShip ? `${fmt(bestShip.ship)}대 출고` : '')}
+      ${aw('🔧🚚', '수리·출고왕 (수리+출고 합산)', bestCombo && (bestCombo.reg + bestCombo.ship) > 0 ? bestCombo : null, bestCombo ? `수리 등록 ${fmt(bestCombo.reg)} + 실제 출고 ${fmt(bestCombo.ship)} = 합산 ${fmt(bestCombo.reg + bestCombo.ship)}건` : '')}
       ${aw('💎', '품질왕 (불합격률 최저)', bestQ, bestQ ? `불합격률 ${bestQ.rate.toFixed(1)}% (검수 ${fmt(bestQ.q.ins)}건)` : '')}
       ${aw('📈', '품질 도약왕 (전월 대비 개선)', bestImp, bestImp ? `${bestImp.ratePrev.toFixed(1)}% → ${bestImp.rate.toFixed(1)}% (${bestImp.improve.toFixed(1)}%p 개선)` : '')}
     </div>
@@ -13585,6 +13583,46 @@ async function buildMissSummaryHtml() {
   return html;
 }
 
+
+/* ⭐ v2.81a: 내 품질 점수 (엔지니어 개인 대시보드) — 본인 검수 성적 + 약한 공정 안내.
+   경영 분석과 같은 집계(_grAggregates)를 쓰되 톤은 코칭용으로. */
+function _myQualitySection(name) {
+  try {
+    const agg = _grAggregates();
+    const q = agg.quality(name);
+    if(!q || !q.insAll || q.insAll < 5) return '';   // 표본 5건 미만이면 아직 표시 안 함
+    const use60 = q.ins >= 5;
+    const ins = use60 ? q.ins : q.insAll, fail = use60 ? q.fail : q.failAll;
+    const baseLabel = use60 ? '최근 60일' : '입사 후 누적';
+    const rate = fail / ins * 100;
+    const score = Math.max(0, Math.round(100 - rate * 5));
+    const prevRate = (use60 && q.insPrev >= 5) ? q.failPrev / q.insPrev * 100 : null;
+    const trend = prevRate === null ? ''
+      : rate < prevRate - 0.5 ? `<span style="color:#16a34a;font-weight:700;">▲ 좋아지고 있어요 (${prevRate.toFixed(1)}% → ${rate.toFixed(1)}%)</span>`
+      : rate > prevRate + 0.5 ? `<span style="color:#d97706;font-weight:700;">직전 60일보다 살짝 아쉬워요 (${prevRate.toFixed(1)}% → ${rate.toFixed(1)}%)</span>`
+      : '<span style="color:var(--text3);">직전 60일과 비슷한 흐름</span>';
+    const defs = agg.defects(name);
+    const g = score >= 90 ? { c: '#16a34a', t: '아주 좋아요 🎉' } : score >= 75 ? { c: '#0369a1', t: '좋은 편이에요' } : score >= 60 ? { c: '#d97706', t: '조금만 더!' } : { c: '#dc2626', t: '보강이 필요해요' };
+    const weak = defs.length
+      ? `요즘 불합격은 주로 <b>${escapeHtml(defs[0][0])}</b>${defs[1] ? ` · <b>${escapeHtml(defs[1][0])}</b>` : ''} 쪽이에요 (${defs.slice(0, 3).map(([t, c]) => `${escapeHtml(t)} ${c}건`).join(' · ')}). 이 공정만 한 번 점검하면 점수가 확 올라요 💪`
+      : (fail === 0 ? '최근 검수 불합격이 하나도 없어요 — 이 페이스 그대로 가면 됩니다 🎉' : '');
+    return `<div class="card" style="padding:0;margin-bottom:16px;">
+      <div style="padding:13px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">💎 내 품질 점수 <span style="font-size:11px;color:var(--text3);font-weight:400;">· ${baseLabel} 검수 결과 기준 · 나에게만 보이는 화면</span></div>
+      <div style="padding:14px 18px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;">
+        <div style="width:86px;height:86px;border-radius:50%;border:5px solid ${g.c};display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;">
+          <div style="font-size:24px;font-weight:800;color:${g.c};line-height:1;">${score}</div>
+          <div style="font-size:9.5px;color:var(--text3);">/ 100</div>
+        </div>
+        <div style="flex:1;min-width:220px;font-size:12.5px;line-height:1.8;color:var(--text2);">
+          <div style="font-size:14px;font-weight:800;color:${g.c};">${g.t}</div>
+          <div>검수 <b>${fmt(ins)}건</b> 중 불합격 <b>${fmt(fail)}건</b> (불합격률 ${rate.toFixed(1)}%) ${trend ? '· ' + trend : ''}</div>
+          ${weak ? `<div style="margin-top:2px;">${weak}</div>` : ''}
+        </div>
+      </div>
+      <div style="padding:8px 18px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text3);">품질 점수 = 100 − 불합격률×5 · 검수(QC) 판정 기준이라 재작업으로 만회한 건도 집계에는 남아요 — 처음부터 한 번에 통과가 최고 점수예요.</div>
+    </div>`;
+  } catch(e) { return ''; }
+}
 async function renderMyDash() {
   const el = document.getElementById('mydash-body');
   const titleEl = document.getElementById('mydash-title');
@@ -13866,6 +13904,8 @@ async function renderMyDash() {
         <div style="${subStyle}">${myDefectPending.length>0?'재작업 필요 → 클릭해서 처리':'없음'}</div>
       </div>
     </div>
+
+    ${_myQualitySection(currentUser)}
 
     ${myScheduleSection}
 
