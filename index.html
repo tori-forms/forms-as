@@ -3718,10 +3718,12 @@ function getPwHash(name) {
   return '';
 }
 
+// ⭐ v2.82c: 직급 색 단계 구분 — 회색(T1) → 브론즈(T2) → 블루(T3) → 골드(T4) → 퍼플(T5)
+//   (기존엔 T1·T3가 둘 다 회색 계열이라 구분이 안 됐음)
 const TIER_COLORS = {
-  T1: { bg:'#f8f8f8', color:'#888', border:'#ddd', label:'T1' },
+  T1: { bg:'#f4f4f5', color:'#71717a', border:'#d4d4d8', label:'T1' },
   T2: { bg:'#f4ede4', color:'#a0522d', border:'#cd7f32', label:'T2' },
-  T3: { bg:'#f0f0f0', color:'#707070', border:'#aaa', label:'T3' },
+  T3: { bg:'#dbeafe', color:'#1d4ed8', border:'#60a5fa', label:'T3' },
   T4: { bg:'#fffbe6', color:'#b8860b', border:'#ffd700', label:'T4' },
   T5: { bg:'#f3e8ff', color:'#7c3aed', border:'#a855f7', label:'T5' },
 };
