@@ -10675,9 +10675,10 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
     r.qNeutral = r.rate === null;
     r.regScore = r.reg / maxReg * 100;
     r.shipScore = maxShip > 0 ? r.ship / maxShip * 100 : 0;
-    // 종합 = 수리 등록 40% + 실제 출고 25% + 품질 35% (출고 데이터 없는 달은 등록 65%)
+    // ⭐ v2.82d: 종합 = 실제 출고 40% + 수리 등록 25% + 품질 35% — 출고가 곧 매출이라 최대 가중
+    //   (출고 데이터 없는 달은 등록 65% + 품질 35% 폴백)
     r.total = maxShip > 0
-      ? r.regScore * 0.40 + r.shipScore * 0.25 + r.qScore * 0.35
+      ? r.shipScore * 0.40 + r.regScore * 0.25 + r.qScore * 0.35
       : r.regScore * 0.65 + r.qScore * 0.35;
   });
   const ranked = rows.slice().sort((a, b) => b.total - a.total);
@@ -10695,6 +10696,10 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
   </div>`;
   return `<div class="card" style="padding:0;margin-bottom:14px;">
     <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🏆 이 달의 엔지니어 <span style="font-size:11px;color:var(--text3);font-weight:400;">· ${mv} · 포상 참고용 — 공식·원자료 전부 공개 기준</span></div>
+    <div style="padding:9px 16px;background:rgba(250,204,21,.08);border-bottom:1px solid var(--border);font-size:12.5px;">
+      <b>종합점 = 실제 출고 40% + 수리 등록 25% + 품질점 35%</b>
+      <span style="font-size:11px;color:var(--text3);"> · 등록·출고는 팀 최다 대비 % · 품질점 = 100 − 불합격률×5 · KPI 기여도(출고+교품 환산 기준)와는 다른 기준의 순위예요</span>
+    </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;padding:12px 16px;">
       ${aw('🔧🚚', '수리·출고왕 (수리+출고 합산)', bestCombo && (bestCombo.reg + bestCombo.ship) > 0 ? bestCombo : null, bestCombo ? `수리 등록 ${fmt(bestCombo.reg)} + 실제 출고 ${fmt(bestCombo.ship)} = 합산 ${fmt(bestCombo.reg + bestCombo.ship)}건` : '')}
       ${aw('💎', '품질왕 (불합격률 최저)', bestQ, bestQ ? `불합격률 ${bestQ.rate.toFixed(1)}% (검수 ${fmt(bestQ.q.ins)}건)` : '')}
@@ -10712,7 +10717,7 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
         <td style="text-align:right;">${r.qScore.toFixed(0)}${r.qNeutral ? '<span style="font-size:10px;color:var(--text3);">*</span>' : ''}</td>
         <td style="text-align:right;font-weight:800;color:${i === 0 ? '#d97706' : 'var(--text)'};">${r.total.toFixed(1)}</td>
       </tr>`).join('')}</tbody></table></div>
-    <div style="padding:10px 16px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">종합점 = 수리 등록 40% + 실제 출고 25% + 품질 35%${maxShip > 0 ? '' : ' (이 달 출고 데이터 없음 → 등록 65% + 품질 35%)'} · 등록·출고는 팀 최다 대비 %, 품질점 = 100 − 불합격률×5 · *표본 부족(검수 10건 미만)은 팀 평균 품질점으로 중립 처리 · 교품 처리는 참고 표기(점수 미반영)</div>
+    <div style="padding:10px 16px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">종합점 = 실제 출고 40%(매출 기준) + 수리 등록 25% + 품질 35%${maxShip > 0 ? '' : ' (이 달 출고 데이터 없음 → 등록 65% + 품질 35%)'} · 등록·출고는 팀 최다 대비 %, 품질점 = 100 − 불합격률×5 · *표본 부족(검수 10건 미만)은 팀 평균 품질점으로 중립 처리 · 교품 처리는 참고 표기(점수 미반영)</div>
   </div>`;
 }
 
