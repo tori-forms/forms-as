@@ -7382,11 +7382,20 @@ function renderShipping() {
   // ⭐ v2.28: 출고 관리 공임비 = 출고 가능만 집계 (보류는 에이징/검수 진행 중이라 제외)
   const okFee = ok.reduce((s, x) => s + (x.entry ? Number(x.entry.total || 0) : 0), 0);
 
+  // ⭐ v2.79z: 출고 가능 기종별 수량 — 한눈에 "지금 무슨 기종이 몇 대 나갈 수 있는지"
+  const _shipMCnt = {};
+  ok.forEach(x => { const m = normalizeModel(x.entry.model) || '기타'; _shipMCnt[m] = (_shipMCnt[m] || 0) + 1; });
+  const _shipMChips = Object.entries(_shipMCnt).sort((a, b) => b[1] - a[1]).map(([m, c]) => {
+    const _pu = m === 'S2PRO_N';
+    return `<span style="font-size:11px;font-weight:700;background:${_pu ? '#ede9fe' : '#dbeafe'};color:${_pu ? '#6d28d9' : '#1d4ed8'};padding:2px 8px;border-radius:99px;white-space:nowrap;">${m} ${c}대</span>`;
+  }).join('');
+
   let h = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
     <div class="stat-card" style="border-left:4px solid var(--green);">
       <div class="stat-label">출고 가능</div>
       <div class="stat-val" style="color:var(--green);">${ok.length}<span style="font-size:14px;color:var(--text2);font-weight:400;">건</span></div>
       <div class="stat-sub">🔍 검수완료 상태 ${(window._shipHoldExcluded||[]).length > 0 ? `<span style="color:#ef4444;font-weight:700;">· 🚩 제외 ${(window._shipHoldExcluded||[]).length}건</span>` : ''} ${hold.length > 0 ? `<span style="color:var(--amber);">· 보류 ${hold.length}건</span>` : ''}</div>
+      ${_shipMChips ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:7px;">${_shipMChips}</div>` : ''}
     </div>
     <div class="stat-card" style="border-left:4px solid #6366f1;">
       <div class="stat-label">출고 가능 공임비</div>
@@ -7412,7 +7421,7 @@ function renderShipping() {
   </div>
   <div class="card" style="padding:0;margin-bottom:12px;">
     <div style="padding:12px 18px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);">
-      <span style="font-size:13px;font-weight:700;color:var(--green);">✅ 출고 가능 (${ok.length}건)</span>
+      <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-size:13px;font-weight:700;color:var(--green);">✅ 출고 가능 (${ok.length}건)</span>${_shipMChips ? `<span style="display:inline-flex;gap:4px;flex-wrap:wrap;">${_shipMChips}</span>` : ''}</span>
       <button class="btn btn-sm btn-danger" id="exclude-selected-btn" style="display:none;" onclick="excludeSelected()">출고 제외</button>
       <button class="btn btn-sm" id="free-selected-btn" style="display:none;color:#10b981;border-color:#10b98155;font-weight:700;" onclick="freeSelected()">🆓 무상 처리/해제</button>
     </div>
@@ -11604,17 +11613,17 @@ function renderT2N() {
       <tbody>${list.slice(0, 300).map(e => {
         const r = _t2nParseRepro(e.note);
         const badge = r.repro === 'O'
-          ? '<span style="font-size:10.5px;font-weight:700;color:#ef4444;background:#fee2e2;border-radius:99px;padding:2px 8px;">재현</span>'
+          ? '<span style="font-size:10.5px;font-weight:700;color:#ef4444;background:#fee2e2;border-radius:99px;padding:2px 8px;white-space:nowrap;">재현</span>'
           : r.repro === 'X'
-            ? '<span style="font-size:10.5px;font-weight:700;color:#16a34a;background:#dcfce7;border-radius:99px;padding:2px 8px;">미재현</span>'
+            ? '<span style="font-size:10.5px;font-weight:700;color:#16a34a;background:#dcfce7;border-radius:99px;padding:2px 8px;white-space:nowrap;">미재현</span>'
             : '<span style="font-size:10.5px;color:var(--text3);">-</span>';
         let st = '';
         try { st = statusBadgeHtml(e); } catch(err) { st = escapeHtml(String(e.status || '')); }
         return `<tr style="border-bottom:1px solid var(--border);">
           <td style="padding:6px 8px;font-family:monospace;font-size:12px;">${escapeHtml(e.serial || '')}</td>
           <td style="padding:6px 8px;white-space:nowrap;">${String(e.date || '').slice(0, 10)}</td>
-          <td style="padding:6px 8px;">${escapeHtml(String(e.worker || '').split('::')[0])}</td>
-          <td style="padding:6px 8px;text-align:center;">${badge}</td>
+          <td style="padding:6px 8px;white-space:nowrap;">${escapeHtml(String(e.worker || '').split('::')[0])}</td>
+          <td style="padding:6px 8px;text-align:center;white-space:nowrap;">${badge}</td>
           <td style="padding:6px 8px;max-width:240px;color:${r.repro === 'O' ? '#ef4444' : 'var(--text3)'};">${escapeHtml(r.symptom || '-')}</td>
           <td style="padding:6px 8px;white-space:nowrap;">${st}</td>
           <td style="padding:6px 8px;max-width:280px;color:var(--text2);">${escapeHtml(_t2nStripTag(e.note))}</td></tr>`;
@@ -17002,6 +17011,24 @@ async function saveWorkerPart(name, part) {
 }
 
 // === Phase2: 검수 역할 저장 ===
+// ⭐ v2.79z: 응답 유실 시 서버 직접 확인 — "실패로 떴는데 실제론 저장됨" / 진짜 실패 를 구분해 통보
+async function _verifyWorkersSaved(sentRaw, name, roleExpected) {
+  try {
+    const d = await gasCall({ action: 'load', fresh: 1 });
+    const arr = d && (d.workers || d.rawWorkers);
+    if(!Array.isArray(arr)) return false;
+    if(arr.join('||') === sentRaw) return true;
+    // 전체 문자열이 달라도(서버 정규화 등) 대상자의 역할 필드만 맞으면 반영된 것
+    if(name) {
+      const row = arr.find(r => String(r).split('::')[0] === name);
+      if(row) {
+        const f = String(row).split('::');
+        return (f[5] || 'engineer') === (roleExpected || 'engineer');
+      }
+    }
+    return false;
+  } catch(e) { return false; }
+}
 async function saveWorkerRole(name, role) {
   if(!canManageWorker(name)) {
     notify('해당 엔지니어를 관리할 권한이 없습니다.', 'error');
@@ -17010,14 +17037,24 @@ async function saveWorkerRole(name, role) {
   }
   const oldRole = roleMap[name];
   roleMap[name] = role || 'engineer';
+  const roleLabel = {engineer:'🔧 엔지니어', inspector:'🔍 QC', both:'🔧+🔍 겸직'}[role] || '엔지니어';
+  const _swRaw = serializeWorkers();
   try {
-    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
+    await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
     renderWorkers();
-    const roleLabel = {engineer:'🔧 엔지니어', inspector:'🔍 QC', both:'🔧+🔍 겸직'}[role] || '엔지니어';
     notify(`${name}의 역할이 ${roleLabel}(으)로 변경되었습니다.`);
-  } catch {
-    roleMap[name] = oldRole || 'engineer';
-    notify('역할 저장 실패.','error');
+  } catch(err) {
+    console.warn('[역할저장] 전송 실패 — 서버 시트 직접 확인', err);
+    notifyPersist('⏳ 서버 응답이 늦어 역할 저장을 확인 중입니다...');
+    if(await _verifyWorkersSaved(_swRaw, name, role || 'engineer')) {
+      _rememberWorkers(_swRaw);
+      renderWorkers();
+      notify(`${name}의 역할이 ${roleLabel}(으)로 변경되었습니다. (서버 확인 완료)`);
+    } else {
+      roleMap[name] = oldRole || 'engineer';
+      renderWorkers();
+      notify('역할 저장 실패 — 서버에 반영되지 않았습니다. 잠시 후 다시 시도해주세요.','error');
+    }
   }
 }
 
