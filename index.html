@@ -10392,14 +10392,14 @@ function _grBizDays(from, to) {
   }
   return c;
 }
-function _grWeeklySeries(n, maxWeeks = 26) {
+function _grWeeklySeries(n, maxWeeks = 260) {
   const mine = (entries || []).filter(e => String(e.worker || '').split('::')[0] === n);
-  let start = hireDateMap[n] ? new Date(String(hireDateMap[n]).slice(0, 10) + 'T00:00:00') : null;
-  if(start && isNaN(start)) start = null;
+  let hire = hireDateMap[n] ? new Date(String(hireDateMap[n]).slice(0, 10) + 'T00:00:00') : null;
+  if(hire && isNaN(hire)) hire = null;
   let firstE = null;
   mine.forEach(e => { const t = new Date(e.date); if(!isNaN(t) && (!firstE || t < firstE)) firstE = t; });
-  if(!start) start = firstE;
-  if(firstE && start && firstE < start) start = firstE;
+  // 집계 시작 = 실제 데이터가 있는 첫 등록일 (입사가 전산 도입 전이면 그 이전 구간은 0이 아니라 '기록 없음')
+  const start = firstE || hire;
   if(!start) return null;
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const ws = new Date(start); ws.setHours(0, 0, 0, 0);
@@ -10420,8 +10420,8 @@ function _grWeeklySeries(n, maxWeeks = 26) {
   }
   return weeks.slice(-maxWeeks);
 }
-/* 전체 인원 공통 집계 1회 패스 — 품질(60일/이전 60일)·재인입 유발·월별 출고 */
-function _grAggregates(monKeys) {
+/* 전체 인원 공통 집계 1회 패스 — 품질(누적 + 최근 60일/이전 60일)·재인입 유발(누적+최근)·월별 출고(전 기간) */
+function _grAggregates() {
   const now = Date.now(), cut = now - 60 * 86400000, cut2 = cut - 60 * 86400000;
   // 시리얼 → 등록건 인덱스 (검수·출고·재인입 역추적 공용)
   const idx = new Map();
@@ -10438,26 +10438,29 @@ function _grAggregates(monKeys) {
     a.forEach(e => { const t = new Date(e.date).getTime(); if(t <= rt) best = e; });
     return best || a[0];
   };
-  // 검수: 수리건 단위로 불합격 여부 집계 (같은 건 재검수 중복 방지)
-  const qCur = {}, qPrev = {};   // {worker: {entryId: hasFail}}
+  // 검수: 수리건 단위로 불합격 여부 집계 (같은 건 재검수 중복 방지) — 누적 + 최근/이전 60일
+  const qCur = {}, qPrev = {}, qAll = {};   // {worker: {entryId: hasFail}}
   (inspections || []).forEach(i => {
     if(i.result !== 'pass' && i.result !== 'fail') return;
     const t = new Date(i.inspectedAt || 0).getTime();
-    if(!(t >= cut2)) return;
     const e = entryAt(i.serial, i.inspectedAt);
     if(!e) return;
     const w = String(e.worker || '').split('::')[0];
-    const bucket = t >= cut ? qCur : qPrev;
-    if(!bucket[w]) bucket[w] = {};
     const k = String(e.id);
-    bucket[w][k] = bucket[w][k] || i.result === 'fail';
-    if(i.result === 'fail') bucket[w][k] = true;
+    const mark = bucket => {
+      if(!bucket[w]) bucket[w] = {};
+      bucket[w][k] = bucket[w][k] || i.result === 'fail';
+      if(i.result === 'fail') bucket[w][k] = true;
+    };
+    mark(qAll);
+    if(t >= cut) mark(qCur);
+    else if(t >= cut2) mark(qPrev);
   });
-  // 재인입 유발: 최근 60일 접수된 재인입(2차+)의 직전 작업자에게 귀속
-  const reBy = {};
+  // 재인입 유발: 재인입(2차+)의 직전 작업자에게 귀속 — 누적 + 최근 60일
+  const reBy = {}, reAllBy = {};
   (entries || []).forEach(e2 => {
     const r = parseReentry(e2); if(!r) return;
-    const t = new Date(e2.date).getTime(); if(!(t >= cut)) return;
+    const t = new Date(e2.date).getTime();
     const a = idx.get(normalizeSerial(e2.serial)) || [];
     let prev = null;
     a.forEach(p => {
@@ -10465,14 +10468,18 @@ function _grAggregates(monKeys) {
       const pt = new Date(p.date).getTime();
       if(pt < t && (!prev || pt > new Date(prev.date).getTime())) prev = p;
     });
-    if(prev) { const w = String(prev.worker || '').split('::')[0]; reBy[w] = (reBy[w] || 0) + 1; }
+    if(prev) {
+      const w = String(prev.worker || '').split('::')[0];
+      reAllBy[w] = (reAllBy[w] || 0) + 1;
+      if(t >= cut) reBy[w] = (reBy[w] || 0) + 1;
+    }
   });
-  // 월별 출고 건수 (worker × month)
+  // 월별 출고 건수 (worker × month) — 전 기간
   const shipBy = {};   // {'worker|m': n}
   try {
     (shipHistory || []).forEach(h2 => {
       const mk = shipDateKey(h2.shipDate).slice(0, 7);
-      if(!monKeys.includes(mk)) return;
+      if(!mk || mk.length !== 7) return;
       const en = entryAt(h2.serial, h2.shipDate);
       if(!en) return;
       const w = String(en.worker || '').split('::')[0];
@@ -10485,7 +10492,11 @@ function _grAggregates(monKeys) {
     return { ins: ids.length, fail: ids.filter(k => m[k]).length };
   };
   return {
-    quality: w => { const c = qOf(qCur, w), p = qOf(qPrev, w); return { ins: c.ins, fail: c.fail, insPrev: p.ins, failPrev: p.fail, reentry: reBy[w] || 0 }; },
+    quality: w => {
+      const c = qOf(qCur, w), p = qOf(qPrev, w), a = qOf(qAll, w);
+      return { ins: c.ins, fail: c.fail, insPrev: p.ins, failPrev: p.fail,
+               insAll: a.ins, failAll: a.fail, reentry: reBy[w] || 0, reentryAll: reAllBy[w] || 0 };
+    },
     ship: (w, m) => shipBy[w + '|' + m] || 0
   };
 }
@@ -10501,31 +10512,42 @@ function _grVerdict(n, weeks, q) {
   const growth = (recent !== null && prevAvg !== null && prevAvg > 0) ? (recent - prevAvg) / prevAvg : null;
   const failRate = q.ins >= 5 ? q.fail / q.ins * 100 : null;
   const failRatePrev = q.insPrev >= 5 ? q.failPrev / q.insPrev * 100 : null;
+  const failRateAll = (q.insAll || 0) >= 5 ? q.failAll / q.insAll * 100 : null;
   const notes = [];
   if(recent !== null) notes.push(`최근 4주 일평균 <b>${recent.toFixed(1)}건</b> · 목표 ${lastTarget}건 → 달성 <b>${attain !== null ? Math.round(attain * 100) : '?'}%</b>`);
   if(growth !== null) notes.push(`직전 4주(일 ${prevAvg.toFixed(1)}건) 대비 <b>${growth >= 0 ? '+' : ''}${Math.round(growth * 100)}%</b>`);
-  if(failRate !== null) notes.push(`최근 60일 검수 불합격률 <b>${failRate.toFixed(1)}%</b>${failRatePrev !== null ? ` (이전 60일 ${failRatePrev.toFixed(1)}%${failRate < failRatePrev ? ' → 개선' : failRate > failRatePrev ? ' → 악화' : ''})` : ''} · 검수 ${q.ins}건 기준`);
-  else if(q.ins > 0) notes.push(`최근 60일 검수 ${q.ins}건 중 불합격 ${q.fail}건 (표본 적음)`);
-  if(q.reentry) notes.push(`최근 60일 본인 수리분 재인입 <b>${q.reentry}건</b>`);
+  if(failRateAll !== null) {
+    notes.push(`검수 불합격률 — 입사 후 누적 <b>${failRateAll.toFixed(1)}%</b> (검수 ${fmt(q.insAll)}건 중 불합격 ${fmt(q.failAll)}건)${failRate !== null ? ` · 최근 60일 <b>${failRate.toFixed(1)}%</b>${failRatePrev !== null ? ` (이전 60일 ${failRatePrev.toFixed(1)}%${failRate < failRatePrev ? ' → 개선' : failRate > failRatePrev ? ' → 악화' : ''})` : ''}` : ''}`);
+  } else if(q.insAll > 0) notes.push(`검수 누적 ${q.insAll}건 중 불합격 ${q.failAll}건 (표본 적음)`);
+  if(q.reentryAll) notes.push(`본인 수리분 재인입 — 누적 <b>${q.reentryAll}건</b>${q.reentry ? ` · 최근 60일 ${q.reentry}건` : ''}`);
   const ramping = tw !== null && tw <= KPI_RAMP_SCHEDULE.length + 2;
+  // ⭐ 품질을 소견 등급에 직접 반영 — 건수는 오래 다니면 자연히 쌓이므로,
+  //   생산성(일평균·추세)과 품질(불합격률·재인입)을 함께 봐야 정확한 판단이 된다.
+  const qualityBad = (failRate !== null && failRate >= 8) || ((q.reentry || 0) >= 3)
+    || (failRate === null && failRateAll !== null && failRateAll >= 10);
+  const qualityGood = (failRate !== null && failRate < 3) || (failRate === null && failRateAll !== null && failRateAll < 3);
   let icon, label, color;
   if((tw !== null && tw < 4 && wl.length < 4) || recent === null || wl.length < 3) {
     icon = '⏳'; label = '데이터 축적 중 — 판단은 아직 일러요'; color = 'var(--text3)';
   } else if(attain >= 0.95 && (growth === null || growth >= -0.05)) {
-    icon = '🟢'; label = ramping ? '목표 조기 소화 — 성장 빠름, 유지 강력 권장' : '안착 — 목표를 안정적으로 소화, 유지 권장'; color = '#16a34a';
+    if(qualityBad) { icon = '🟠'; label = '생산성은 목표 이상이지만 품질이 발목 — 품질 개선 전제로 유지'; color = '#d97706'; }
+    else { icon = '🟢'; label = (ramping ? '목표 조기 소화 — 성장 빠름' : '안착 — 목표를 안정적으로 소화') + (qualityGood ? ' · 품질도 우수, 유지 강력 권장' : ', 유지 권장'); color = '#16a34a'; }
   } else if(ramping && attain >= 0.85) {
-    icon = '🔵'; label = '램프업 정상 궤도 — 성장 여지 큼, 계속 가볼 가치 충분'; color = '#0369a1';
+    if(qualityBad) { icon = '🟠'; label = '램프업 속도는 정상이나 품질 불안 — 속도보다 정확도 먼저 잡아야'; color = '#d97706'; }
+    else { icon = '🔵'; label = '램프업 정상 궤도 — 성장 여지 큼, 계속 가볼 가치 충분'; color = '#0369a1'; }
   } else if(growth !== null && growth >= 0.15) {
-    icon = '🟢'; label = '상승 추세 — 성장 중, 유지 권장'; color = '#16a34a';
+    if(qualityBad) { icon = '🟠'; label = '건수는 늘지만 품질이 따라오지 못함 — 품질 동반 성장인지 확인 필요'; color = '#d97706'; }
+    else { icon = '🟢'; label = '상승 추세 — 성장 중, 유지 권장'; color = '#16a34a'; }
   } else if(ramping && attain !== null && attain < 0.7) {
-    icon = '🟠'; label = '램프업 지연 — 교육·업무 배치 점검 필요'; color = '#d97706';
+    icon = '🟠'; label = qualityGood ? '램프업 지연 — 다만 품질은 좋아 속도만 끌어올리면 됨' : '램프업 지연 — 교육·업무 배치 점검 필요'; color = '#d97706';
   } else if(!ramping && attain !== null && attain < 0.7 && (growth === null || growth <= 0)) {
-    icon = '🔴'; label = '정체 — 면담으로 원인 파악 권장'; color = '#dc2626';
+    icon = '🔴'; label = qualityBad ? '정체 + 품질 저하 — 면담·재교육 시급' : '정체 — 면담으로 원인 파악 권장'; color = '#dc2626';
   } else {
-    icon = '🟠'; label = '관찰 필요 — 목표엔 못 미치지만 흐름은 유지 중'; color = '#d97706';
+    icon = '🟠'; label = qualityGood ? '목표엔 못 미치지만 품질은 안정 — 속도 코칭 여지' : '관찰 필요 — 목표엔 못 미치지만 흐름은 유지 중'; color = '#d97706';
   }
   const qWarn = [];
-  if(failRate !== null && failRate >= 8) qWarn.push(`⚠ 검수 불합격률 ${failRate.toFixed(1)}% — 속도보다 품질 점검이 먼저`);
+  if(failRate !== null && failRate >= 8) qWarn.push(`⚠ 최근 60일 검수 불합격률 ${failRate.toFixed(1)}% — 속도보다 품질 점검이 먼저`);
+  if(failRate === null && failRateAll !== null && failRateAll >= 10) qWarn.push(`⚠ 누적 검수 불합격률 ${failRateAll.toFixed(1)}% — 품질 이력 확인 필요`);
   if(q.reentry >= 3) qWarn.push(`⚠ 재인입 유발 ${q.reentry}건/60일 — 수리 품질 확인 필요`);
   return { icon, label, color, notes, qWarn, tw };
 }
@@ -10560,9 +10582,7 @@ function _finGrowthHtml(team, _ovOf) {
   const cand = team.filter(n => _ovOf(n) === 'direct');
   if(!cand.length) return '';
   const now = new Date();
-  const monKeys = [];
-  for(let k = 2; k >= 0; k--) { const d = new Date(now.getFullYear(), now.getMonth() - k, 1); monKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }
-  const agg = _grAggregates(monKeys);
+  const agg = _grAggregates();
   const cards = cand.map(n => {
     const weeks = _grWeeklySeries(n);
     const hire = hireDateMap[n] ? String(hireDateMap[n]).slice(0, 10) : null;
@@ -10573,6 +10593,12 @@ function _finGrowthHtml(team, _ovOf) {
     }
     const q = agg.quality(n);
     const v = _grVerdict(n, weeks, q);
+    // 월별 집계: 입사(첫 기록) 달부터 이번 달까지 전부
+    const monKeys = [];
+    { const first = weeks[0].from;
+      let d = new Date(first.getFullYear(), first.getMonth(), 1);
+      const end = new Date(now.getFullYear(), now.getMonth(), 1);
+      while(d <= end && monKeys.length < 36) { monKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); d = new Date(d.getFullYear(), d.getMonth() + 1, 1); } }
     const mstat = monKeys.map(m => {
       const mine = (entries || []).filter(e => String(e.worker || '').split('::')[0] === n && String(e.date).startsWith(m));
       return { m, cnt: mine.length, ship: agg.ship(n, m), rev: mine.reduce((s, e) => s + (Number(e.total) || 0), 0) };
@@ -10590,9 +10616,9 @@ function _finGrowthHtml(team, _ovOf) {
         <span><span style="display:inline-block;width:14px;height:3px;background:var(--accent,#6366f1);border-radius:2px;vertical-align:middle;"></span> 주별 일평균 등록(건/영업일)</span>
         <span><span style="display:inline-block;width:14px;border-top:2px dashed #94a3b8;vertical-align:middle;"></span> 주차별 목표</span>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px;margin-bottom:10px;">
         ${mstat.map(t => `<div style="background:var(--surface2,rgba(148,163,184,.07));border-radius:9px;padding:8px 10px;">
-          <div style="font-size:10px;color:var(--text3);font-weight:700;">${t.m.slice(5)}월</div>
+          <div style="font-size:10px;color:var(--text3);font-weight:700;">${Number(t.m.slice(5))}월 <span style="font-weight:400;">'${t.m.slice(2, 4)}</span></div>
           <div style="font-size:12px;margin-top:2px;">등록 <b>${fmt(t.cnt)}</b> · 출고 <b>${fmt(t.ship)}</b></div>
           <div style="font-size:11px;color:var(--text2);">매출 ${fmt(t.rev)}원</div>
         </div>`).join('')}
@@ -10603,7 +10629,7 @@ function _finGrowthHtml(team, _ovOf) {
   }).join('');
   return `<div class="card" style="padding:0;margin-bottom:14px;">
     <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">📈 엔지니어 성장 분석
-      <span style="font-size:11px;color:var(--text3);font-weight:400;">· 입사~현재 주별 일평균(영업일 기준) vs 램프업 목표 · 검수·재인입 품질 포함 · 최근 6개월 표시</span></div>
+      <span style="font-size:11px;color:var(--text3);font-weight:400;">· 입사~현재 전 기간 — 주별 일평균(영업일 기준) vs 램프업 목표 · 월별 등록·출고·매출 · 품질(누적+최근 60일)</span></div>
     <div style="padding:14px 16px;display:grid;gap:12px;">${cards}</div>
     <div style="padding:10px 16px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">소견은 위 수치(달성률·4주 추세·검수 불합격률·재인입)만으로 만든 규칙 기반 참고 지표예요 — 대행일·검수 지원 등 그래프에 안 잡히는 기여가 있을 수 있으니 최종 판단은 근거 수치와 함께 보세요.</div>
   </div>`;
