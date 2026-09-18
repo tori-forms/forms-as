@@ -1146,8 +1146,8 @@ window.addEventListener('DOMContentLoaded', function(){
         </div>
       </div>
       <!-- ⭐ v2.78a: T2N 입고 불량증상 재현 확인 — 가로 전체 폭 블록 (기존: form-row 안에 끼어 레이아웃 깨짐) -->
-      <div class="form-group" id="t2n-row" style="display:none;margin-bottom:16px;padding:12px 14px;border:1px dashed #ef444488;border-radius:10px;background:rgba(239,68,68,.05);">
-        <label class="form-label">입고 불량증상 재현 여부 <span style="color:#ef4444;font-weight:700;">(T2N 필수)</span></label>
+      <div class="form-group" id="t2n-row" style="display:none;margin-bottom:16px;padding:12px 14px;border:1px dashed var(--border2);border-radius:10px;background:var(--surface2,rgba(148,163,184,.06));">
+        <label class="form-label">입고 불량증상 재현 여부 <span style="color:var(--text3);font-weight:400;">(선택 — 안 골라도 등록돼요 · 상세는 수리메모에)</span></label>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px;" id="t2n-chips"></div>
         <textarea id="t2n-symptom" placeholder="재현된 불량증상을 구체적으로 적어주세요 (예: 전원 인가 시 부팅 로고에서 멈춤)" style="display:none;margin-top:10px;width:100%;min-height:60px;"></textarea>
       </div>
@@ -1562,7 +1562,7 @@ window.addEventListener('DOMContentLoaded', function(){
               <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-nonbat" value="18700" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
-              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ffedd5;color:#c2410c;padding:2px 8px;border-radius:99px;">논배터리(커버X)</span><span style="font-size:12px;color:var(--text2);">논배터리 작업 (백커버 교체 미포함)</span></div>
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:11px;font-weight:700;background:#ffedd5;color:#c2410c;padding:2px 8px;border-radius:99px;">파워보드</span><span style="font-size:12px;color:var(--text2);">파워보드 교체 (백커버 재사용)</span></div>
               <div style="display:flex;align-items:center;gap:6px;"><input type="number" id="price-nonbat_nc" value="10800" style="width:100px;text-align:right;font-family:'JetBrains Mono',monospace;"><span style="font-size:12px;color:var(--text2);">원</span></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:8px;">
@@ -1702,7 +1702,7 @@ window.addEventListener('DOMContentLoaded', function(){
             </label>
             <label class="work-check exc-wc" id="exc-wc-nonbat_nc" style="cursor:pointer;">
               <input type="checkbox" value="nonbat_nc" style="margin-top:4px;accent-color:#c2410c;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="nbExclusive('nonbat_nc','exc-wc-');excUpdatePreview()">
-              <div style="flex:1;min-width:0;"><div class="work-check-name">논배터리 작업 (백커버 교체 미포함)</div><div class="work-check-price">10,800원</div></div>
+              <div style="flex:1;min-width:0;"><div class="work-check-name">파워보드 교체</div><div class="work-check-price">10,800원</div></div>
             </label>
             <label class="work-check exc-wc" id="exc-wc-battery" style="cursor:pointer;">
               <input type="checkbox" value="battery" style="margin-top:4px;accent-color:#0891b2;width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="excUpdatePreview()">
@@ -2277,7 +2277,7 @@ const WORKS = {
   //   (한때 쓰던 nonbat_full 키는 아래 legacy 항목 — 이행 도구가 nonbat으로 되돌린다)
   nonbat: { label:'논배터리 작업 (백커버 교체 포함)',        price:18700, tag:'논배터리',   tagColor:'#ea580c', tagBg:'#ffedd5',
     parts: [] },   // 부품 구성은 관리자 → 부품 매핑에서 (기존 매핑 유지)
-  nonbat_nc: { label:'논배터리 작업 (백커버 교체 미포함)',   price:10800, tag:'논배터리(커버X)', tagColor:'#c2410c', tagBg:'#ffedd5',
+  nonbat_nc: { label:'파워보드 교체',   price:10800, tag:'파워보드', tagColor:'#c2410c', tagBg:'#ffedd5',
     parts: [] },   // 매핑에서 백커버·후면필름 제외 구성으로 설정
   // (legacy) 2026-09-03 하루 동안 쓰인 임시 키 — 이행 도구가 전부 nonbat으로 되돌린 뒤엔 데이터에 남지 않음.
   //   렌더링·수정 호환을 위해 정의만 유지 (등록 화면에는 노출 안 됨)
@@ -2735,9 +2735,10 @@ function gasCall(params) {
     //   관측 근거: 동일 doGet인데 fetch exec 10~21초 vs JSONP exec ~1초가 세 캡처 연속 반복.
     //   fetch(무쿠키·익명)만 구글이 스로틀링하는 정황. 압축(fmt=2, ~110KB) 도입으로
     //   'JSONP는 대형 응답(646KB+)에 약하다'던 v2.54의 fetch 우선 전제도 해소됨.
-    return _gasCallJsonp(reqParams, 30000)
-      .catch(() => _gasCallJsonp(reqParams, 30000))
-      .catch(() => _tryFetch(20000));
+    // ⭐ v2.83: 서버(GAS)가 느려질 때(대량 처리·재빌드 구간) 타임아웃이 짧아 '연결 오류'가 뜨던 것 완화
+    return _gasCallJsonp(reqParams, 45000)
+      .catch(() => _gasCallJsonp(reqParams, 45000))
+      .catch(() => _tryFetch(30000));
   }
   // ⭐ v2.60: mutation(읽기 외 모든 액션) 성공 시 백그라운드 warm 핑 —
   //   서버 캐시 재빌드를 사용자 로드가 아닌 이 핑이 전담. 결과는 기다리지 않음.
@@ -3593,7 +3594,7 @@ function updateT2nRow() {
   };
   const chips = document.getElementById('t2n-chips');
   if(chips) chips.innerHTML = mk('O', '⚠️ 재현됨', '#ef4444') + mk('X', '✅ 재현 안 됨', '#16a34a') +
-    (!window._t2nRepro ? `<span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;color:#ef4444;">← 재현 여부 선택 필수</span>` : '');
+    (!window._t2nRepro ? `<span style="display:inline-flex;align-items:center;font-size:11.5px;color:var(--text3);">← 고르면 불량 데이터에 집계돼요 (선택)</span>` : '');
   const ta = document.getElementById('t2n-symptom');
   if(ta) ta.style.display = window._t2nRepro === 'O' ? '' : 'none';
 }
@@ -8836,7 +8837,7 @@ function renderShipAnalysis() {
   });
 
   const fmt = n => Number(n).toLocaleString();
-  const WORK_LABELS = { pcb:'PCB 교체', panel:'LCD 교체', board:'MB수리', nonbat:'논배터리', nonbat_nc:'논배터리(커버X)', nonbat_full:'논배터리', cover:'백커버', battery:'배터리', etc:'기타작업' };   // ⭐ v2.79h
+  const WORK_LABELS = { pcb:'PCB 교체', panel:'LCD 교체', board:'MB수리', nonbat:'논배터리', nonbat_nc:'파워보드', nonbat_full:'논배터리', cover:'백커버', battery:'배터리', etc:'기타작업' };   // ⭐ v2.79h
   const WORK_COLORS = { pcb:'#60a5fa', panel:'#34d399', board:'#c084fc', nonbat:'#fb923c', nonbat_nc:'#fdba74', nonbat_full:'#fb923c', cover:'#fbbf24', battery:'#22d3ee', etc:'#9ca3af' };
   const WORK_DARK   = { pcb:'#3b82f6', panel:'#10b981', board:'#a855f7', nonbat:'#f97316', nonbat_nc:'#c2410c', nonbat_full:'#f97316', cover:'#d97706', battery:'#0891b2', etc:'#6b7280' };
   const WORK_KEYS   = ['nonbat','nonbat_nc','battery','pcb','panel','board','cover','etc'];   // ⭐ v2.79h: 논배 포함/미포함·배터리·백커버 각각 집계
@@ -10641,6 +10642,50 @@ function _grVerdict(n, weeks, q) {
   if(q.reentry >= 3) qWarn.push(`⚠ 재인입 유발 ${q.reentry}건/60일 — 수리 품질 확인 필요`);
   return { icon, label, color, notes, qWarn, tw };
 }
+/* ⭐ v2.83: 면담 추천 질문 — 성장 지표에서 짚어볼 지점을 규칙 기반으로 뽑아 대표가 바로 물어볼 수 있게.
+   질문은 원인 추궁이 아니라 상황 파악용 톤으로. 최대 3개. */
+function _grQuestions(n, weeks, q, v) {
+  const out = [];
+  const wl = weeks || [];
+  const _agg = arr => { const c = arr.reduce((s, w) => s + w.cnt, 0), b = arr.reduce((s, w) => s + w.biz, 0); return b > 0 ? c / b : null; };
+  const recent = _agg(wl.slice(-4)), prevAvg = _agg(wl.slice(-8, -4));
+  const lastTarget = wl.length ? (wl[wl.length - 1].target || KPI_STD_DAILY) : KPI_STD_DAILY;
+  const attain = (recent !== null && lastTarget > 0) ? recent / lastTarget : null;
+  const growth = (recent !== null && prevAvg !== null && prevAvg > 0) ? (recent - prevAvg) / prevAvg : null;
+  const failRate = q.ins >= 5 ? q.fail / q.ins * 100 : null;
+  const failRatePrev = q.insPrev >= 5 ? q.failPrev / q.insPrev * 100 : null;
+  const defs = [];
+  try { (_grAggregates().defects(n) || []).forEach(d => defs.push(d)); } catch(e) {}
+  const actRecent = (actingDaysMap[n] || []).filter(d => { const t = new Date(d + 'T00:00:00').getTime(); return t >= Date.now() - 30 * 86400000; }).length;
+  // 우선순위 순으로 후보 적재
+  if(v && v.icon === '⏳') {
+    out.push('초기 적응에서 가장 막히는 작업·공정이 무엇인지 (교육 자료·멘토링으로 풀어줄 부분이 있는지)');
+  }
+  if(growth !== null && growth <= -0.2) {
+    out.push(`최근 4주 페이스가 직전보다 ${Math.abs(Math.round(growth * 100))}% 내려왔는데, 그 시점에 작업 배분·기기 상태·개인 사정 등 바뀐 게 있었는지`);
+  }
+  if(attain !== null && attain < 0.7) {
+    out.push(`일평균이 목표의 ${Math.round(attain * 100)}% 수준인데, 현장에서 걸리는 것(부품 수급 대기·검수 대기·특정 기종 난이도)이 무엇인지`);
+  }
+  if(failRate !== null && failRate >= 8 && defs.length) {
+    out.push(`불합격이 주로 '${defs[0][0]}'${defs[1] ? `·'${defs[1][0]}'` : ''}에서 나오는데, 이 공정에서 어렵거나 애매한 기준이 있는지 (지그·교육으로 해결 가능한지)`);
+  } else if(failRatePrev !== null && failRate !== null && failRate > failRatePrev + 3) {
+    out.push(`불합격률이 ${failRatePrev.toFixed(1)}% → ${failRate.toFixed(1)}%로 올라왔는데 본인이 느끼는 원인이 있는지 (속도 압박 여부 포함)`);
+  }
+  if((q.reentry || 0) >= 3) {
+    out.push(`최근 60일 본인 수리분 재인입 ${q.reentry}건의 공통점이 무엇이라고 보는지 (부품 로트·특정 증상·검수 사각지대?)`);
+  }
+  if(actRecent >= 3) {
+    out.push(`최근 한 달 파트장 대행 ${actRecent}일 — 대행 업무가 본인 페이스·컨디션에 부담이 되는 수준인지`);
+  }
+  if(attain !== null && attain >= 0.95 && (failRate === null || failRate < 5)) {
+    out.push('목표를 안정적으로 넘기고 있는데 번아웃 조짐은 없는지 · 본인 노하우를 팀 교육으로 나눌 의향이 있는지 · 다음 단계(직급·역할)로 바라는 것');
+  } else if(v && v.icon === '🔵') {
+    out.push('적응 속도가 좋은데 지금 배우면서 어려운 부분은 없는지 · 목표를 조금 올려볼 의향이 있는지');
+  }
+  return out.slice(0, 3);
+}
+
 function _grSvg(weeks) {
   if(!weeks || !weeks.length) return '';
   const W = 560, H = 118, P = { l: 26, r: 8, t: 10, b: 18 };
@@ -10797,6 +10842,10 @@ function _finGrowthHtml(team, _ovOf) {
       <div style="font-size:12px;line-height:1.7;color:var(--text2);">${v.notes.map(x => `· ${x}`).join('<br>')}
         ${defs.length ? `<br>· 불량 유형 (최근 60일 불합격): ${defs.slice(0, 4).map(([tp, c]) => `<b>${escapeHtml(tp)}</b> ${c}건`).join(' · ')}${defs.length > 4 ? ' 외' : ''} — 어떤 품질이 약한지 여기서 확인` : ''}</div>
       ${v.qWarn.length ? `<div style="margin-top:6px;font-size:11.5px;font-weight:700;color:#d97706;">${v.qWarn.join('<br>')}</div>` : ''}
+      ${(() => { const qs = _grQuestions(n, weeks, q, v); return qs.length ? `<div style="margin-top:10px;padding:10px 12px;border-radius:9px;background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.2);">
+        <div style="font-size:11.5px;font-weight:800;color:var(--accent,#6366f1);margin-bottom:4px;">💬 면담 추천 질문</div>
+        <div style="font-size:12px;line-height:1.8;color:var(--text2);">${qs.map(x => `· ${x}`).join('<br>')}</div>
+      </div>` : ''; })()}
     </div>`;
   }).join('');
   return `<div class="card" style="padding:0;margin-bottom:14px;">
@@ -10972,8 +11021,6 @@ async function renderFinance() {
   // ── ⭐ v2.80: 엔지니어 성장 분석
   try { h += _finGrowthHtml(team, _ovOf); } catch(err) { console.warn('성장 분석 렌더 실패', err); }
 
-  // ── ⭐ v2.81: 이 달의 엔지니어 (포상 참고)
-  try { h += _finAwardsHtml(mv, team, _ovOf, _grAggregates(), cntBy); } catch(err) { console.warn('우수 엔지니어 렌더 실패', err); }
 
   // ── 달성률 시나리오 (엑셀 재현) — 팀 일 목표 기준
   const midD = new Date(fy, fm - 1, 15);
@@ -12543,7 +12590,7 @@ async function addEntry() {
   if(works.includes('nonbat_nc') && !works.includes('nonbat') && !works.includes('cover')) {
     if(window._nbCoverOk !== true) {
       openModal('🔧 백커버 교체 확인',
-        `'논배터리 작업 (백커버 교체 미포함)' — 공임 ${fmt(WORKS.nonbat_nc.price)}원으로 등록됩니다.\n\n· 백커버까지 교체한 일반 논배터리 작업이라면 → 닫은 뒤 첫 번째 '논배터리 작업 (백커버 교체 포함)' 항목을 선택하세요.\n· 백커버를 재사용(미교체)한 게 맞다면 → [미포함으로 등록]을 누르세요.`,
+        `'파워보드 교체' — 공임 ${fmt(WORKS.nonbat_nc.price)}원으로 등록됩니다.\n\n· 백커버까지 교체한 일반 논배터리 작업이라면 → 닫은 뒤 '논배터리 작업 (백커버 교체 포함)' 항목을 선택하세요.\n· 파워보드만 교체(백커버 재사용)가 맞다면 → 그대로 등록하세요. 백커버도 교체했다면 '백커버 교체'를 함께 체크하면 됩니다.`,
         () => { window._nbCoverOk = true; addEntry(); }, '미포함으로 등록', 'btn-primary');
       return;
     }
@@ -12603,20 +12650,11 @@ async function addEntry() {
   window._nbCoverOk = false;   // ⭐ v2.79f: 백커버 확인 플래그 해제 (다음 등록 때 다시 확인)
 
 
-  // ⭐ v2.78: T2N은 입고 불량증상 재현 여부 필수 + 재현 시 증상 기재 필수 (노트에 태그로 저장)
-  if(normalizeModel(model) === 'T2N') {
-    if(!window._t2nRepro) {
-      notify('T2N은 입고 불량증상 재현 여부를 선택해야 등록할 수 있습니다.', 'error');
-      try { updateT2nRow(); document.getElementById('t2n-row').scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
-      return;
-    }
+  // ⭐ v2.83: T2N 불량 재현 강제 입력 제거 — 재현 여부·증상은 수리메모에 자유롭게 기재.
+  //   (선택 입력은 유지: 아래 T2N 행에서 골랐다면 기존 태그 형식으로 저장돼 불량 데이터 집계에 계속 잡힘)
+  if(normalizeModel(model) === 'T2N' && window._t2nRepro) {
     const _t2sym = (document.getElementById('t2n-symptom')?.value || '').trim();
-    if(window._t2nRepro === 'O' && !_t2sym) {
-      notify('재현된 불량증상을 입력해주세요.', 'error');
-      try { document.getElementById('t2n-symptom').focus(); } catch(e) {}
-      return;
-    }
-    note = `[불량재현${window._t2nRepro}${window._t2nRepro === 'O' ? ':' + _t2sym.replace(/\]/g, ')') : ''}] ${note}`.trim();
+    note = `[불량재현${window._t2nRepro}${window._t2nRepro === 'O' && _t2sym ? ':' + _t2sym.replace(/\]/g, ')') : ''}] ${note}`.trim();
   }
 
   // 시리얼 중복 체크 — ⭐ v2.64: 출고 완료된 건이면 '재인입(재전달)' 플로우로 전환
@@ -13687,6 +13725,23 @@ function _myQualitySection(name) {
     </div>`;
   } catch(e) { return ''; }
 }
+
+/* ⭐ v2.83: 이 달의 엔지니어를 내 대시보드(전 직급)에서 공개 — 연봉 등 민감정보 없이 실적·품질만 쓰므로 안전 */
+function _awardsCardForMyDash() {
+  try {
+    const now = new Date();
+    const mv = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const team = (workers || []).filter(n => n !== MASTER_NAME && isActiveWorker(n));
+    const _ov = n => (tierMap[n] === LEAD_TIER() || (roleMap[n] || 'engineer') === 'inspector') ? 'indirect' : 'direct';
+    const cntBy = {};
+    (entries || []).forEach(e => {
+      if(!String(e.date).startsWith(mv)) return;
+      const w = String(e.worker || '').split('::')[0];
+      cntBy[w] = (cntBy[w] || 0) + 1;
+    });
+    return _finAwardsHtml(mv, team, _ov, _grAggregates(), cntBy);
+  } catch(e) { return ''; }
+}
 async function renderMyDash() {
   const el = document.getElementById('mydash-body');
   const titleEl = document.getElementById('mydash-title');
@@ -13716,6 +13771,7 @@ async function renderMyDash() {
       `<div id="t4-report-slot"><div style="color:var(--text3);font-size:13px;padding:10px 2px;">실적 리포트 불러오는 중…</div></div>` +
       `<div id="t4-triple-slot"></div>` +   // ⭐ v2.70d: 3중 작업 현황 카드 자리
       `<div id="t4-parts-slot"></div>` +    // ⭐ v2.70s: 부품별 교체 사유 분석 자리
+      _awardsCardForMyDash() +               // ⭐ v2.83: 이 달의 엔지니어 (경영분석에서 이동)
       `<details id="t4-board-details" style="margin-top:4px;"${boardOpen?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
           <span style="font-size:12px;transition:transform .15s;" class="t4-board-arrow">${boardOpen?'▼':'▶'}</span>
@@ -13970,6 +14026,8 @@ async function renderMyDash() {
     </div>
 
     ${_myQualitySection(currentUser)}
+
+    ${_awardsCardForMyDash()}
 
     ${myScheduleSection}
 
@@ -14489,7 +14547,7 @@ async function saveEdit() {
     const removed = origWorks.filter(k => !works.includes(k));
     // ⭐ v2.79h: 수정에서 '논배(미포함)'을 새로 추가하면 확인 (미포함은 드문 작업)
     if(added.includes('nonbat_nc') && !works.includes('nonbat') && !works.includes('cover')) {
-      if(!window.confirm(`'논배터리 작업 (백커버 교체 미포함)' — ${fmt(WORKS.nonbat_nc.price)}원으로 저장합니다.\n\n백커버까지 교체한 일반 논배터리 작업이라면 [취소] 후 '논배터리 작업 (백커버 교체 포함)'을 선택하세요.`)) {
+      if(!window.confirm(`'파워보드 교체' — ${fmt(WORKS.nonbat_nc.price)}원으로 저장합니다.\n\n백커버까지 교체한 일반 논배터리 작업이라면 [취소] 후 '논배터리 작업 (백커버 교체 포함)'을 선택하세요. (백커버도 갈았다면 '백커버 교체'를 함께 체크)`)) {
         btn.disabled = false; btn.textContent = '저장';
         return;
       }
@@ -15902,7 +15960,7 @@ function openHistDropdown(type, thEl) {
 
   const WORK_META = [
     {key:'nonbat',label:'논배터리',color:'#f97316'},
-    {key:'nonbat_nc',label:'논배터리(커버X)',color:'#c2410c'},   // ⭐ v2.79h
+    {key:'nonbat_nc',label:'파워보드',color:'#c2410c'},   // ⭐ v2.79h
     {key:'battery',label:'배터리', color:'#0891b2'},
     {key:'pcb',   label:'PCB 교체',color:'#3b82f6'},
     {key:'panel', label:'LCD 교체',color:'#10b981'},
