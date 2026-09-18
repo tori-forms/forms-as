@@ -3687,13 +3687,25 @@ function autoDetectModel() {
     autoEl.style.display = 'none';
     manualEl.style.display = 'block';
   }
-  // 모델 변경 시 체크박스 상태 유지하며 부품 목록 재렌더
-  const checked = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
-  buildChecks();
-  checked.forEach(k => {
-    const inp = document.querySelector(`#wc-${k} input`);
-    if(inp){ inp.checked = true; document.getElementById('wc-'+k).classList.add('checked'); renderPartQtys(k); }
-  });
+  // ⭐ v2.84a: 부품 목록 재렌더는 '기종이 실제로 바뀐 때만' — 시리얼 키 입력마다 재렌더하면서
+  //   조정한 수량·추가 부품이 초기화되던 버그 수정 ("필름 3개 넣었는데 1개로 저장")
+  const _mKeyNow = (typeof partsModelKey === 'function') ? partsModelKey(getModel() || '') : String(getModel() || '');
+  const _built = document.getElementById('work-checks')?.children.length > 0;
+  if(!_built || _mKeyNow !== window._lastChecksModelKey) {
+    const checked = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
+    const openPanels = checked.filter(k => { const el = document.getElementById('parts-' + k); return el && el.style.display !== 'none'; });
+    // 기종이 바뀌면 추가 부품 행(DOM)은 사라지므로 partQtys의 추가분도 함께 정리 (안 보이는 값이 몰래 저장되는 것 방지)
+    Object.keys(partQtys || {}).forEach(k => {
+      Object.keys(partQtys[k] || {}).forEach(key => { if(key.startsWith('__extra_')) delete partQtys[k][key]; });
+    });
+    extraPartCounters = {};
+    buildChecks(true);   // 조정한 기본 부품 수량은 보존
+    checked.forEach(k => {
+      const inp = document.querySelector(`#wc-${k} input`);
+      if(inp){ inp.checked = true; document.getElementById('wc-'+k).classList.add('checked'); renderPartQtys(k); }
+    });
+    openPanels.forEach(k => { const el = document.getElementById('parts-' + k); if(el) el.style.display = ''; });
+  }
   try { renderDeductPreview(); } catch(e) {}   // ⭐ v2.70c: 기종 바뀌면 차감 미리보기도 갱신
   try { updateColorRow(S2_WHITE_RE.test(serial.toUpperCase().trim())); } catch(e) {}   // ⭐ v2.71: S2면 색상 선택 표시, 화이트 시리얼이면 자동 선택
 }
@@ -10883,12 +10895,23 @@ async function renderFinance() {
     for(let d = 1; d <= dim; d++) { const dow = new Date(fy, fm - 1, d).getDay(); if(dow !== 0 && dow !== 6) workdays++; }
   }
 
-  // 이 달 실적 (수리 등록 공임비 기준 — KPI 리포트와 동일)
-  const monthEntries = (entries || []).filter(e => String(e.date).startsWith(mv));
+  // ⭐ v2.84b: 매출 = '이 달 출고(청구)' 기준 — 전체 기록의 출고 공임비와 완전히 같은 계산식.
+  //   (기존엔 '이 달 등록' 기준이라 두 화면 숫자가 어긋났음. 청구는 출고 시점에 확정되므로 출고가 진실)
+  try { if(!_shipHistoryLoaded && typeof loadShipHistory === 'function') await Promise.race([loadShipHistory(), new Promise(r => setTimeout(r, 4000))]); } catch(e) {}
+  const monthEntries = (entries || []).filter(e => String(e.date).startsWith(mv));   // (참고용 — 등록 페이스)
+  const monthShipFin = (shipHistory || []).filter(h => shipDateKey(h.shipDate).startsWith(mv));
   const revBy = {}, cntBy = {};
-  monthEntries.forEach(e => { const n = e.worker || '?'; revBy[n] = (revBy[n] || 0) + (Number(e.total) || 0); cntBy[n] = (cntBy[n] || 0) + 1; });
-  const totalRev = monthEntries.reduce((s, e) => s + (Number(e.total) || 0), 0);
-  const totalCnt = monthEntries.length;
+  let totalRev = 0;
+  monthShipFin.forEach(h2 => {
+    const en = findEntryBySerial(h2.serial, h2.shipDate);
+    const t = en ? (Number(en.total) || 0) : 0;   // 전체 기록 KPI와 동일: entry 공임만 합산
+    const n = en ? String(en.worker || '').split('::')[0] : (String(h2.worker || '').split('::')[0] || '?');
+    revBy[n] = (revBy[n] || 0) + t;
+    cntBy[n] = (cntBy[n] || 0) + 1;
+    totalRev += t;
+  });
+  const totalCnt = monthShipFin.length;
+  const regCntMonth = monthEntries.length;   // 등록 건수 (참고 표기)
   // ⭐ v2.79u: 기준 건당가 = 그 달 '출고 완료' 건 평균 청구액 (무상 재작업 제외) — 청구는 출고 기준이라
   //   등록 건 평균보다 안정적이고, 월이 지나면 값이 고정됨. 출고가 없으면 등록 평균 → 수동 입력값 순 폴백.
   let shipAvgUnit = 0, shipAvgCnt = 0;
@@ -10903,8 +10926,12 @@ async function renderFinance() {
     });
     if(cnt > 0) { shipAvgUnit = Math.round(sum / cnt); shipAvgCnt = cnt; }
   } catch(e) {}
-  const avgUnit = shipAvgUnit || (totalCnt > 0 ? Math.round(totalRev / totalCnt) : (f.unitPrice || 27000));
-  const avgUnitSrc = shipAvgUnit ? `이 달 출고 ${fmt(shipAvgCnt)}건 평균` : (totalCnt > 0 ? '등록 건 평균 (출고 없음)' : '수동 기준값');
+  // ⭐ v2.84b: 폴백 사슬 유지 — 출고 평균 → (출고 없음) 등록 평균 → 수동 기준값
+  const _regRevMonth = monthEntries.reduce((s, e) => s + (Number(e.total) || 0), 0);
+  const avgUnit = shipAvgUnit || (totalCnt > 0 ? Math.round(totalRev / totalCnt)
+    : (regCntMonth > 0 ? Math.round(_regRevMonth / regCntMonth) : (f.unitPrice || 27000)));
+  const avgUnitSrc = shipAvgUnit ? `이 달 출고 ${fmt(shipAvgCnt)}건 평균`
+    : (totalCnt > 0 ? '출고 건 평균' : (regCntMonth > 0 ? '등록 건 평균 (출고 없음)' : '수동 기준값'));
 
   // 분석 대상: 현재 명단(활동중, 마스터 제외) + 이 달 매출 있는 퇴사자(참고 표기)
   const team = (workers || []).filter(n => n !== MASTER_NAME && isActiveWorker(n));
@@ -10964,14 +10991,14 @@ async function renderFinance() {
     <span style="font-size:14px;font-weight:800;">💼 엔지니어팀 경영 분석</span>
     <span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;background:#fee2e2;color:#dc2626;">T4 전용</span>
     <input type="month" id="fin-month" value="${mv}" onchange="renderFinance()" style="height:32px;padding:0 8px;border:1px solid var(--border2);border-radius:var(--radius-sm);">
-    <span style="font-size:11.5px;color:var(--text3);">워킹데이 ${workdays || '?'}일 · 매출 기준: 이 달 수리 등록 공임비 합계</span>
+    <span style="font-size:11.5px;color:var(--text3);">워킹데이 ${workdays || '?'}일 · 매출 기준: <b>이 달 출고(청구) 공임비</b> — 전체 기록의 출고 공임비와 동일 · 이 달 수리 등록 ${fmt(regCntMonth)}건은 참고</span>
   </div>`;
 
   // ── 요약 카드
   h += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px;">
-    <div class="card" style="padding:14px 16px;"><div style="font-size:11px;color:var(--text3);font-weight:700;">이 달 매출 (공임비)</div>
+    <div class="card" style="padding:14px 16px;"><div style="font-size:11px;color:var(--text3);font-weight:700;">이 달 매출 (출고 공임비)</div>
       <div style="font-size:20px;font-weight:800;margin-top:4px;">${_w(totalRev)}</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:2px;">${fmt(totalCnt)}건 · 기준 건당가 <b>${_w(avgUnit)}</b> <span title="BEP·시나리오·충원 계산에 쓰는 건당 단가 — ${avgUnitSrc}">(${avgUnitSrc})</span></div></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">출고 ${fmt(totalCnt)}건 (등록 ${fmt(regCntMonth)}건) · 기준 건당가 <b>${_w(avgUnit)}</b> <span title="BEP·시나리오·충원 계산에 쓰는 건당 단가 — ${avgUnitSrc}">(${avgUnitSrc})</span></div></div>
     <div class="card" style="padding:14px 16px;"><div style="font-size:11px;color:var(--text3);font-weight:700;">월 인건비 (간접비 ${f.indirectRate}% 포함)</div>
       <div style="font-size:20px;font-weight:800;margin-top:4px;">${_w(teamCost)}</div>
       <div style="font-size:11px;color:var(--text3);margin-top:2px;">${incCnt}명 반영${fixed ? ` · 고정비 ${_w(fixed)} 별도` : ''}</div></div>
@@ -10988,7 +11015,7 @@ async function renderFinance() {
       👥 엔지니어별 인건비 상계 <span style="font-size:11px;color:var(--text3);font-weight:400;">연봉은 만원 단위 (예: 3050) · <b>간접(T3·QC)</b>은 본인 매출로 먼저 상계 후 남는 인건비를 직접 인력에 매출 비중대로 배분</span>
       <button class="btn btn-sm btn-primary" onclick="saveFinance()">💾 저장 (서버)</button></div>
     <div class="table-wrap"><table>
-    <thead><tr><th>포함</th><th>구분</th><th>엔지니어</th><th style="text-align:right">연봉 (만원)</th><th style="text-align:right">월 인건비</th><th style="text-align:right">이 달 매출</th><th style="text-align:right">건수</th><th style="text-align:right">배분 부담</th><th style="text-align:right">최종 손익</th><th style="text-align:right">BEP</th><th>달성</th></tr></thead>
+    <thead><tr><th>포함</th><th>구분</th><th>엔지니어</th><th style="text-align:right">연봉 (만원)</th><th style="text-align:right">월 인건비</th><th style="text-align:right">이 달 매출 (출고)</th><th style="text-align:right">출고 건수</th><th style="text-align:right">배분 부담</th><th style="text-align:right">최종 손익</th><th style="text-align:right">BEP</th><th>달성</th></tr></thead>
     <tbody>${rows.map(r => {
       const pct = r.bepCnt > 0 ? Math.min(200, Math.round(r.cnt / r.bepCnt * 100)) : 0;
       const isInd = r.kind === 'indirect';
@@ -11124,7 +11151,15 @@ async function renderFinance() {
   { let d = new Date(2026, 8, 1); const end = new Date(fy, fm - 1, 1);
     while(d <= end && months.length < 12) { months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); d = new Date(d.getFullYear(), d.getMonth() + 1, 1); } }
   if(months.length > 1) {
-    const trend = months.map(m => { const r = (entries || []).filter(e => String(e.date).startsWith(m)).reduce((s, e) => s + (Number(e.total) || 0), 0); return { m, rev: r, pf: r - teamCost - fixed }; });
+    // ⭐ v2.84b: 월별 매출도 출고(청구) 기준 — 한 번 훑어 월별 버킷
+    const _revByMon = {};
+    (shipHistory || []).forEach(h2 => {
+      const mk = shipDateKey(h2.shipDate).slice(0, 7);
+      if(!months.includes(mk)) return;
+      const en = findEntryBySerial(h2.serial, h2.shipDate);
+      _revByMon[mk] = (_revByMon[mk] || 0) + (en ? (Number(en.total) || 0) : 0);
+    });
+    const trend = months.map(m => { const r = _revByMon[m] || 0; return { m, rev: r, pf: r - teamCost - fixed }; });
     const maxV = Math.max(1, ...trend.map(t => Math.max(t.rev, teamCost + fixed)));
     h += `<div class="card" style="margin-bottom:14px;"><div style="font-size:13px;font-weight:700;margin-bottom:10px;">📊 월별 손익 <span style="font-size:11px;color:var(--text3);font-weight:400;">· ${FIN_TREND_START} 단가 개편 이후만 집계 (인건비는 현재 설정 기준)</span></div>
       <div style="display:flex;gap:10px;align-items:flex-end;height:150px;">
@@ -12260,7 +12295,7 @@ function _renderWorkCheckHTML(k, v, model) {
             <span style="color:var(--text2);">${p.name}${p.modelOnly?` <span style="font-size:10px;color:var(--accent);">(${p.modelOnly})</span>`:''}</span>
             <div style="display:flex;align-items:center;gap:6px;">
               <button class="qty-btn" type="button" onclick="event.preventDefault();event.stopPropagation();changeQty('${k}','${p.name}',-1)">−</button>
-              <span class="qty-num" id="qty-${k}-${partSafeKey(p.name)}">${p.qty}</span>
+              <span class="qty-num" id="qty-${k}-${partSafeKey(p.name)}" style="${(partQtys[k]?.[p.name] ?? p.qty) === 0 ? 'opacity:.45;' : ''}">${partQtys[k]?.[p.name] ?? p.qty}</span>
               <button class="qty-btn" type="button" onclick="event.preventDefault();event.stopPropagation();changeQty('${k}','${p.name}',1)">+</button>
             </div>
           </div>`).join('')}
@@ -12273,9 +12308,12 @@ function _renderWorkCheckHTML(k, v, model) {
   </label>`;
 }
 
-function buildChecks() {
-  initPartQtys();
+function buildChecks(preserveQtys) {
+  // ⭐ v2.84a: preserveQtys=true면 사용자가 조정한 부품 수량(partQtys)을 초기화하지 않음
+  //   — 시리얼 입력(autoDetectModel)마다 수량이 기본값으로 몰래 리셋되던 버그의 핵심 수정
+  if(!preserveQtys) initPartQtys();
   const model = getModel();
+  window._lastChecksModelKey = (typeof partsModelKey === 'function') ? partsModelKey(model || '') : String(model || '');
   const _rw = ks => ks.filter(k => WORKS[k]).map(k => _renderWorkCheckHTML(k, WORKS[k], model)).join('');
   // ⭐ v2.79e: 3행 배치 — 1행 논배(백커버 포함)·논배(미포함)·배터리 / 2행 PCB·패널 / 3행 기타·백커버·메인보드
   //   ⭐ v2.79h: 1행 = 논배(포함·기본 nonbat) / 논배(미포함 nonbat_nc) / 배터리
