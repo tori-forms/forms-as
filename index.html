@@ -2755,7 +2755,8 @@ function gasCall(params) {
     addExchange:1,   // ⭐ v2.70f: 서버 id 멱등 확보(Code.gs v2.70b) → 재전송 안전 — "저장 실패로 떴는데 실제론 저장됨" 해소
     addInspection:1, completeRework:1,   // ⭐ v2.70i: 서버 qualityId 멱등(Code.gs v2.70c) → 검수/재작업 처리 응답 유실 시 자동 재전송 (유실 = 검수대기 재등장의 원인 1)
     adjustStockBatch:1,   // ⭐ v2.72: 항목별 logId 멱등(Code.gs v2.72) → 재전송 안전
-    updateRepairStatusBulk:1   // ⭐ v2.72b: 같은 상태 재설정은 무해 → 자연 멱등
+    updateRepairStatusBulk:1,   // ⭐ v2.72b: 같은 상태 재설정은 무해 → 자연 멱등
+    addShipLogBulk:1   // ⭐ v2.82e: 서버가 (시리얼+출고일) 중복을 걸러줌(v2.76 skipped) → 재전송 안전. 대량 출고 중 응답 유실 1번에 전체 실패하던 문제 해소
   };
   // ⭐ v2.62b: 멱등 액션은 첫 전송 25초로 짧게 — 응답 유실 시 재전송이 빨리 개입 (총 대기 최대 ~70초→~30초)
   let _pMut = _gasCallJsonp(params, _IDEMPOTENT_ACTIONS[_act] ? 25000 : undefined);
@@ -7950,27 +7951,43 @@ function completeShipping() {
             fee: isFree ? 0 : (x.entry.total || 0)               // 무상이면 공임 0
           };
         });
-        // 40건씩 자동 배치 처리 (버튼 한 번 → 전체 자동 처리)
+        // 20건씩 자동 배치 처리 (버튼 한 번 → 전체 자동 처리)
+        // ⭐ v2.82e: 배치 하나 실패해도 전체 중단하지 않음 — 서버가 (시리얼+출고일) 중복을 걸러주므로
+        //   실패분은 같은 버튼을 다시 누르면 그것만 재전송된다 (완료분은 서버가 skip).
         const SHIP_BATCH = 20; // 20건×269자=5680자 (안전)
         const totalBatches = Math.ceil(shipData.length / SHIP_BATCH);
-        const startTime = Date.now();
         let _dupSkipped = 0;   // ⭐ v2.76: 서버가 걸러낸 중복(이미 그날 출고된 시리얼) 집계
+        const _okSerials = new Set();   // 서버 반영이 확인된 시리얼
+        let _failCnt = 0;
         for (let b = 0; b < shipData.length; b += SHIP_BATCH) {
-          const batchNum = Math.floor(b / SHIP_BATCH) + 1;
+          const _slice = shipData.slice(b, b + SHIP_BATCH);
           const done = Math.min(b + SHIP_BATCH, shipData.length);
           notify(`출고 처리 중... ${done}/${shipData.length}건 (배치 ${Math.floor(b/SHIP_BATCH)+1}/${totalBatches})`, 'info');
-          const _bRes = await gasCall({
-            action: 'addShipLogBulk',
-            shipDate: shipDTStr,
-            items: JSON.stringify(shipData.slice(b, b + SHIP_BATCH))
-          });
-          if(_bRes && _bRes.skipped) _dupSkipped += Number(_bRes.skipped) || 0;
+          let _bRes = null, _sent = false;
+          try {
+            _bRes = await gasCall({ action: 'addShipLogBulk', shipDate: shipDTStr, items: JSON.stringify(_slice) });
+            _sent = true;
+          } catch(e1) {
+            console.warn('[출고] 배치 실패 1차 — 재시도', e1);
+            try {
+              _bRes = await gasCall({ action: 'addShipLogBulk', shipDate: shipDTStr, items: JSON.stringify(_slice) });
+              _sent = true;
+            } catch(e2) {
+              _failCnt += _slice.length;
+              console.warn('[출고] 배치 최종 실패 — 다음 배치 계속 (재실행 시 이 배치만 재전송됨)', e2);
+            }
+          }
+          if(_sent) {
+            _slice.forEach(it => _okSerials.add(String(it.serial)));
+            if(_bRes && _bRes.skipped) _dupSkipped += Number(_bRes.skipped) || 0;
+          }
         }
         if(_dupSkipped > 0) notify(`ℹ 이미 오늘 출고 처리된 ${_dupSkipped}건은 중복 방지로 건너뛰었습니다.`);
 
         // ⭐ 무상 재출고 건: 해당 수리건(entries)의 공임을 0으로 수정
         //   → voltales 청구(e.total 기준)에서도 제외됨. 작업 기록(works)은 유지.
         for(const x of validTargets) {
+          if(!_okSerials.has(String(x.entry.serial))) continue;   // ⭐ v2.82e: 서버 반영 확인분만
           if(!freeSerials.has(String(x.entry.serial))) continue;
           const ent = x.entry;
           const origTotal = Number(ent.total || 0);
@@ -7990,8 +8007,8 @@ function completeShipping() {
           } catch(e) { console.warn('무상 공임 0 처리 실패', ent.serial, e); }
         }
 
-        // 로컬 이력에 추가
-        validTargets.forEach(x => {
+        // 로컬 이력에 추가 (⭐ v2.82e: 서버 반영이 확인된 건만)
+        validTargets.filter(x => _okSerials.has(String(x.entry.serial))).forEach(x => {
           const isFree = freeSerials.has(String(x.entry.serial));
           const tags = parseWorks(x.entry.works).map(k => WORKS[k]?.tag || k);
           if(isFree) tags.unshift('무상');
@@ -8004,8 +8021,8 @@ function completeShipping() {
           });
         });
 
-        // 출고된 항목을 _shipOk에서 제거
-        const doneSerials = new Set(validTargets.map(x => x.entry?.serial).filter(Boolean));
+        // 출고된 항목을 _shipOk에서 제거 (성공분만 — 실패분은 목록에 남아 재실행 대상이 됨)
+        const doneSerials = new Set(validTargets.filter(x => _okSerials.has(String(x.entry?.serial))).map(x => x.entry?.serial).filter(Boolean));
         // 완료된 건 _shipOk에서 제거
         window._shipOk = (window._shipOk || []).filter(x => !doneSerials.has(x.entry?.serial));
         // _shipHold에서도 혹시 있으면 제거
@@ -8017,10 +8034,17 @@ function completeShipping() {
         if(excludeBtn) excludeBtn.style.display = 'none';
         if(completeBtn) completeBtn.textContent = '✅ 출고 완료 처리';
 
-        await syncData(true);
+        // ⭐ v2.82e: 결과 통보·화면 갱신을 먼저 — 동기화가 늦어져도 버튼·알림이 묶이지 않게
         renderShipping();
         renderShipHistory();
-        notify(`${validTargets.length}건 출고 완료!`);
+        if(_failCnt > 0) {
+          notifyPersist(`⚠ ${_okSerials.size}건 출고 완료 · ${_failCnt}건은 서버 응답 문제로 실패했습니다 — [출고 완료 처리]를 한 번 더 누르면 실패분만 재전송돼요 (완료된 건은 서버가 중복 방지로 건너뜀).`);
+        } else {
+          notify(`${_okSerials.size}건 출고 완료!`);
+        }
+        try { await Promise.race([syncData(true), new Promise(r => setTimeout(r, 15000))]); } catch(e2) {}
+        renderShipping();
+        renderShipHistory();
       } catch(err) {
         notify('저장 실패: ' + (err.message || err), 'error');
       } finally {
