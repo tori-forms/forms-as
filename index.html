@@ -1147,7 +1147,7 @@ window.addEventListener('DOMContentLoaded', function(){
       </div>
       <!-- ⭐ v2.78a: T2N 입고 불량증상 재현 확인 — 가로 전체 폭 블록 (기존: form-row 안에 끼어 레이아웃 깨짐) -->
       <div class="form-group" id="t2n-row" style="display:none;margin-bottom:16px;padding:12px 14px;border:1px dashed var(--border2);border-radius:10px;background:var(--surface2,rgba(148,163,184,.06));">
-        <label class="form-label">입고 불량증상 재현 여부 <span style="color:var(--text3);font-weight:400;">(선택 — 안 골라도 등록돼요 · 상세는 수리메모에)</span></label>
+        <label class="form-label">입고 불량증상 재현 여부 <span style="color:var(--text3);font-weight:400;">(선택 — 안 골라도 등록되고, 다시 누르면 해제 · 증상 상세는 수리메모에)</span></label>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px;" id="t2n-chips"></div>
         <textarea id="t2n-symptom" placeholder="재현된 불량증상을 구체적으로 적어주세요 (예: 전원 인가 시 부팅 로고에서 멈춤)" style="display:none;margin-top:10px;width:100%;min-height:60px;"></textarea>
       </div>
@@ -3583,6 +3583,7 @@ window._regColor = '';   // ⭐ v2.71a: 기본 선택 없음 — S2는 색상을
 // ⭐ v2.78: T2N 입고 불량증상 재현 여부 ('' | 'O' | 'X')
 window._t2nRepro = '';
 function updateT2nRow() {
+  // ⭐ v2.83b: 재현됨/재현 안 됨 칩 선택은 유지 (선택 사항) — 증상 서술칸만 제거, 상세는 수리메모에.
   const row = document.getElementById('t2n-row');
   if(!row) return;
   const isT2N = normalizeModel(getModel()) === 'T2N';
@@ -3590,13 +3591,13 @@ function updateT2nRow() {
   if(!isT2N) { window._t2nRepro = ''; return; }
   const mk = (v, label, color) => {
     const on = window._t2nRepro === v;
-    return `<button type="button" onclick="window._t2nRepro='${v}';updateT2nRow()" style="padding:6px 14px;border-radius:99px;font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid ${on ? color : 'var(--border)'};background:${on ? color : 'var(--surface)'};color:${on ? '#fff' : 'var(--text2)'};">${label}</button>`;
+    return `<button type="button" onclick="window._t2nRepro = (window._t2nRepro === '${v}' ? '' : '${v}'); updateT2nRow()" style="padding:6px 14px;border-radius:99px;font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid ${on ? color : 'var(--border)'};background:${on ? color : 'var(--surface)'};color:${on ? '#fff' : 'var(--text2)'};">${label}</button>`;
   };
   const chips = document.getElementById('t2n-chips');
   if(chips) chips.innerHTML = mk('O', '⚠️ 재현됨', '#ef4444') + mk('X', '✅ 재현 안 됨', '#16a34a') +
-    (!window._t2nRepro ? `<span style="display:inline-flex;align-items:center;font-size:11.5px;color:var(--text3);">← 고르면 불량 데이터에 집계돼요 (선택)</span>` : '');
+    (!window._t2nRepro ? `<span style="display:inline-flex;align-items:center;font-size:11.5px;color:var(--text3);">← 고르면 불량 데이터에 집계돼요 (선택 · 상세 증상은 수리메모에)</span>` : '');
   const ta = document.getElementById('t2n-symptom');
-  if(ta) ta.style.display = window._t2nRepro === 'O' ? '' : 'none';
+  if(ta) ta.style.display = 'none';   // 증상칸은 사용 안 함
 }
 function updateColorRow(autoWhite) {
   try { updateT2nRow(); } catch(e) {}   // ⭐ v2.78: 기종 변경 시 T2N 섹션도 함께 갱신
@@ -12650,11 +12651,9 @@ async function addEntry() {
   window._nbCoverOk = false;   // ⭐ v2.79f: 백커버 확인 플래그 해제 (다음 등록 때 다시 확인)
 
 
-  // ⭐ v2.83: T2N 불량 재현 강제 입력 제거 — 재현 여부·증상은 수리메모에 자유롭게 기재.
-  //   (선택 입력은 유지: 아래 T2N 행에서 골랐다면 기존 태그 형식으로 저장돼 불량 데이터 집계에 계속 잡힘)
+  // ⭐ v2.83b: T2N 재현 여부 칩(선택) — 골랐을 때만 태그 저장, 증상 상세는 수리메모에.
   if(normalizeModel(model) === 'T2N' && window._t2nRepro) {
-    const _t2sym = (document.getElementById('t2n-symptom')?.value || '').trim();
-    note = `[불량재현${window._t2nRepro}${window._t2nRepro === 'O' && _t2sym ? ':' + _t2sym.replace(/\]/g, ')') : ''}] ${note}`.trim();
+    note = `[불량재현${window._t2nRepro}] ${note}`.trim();
   }
 
   // 시리얼 중복 체크 — ⭐ v2.64: 출고 완료된 건이면 '재인입(재전달)' 플로우로 전환
