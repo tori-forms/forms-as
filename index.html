@@ -2322,7 +2322,10 @@ function getPartsData() {
     getWorkParts(k, model).forEach(p => {
       const qty = partQtys[k]?.[p.name] ?? p.qty;   // 사용자가 −/+로 조정한 값 우선
       // ⭐ 0도 명시 저장 — "안 씀(0)"과 "기록 없음(부품 추적 이전)"을 구분해 재수정 시 0이 유지되게 함
-      if(qty >= 0) result[p.name] = (result[p.name]||0) + qty;
+      // ⭐ v2.84: 같은 부품이 여러 선택 작업의 기본 매핑에 겹치면(예: 파워보드+백커버의 후면 필름)
+      //   '합산'이 아니라 '최댓값 1회'로 — 기기 1대에 1회 쓰는 부품이 이중 계상·이중 차감되던 문제 방지.
+      //   실제로 2개 썼다면 수량을 직접 올리면 그 값이 그대로 반영된다.
+      if(qty >= 0) result[p.name] = Math.max(result[p.name] ?? 0, qty);
     });
     // + 부품 추가로 넣은 항목 (추가 부품은 0이면 제거 의도로 보고 미저장)
     Object.entries(partQtys[k]||{}).forEach(([key, val]) => {
@@ -10684,6 +10687,13 @@ function _grQuestions(n, weeks, q, v) {
   } else if(v && v.icon === '🔵') {
     out.push('적응 속도가 좋은데 지금 배우면서 어려운 부분은 없는지 · 목표를 조금 올려볼 의향이 있는지');
   }
+  // ⭐ v2.84: 최소 3개 보장 — 지표에서 나온 질문이 부족하면 공통 파악 질문으로 채움
+  const fillers = [
+    '요즘 업무에서 시간을 제일 많이 잡아먹는 공정이 무엇인지 (프로세스·공구로 줄여줄 수 있는 부분)',
+    '부품·공구·교육 중에 지금 가장 필요한 지원이 무엇인지',
+    '다음 달 본인 목표를 스스로는 어느 정도로 잡고 있는지 · 팀 운영에서 바꿔보면 좋겠다 싶은 것 하나'
+  ];
+  for(const f of fillers) { if(out.length >= 3) break; if(!out.includes(f)) out.push(f); }
   return out.slice(0, 3);
 }
 
@@ -13725,6 +13735,56 @@ function _myQualitySection(name) {
   } catch(e) { return ''; }
 }
 
+
+/* ⭐ v2.84: 부품 사용 이상 감지 — "3개 썼는데 2개만 등록" 같은 누락은 전산이 직접 알 수는 없지만,
+   작업 기본 매핑(표준 수량) 대비 미달/초과 등록을 걸러 사람이 점검할 후보를 보여준다. (관리자용) */
+function _partAnomalyCard(days = 30) {
+  try {
+    if(!window.WORK_PARTS_MAP) return '';
+    const cut = Date.now() - days * 86400000;
+    const rows = [];
+    const byEng = {};   // {worker: {under:0, over:0, total:0}}
+    (entries || []).forEach(e => {
+      const t = new Date(e.date).getTime();
+      if(!(t >= cut)) return;
+      const ws = parseWorks(e.works).filter(k => Array.isArray(window.WORK_PARTS_MAP[k]) && window.WORK_PARTS_MAP[k].length);
+      if(!ws.length) return;
+      const p = (e.parts && typeof e.parts === 'object') ? e.parts : null;
+      if(!p || !Object.keys(p).length) return;   // 출고건 경량화 등 부품 기록이 없는 건은 판정 불가 → 제외
+      // 기대 수량 = 기본 매핑 (겹치는 부품은 1회)
+      const exp = {};
+      ws.forEach(k => { getWorkParts(k, e.model).forEach(pp => { exp[pp.name] = Math.max(exp[pp.name] ?? 0, Number(pp.qty) || 1); }); });
+      const under = [], over = [];
+      Object.entries(exp).forEach(([name, eq]) => {
+        const got = Number(p[name] ?? 0);
+        if(got < eq) under.push(`${name} ${got}/${eq}`);
+        else if(got > eq) over.push(`${name} ${got}/${eq}`);
+      });
+      const w = String(e.worker || '').split('::')[0];
+      if(!byEng[w]) byEng[w] = { under: 0, over: 0, total: 0 };
+      byEng[w].total++;
+      if(under.length) { byEng[w].under++; rows.push({ t, serial: e.serial, w, kind: 'under', txt: under.join(' · ') }); }
+      if(over.length) { byEng[w].over++; rows.push({ t, serial: e.serial, w, kind: 'over', txt: over.join(' · ') }); }
+    });
+    const engRows = Object.entries(byEng).filter(([, v]) => v.total >= 3).sort((a, b) => (b[1].under / b[1].total) - (a[1].under / a[1].total));
+    if(!engRows.length) return '';
+    rows.sort((a, b) => b.t - a.t);
+    const recent = rows.filter(r => r.kind === 'under').slice(0, 12);
+    return `<div class="card" style="padding:0;margin-bottom:14px;">
+      <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🧾 부품 사용 이상 감지 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 ${days}일 · 작업 기본 매핑(표준 수량) 대비 미달/초과 등록 — "쓴 부품을 덜 적은" 누락 후보 점검용</span></div>
+      <div style="padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;">
+        ${engRows.map(([w, v]) => { const pr = Math.round(v.under / v.total * 100); return `<div style="min-width:120px;background:var(--surface2,rgba(148,163,184,.07));border-radius:9px;padding:8px 12px;">
+          <div style="font-size:12px;font-weight:700;">${escapeHtml(w)}</div>
+          <div style="font-size:11px;color:${pr >= 25 ? '#d97706' : 'var(--text2)'};">표준 미달 ${v.under}건 / ${v.total}건 (${pr}%)${v.over ? ` · 초과 ${v.over}건` : ''}</div>
+        </div>`; }).join('')}
+      </div>
+      ${recent.length ? `<div style="padding:0 16px 12px;font-size:11.5px;line-height:1.8;color:var(--text2);">
+        ${recent.map(r => `· <span class="mono" style="font-size:11px;">${escapeHtml(r.serial)}</span> (${escapeHtml(r.w)}) — ${escapeHtml(r.txt)} <span style="color:var(--text3);">등록/표준</span>`).join('<br>')}
+      </div>` : ''}
+      <div style="padding:8px 16px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text3);line-height:1.6;">미달이 전부 누락은 아니에요(부품 재사용·미교체 케이스 존재) — 비율이 유난히 높은 사람·부품을 실물 재고 실사와 함께 점검하는 용도예요. 부품 기록이 없는 출고건은 판정에서 제외.</div>
+    </div>`;
+  } catch(e) { return ''; }
+}
 /* ⭐ v2.83: 이 달의 엔지니어를 내 대시보드(전 직급)에서 공개 — 연봉 등 민감정보 없이 실적·품질만 쓰므로 안전 */
 function _awardsCardForMyDash() {
   try {
@@ -13771,6 +13831,7 @@ async function renderMyDash() {
       `<div id="t4-triple-slot"></div>` +   // ⭐ v2.70d: 3중 작업 현황 카드 자리
       `<div id="t4-parts-slot"></div>` +    // ⭐ v2.70s: 부품별 교체 사유 분석 자리
       _awardsCardForMyDash() +               // ⭐ v2.83: 이 달의 엔지니어 (경영분석에서 이동)
+      _partAnomalyCard() +                   // ⭐ v2.84: 부품 사용 이상 감지 (누락 후보 점검)
       `<details id="t4-board-details" style="margin-top:4px;"${boardOpen?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
           <span style="font-size:12px;transition:transform .15s;" class="t4-board-arrow">${boardOpen?'▼':'▶'}</span>
@@ -14048,6 +14109,7 @@ async function renderMyDash() {
       <div id="t3-notice-slot"></div>
       <div id="t3-triple-slot"></div>
       <div id="t3-parts-slot"></div>
+      ${_partAnomalyCard()}
       <details id="t3-board-details" style="margin-top:4px;"${window._board3Open?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
           <span style="font-size:12px;" class="t3-board-arrow">${window._board3Open?'▼':'▶'}</span>
@@ -14575,7 +14637,8 @@ async function saveEdit() {
       getWorkParts(k, model).forEach(p => {
         const qty = partQtys[k]?.[p.name] ?? p.qty;
         // ⭐ 0도 명시 저장 — 재수정 시 기본 1로 부활해 몰래 재차감되는 것 방지
-        if(qty >= 0) editPartsResult[p.name] = (editPartsResult[p.name]||0) + qty;
+        // ⭐ v2.84: 겹치는 기본 매핑 부품은 최댓값 1회 (등록 화면 getPartsData와 동일 규칙)
+        if(qty >= 0) editPartsResult[p.name] = Math.max(editPartsResult[p.name] ?? 0, qty);
       });
       Object.entries(partQtys[k]||{}).forEach(([key, val]) => {
         if(!key.startsWith('__extra_')) return;
