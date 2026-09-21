@@ -10332,9 +10332,23 @@ function savePriceSettings() {
         notify('⚠️ 서버 저장 실패 — 다시 시도해주세요.', 'error');
       }
     })
-    .catch(err => {
-      console.error('[단가 저장] 실패:', err);
-      notify('⚠️ 서버 저장 실패 (네트워크 오류) — 다시 시도해주세요.', 'error');
+    .catch(async err => {
+      // ⭐ v2.84c: 응답 유실 ≠ 저장 실패 — savePriceSettings는 멱등 재전송이라 서버엔 이미
+      //   저장됐을 가능성이 높다. 시트를 직접 읽어 확정 결과를 통보 (허위 '실패' 알림 방지).
+      console.error('[단가 저장] 전송 실패 — 서버 직접 확인:', err);
+      notifyPersist('⏳ 서버 응답이 늦어 단가 저장을 확인 중입니다...');
+      try {
+        const d = await gasCall({ action: 'load', fresh: 1 });
+        const ps = d && d.priceSettings;
+        const _same = ps && ['pcb','panel','board','nonbat','nonbat_nc','battery','cover','etc','newProduct'].every(k =>
+          Number(ps[k] ?? 0) === Number(settingsObj[k] ?? 0))
+          && JSON.stringify(ps.modelParts || {}) === JSON.stringify(settingsObj.modelParts || {});
+        if(_same) {
+          notify('✅ 단가 설정 저장 완료! (서버 확인 — 고객 대시보드에도 반영됨)');
+          return;
+        }
+      } catch(e2) {}
+      notify('⚠️ 서버 저장 실패 — 서버에 반영되지 않았습니다. 잠시 후 [저장]을 다시 눌러주세요.', 'error');
     });
 }
 
@@ -10759,14 +10773,34 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
   });
   const maxReg = Math.max(1, ...rows.map(r => r.reg));
   const maxShip = Math.max(0, ...rows.map(r => r.ship));
+  // ⭐ v2.84d: 형평 보정 — 회사 지시로 빠진 '파트장 대행일'만 참작 (신입·입사일은 참작하지 않음:
+  //   숙련도 차이는 평가의 일부라는 방침 — 2026-09-21 마스터 결정).
+  //   가용 영업일 = 그 달 영업일(오늘까지) − 본인 대행일.
+  const [ay2, am2] = mv.split('-').map(Number);
+  const _dk = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const _mS0 = new Date(ay2, am2 - 1, 1);
+  const _t0 = new Date(); _t0.setHours(0, 0, 0, 0);
+  let _mE0 = new Date(ay2, am2, 0);
+  if(_mE0 > _t0) _mE0 = _t0;
+  rows.forEach(r => {
+    const from = _mS0;
+    let biz = 0;
+    try { biz = (typeof _grBizDays === 'function') ? _grBizDays(from, _mE0) : 0; } catch(e) {}
+    r.actCnt = (actingDaysMap[r.n] || []).filter(d => d >= _dk(from) && d <= _dk(_mE0)).length;
+    r.effDays = Math.max(1, biz - r.actCnt);
+    r.regRate = r.reg / r.effDays;
+    r.shipRate = r.ship / r.effDays;
+  });
+  const maxRegRate = Math.max(0.0001, ...rows.map(r => r.regRate));
+  const maxShipRate = Math.max(0, ...rows.map(r => r.shipRate));
   // 품질점: 불합격률 1%당 −5점 (0~100). 표본 부족(검수<10건)은 팀 평균 품질점으로 중립 처리.
   const rated = rows.filter(r => r.rate !== null);
   const teamQAvg = rated.length ? rated.reduce((sm, r) => sm + Math.max(0, 100 - r.rate * 5), 0) / rated.length : 80;
   rows.forEach(r => {
     r.qScore = r.rate !== null ? Math.max(0, 100 - r.rate * 5) : teamQAvg;
     r.qNeutral = r.rate === null;
-    r.regScore = r.reg / maxReg * 100;
-    r.shipScore = maxShip > 0 ? r.ship / maxShip * 100 : 0;
+    r.regScore = r.regRate / maxRegRate * 100;                       // ⭐ v2.84d: 가용일 일평균 기준
+    r.shipScore = maxShipRate > 0 ? r.shipRate / maxShipRate * 100 : 0;
     // ⭐ v2.82d: 종합 = 실제 출고 40% + 수리 등록 25% + 품질 35% — 출고가 곧 매출이라 최대 가중
     //   (출고 데이터 없는 달은 등록 65% + 품질 35% 폴백)
     r.total = maxShip > 0
@@ -10790,7 +10824,7 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
     <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🏆 이 달의 엔지니어 <span style="font-size:11px;color:var(--text3);font-weight:400;">· ${mv} · 포상 참고용 — 공식·원자료 전부 공개 기준</span></div>
     <div style="padding:9px 16px;background:rgba(250,204,21,.08);border-bottom:1px solid var(--border);font-size:12.5px;">
       <b>종합점 = 실제 출고 40% + 수리 등록 25% + 품질점 35%</b>
-      <span style="font-size:11px;color:var(--text3);"> · 등록·출고는 팀 최다 대비 % · 품질점 = 100 − 불합격률×5 · KPI 기여도(출고+교품 환산 기준)와는 다른 기준의 순위예요</span>
+      <span style="font-size:11px;color:var(--text3);"> · 등록·출고는 <b>가용일 일평균</b>(영업일 − 파트장 대행일) 팀 최고 대비 % — 회사 지시로 빠진 대행일만 참작 · 품질점 = 100 − 불합격률×5 · KPI 기여도와는 다른 기준</span>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;padding:12px 16px;">
       ${aw('🔧🚚', '수리·출고왕 (수리+출고 합산)', bestCombo && (bestCombo.reg + bestCombo.ship) > 0 ? bestCombo : null, bestCombo ? `수리 등록 ${fmt(bestCombo.reg)} + 실제 출고 ${fmt(bestCombo.ship)} = 합산 ${fmt(bestCombo.reg + bestCombo.ship)}건` : '')}
@@ -10801,15 +10835,15 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
       <thead><tr><th>순위</th><th>엔지니어</th><th style="text-align:right">수리 등록</th><th style="text-align:right">실제 출고</th><th style="text-align:right">교품 처리</th><th style="text-align:right">검수 불합격률</th><th style="text-align:right">품질점</th><th style="text-align:right">종합점</th></tr></thead>
       <tbody>${ranked.map((r, i) => `<tr style="${i === 0 ? 'background:rgba(250,204,21,.08);' : ''}">
         <td style="font-weight:800;font-size:${i < 3 ? '15px' : '12px'};">${medal(i)}</td>
-        <td style="font-weight:700;">${escapeHtml(r.n)} ${tierBadge(tierMap[r.n] || '')}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;">🎓</span>' : ''}</td>
-        <td style="text-align:right;">${fmt(r.reg)}건</td>
-        <td style="text-align:right;">${fmt(r.ship)}대</td>
+        <td style="font-weight:700;">${escapeHtml(r.n)} ${tierBadge(tierMap[r.n] || '')}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;">🎓</span>' : ''}${r.actCnt ? ` <span style="font-size:10px;font-weight:700;color:#d97706;background:#fff7ed;padding:1px 6px;border-radius:99px;" title="파트장 대행 ${r.actCnt}일 — 등록·출고 점수는 대행일을 뺀 가용일 일평균으로 계산돼 불이익 없음">👑 대행 ${r.actCnt}일</span>` : ''}</td>
+        <td style="text-align:right;">${fmt(r.reg)}건 <span style="font-size:10px;color:var(--text3);">일 ${r.regRate.toFixed(1)}</span></td>
+        <td style="text-align:right;">${fmt(r.ship)}대 <span style="font-size:10px;color:var(--text3);">일 ${r.shipRate.toFixed(1)}</span></td>
         <td style="text-align:right;color:var(--text2);">${fmt(r.exc)}건</td>
         <td style="text-align:right;">${r.rate !== null ? `${r.rate.toFixed(1)}% <span style="font-size:10px;color:var(--text3);">(${fmt(r.q.ins)}건)</span>` : '<span style="color:var(--text3);font-size:11px;" title="이 달 검수 10건 미만 — 품질점은 팀 평균으로 중립 처리">표본 부족</span>'}</td>
         <td style="text-align:right;">${r.qScore.toFixed(0)}${r.qNeutral ? '<span style="font-size:10px;color:var(--text3);">*</span>' : ''}</td>
         <td style="text-align:right;font-weight:800;color:${i === 0 ? '#d97706' : 'var(--text)'};">${r.total.toFixed(1)}</td>
       </tr>`).join('')}</tbody></table></div>
-    <div style="padding:10px 16px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">종합점 = 실제 출고 40%(매출 기준) + 수리 등록 25% + 품질 35%${maxShip > 0 ? '' : ' (이 달 출고 데이터 없음 → 등록 65% + 품질 35%)'} · 등록·출고는 팀 최다 대비 %, 품질점 = 100 − 불합격률×5 · *표본 부족(검수 10건 미만)은 팀 평균 품질점으로 중립 처리 · 교품 처리는 참고 표기(점수 미반영)</div>
+    <div style="padding:10px 16px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">종합점 = 실제 출고 40%(매출 기준) + 수리 등록 25% + 품질 35%${maxShip > 0 ? '' : ' (이 달 출고 데이터 없음 → 등록 65% + 품질 35%)'} · 등록·출고는 가용 영업일(파트장 대행일만 제외 — 입사 시기는 참작 없음) 일평균의 팀 최고 대비 %, 품질점 = 100 − 불합격률×5 · *표본 부족(검수 10건 미만)은 팀 평균 품질점으로 중립 처리 · 교품 처리는 참고 표기(점수 미반영)</div>
   </div>`;
 }
 
