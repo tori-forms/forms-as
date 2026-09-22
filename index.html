@@ -2171,6 +2171,11 @@ window.addEventListener('DOMContentLoaded', function(){
         <div id="edit-work-checks" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:4px;"></div>
       </div>
       <div id="edit-reentry-section" class="form-group" style="margin-bottom:14px;display:none;"></div>
+      <!-- ⭐ v2.85: T2N 불량 재현 여부 사후 수정 — 등록 때 못 골랐거나 잘못 고른 판정을 여기서 변경 -->
+      <div id="edit-t2n-row" class="form-group" style="margin-bottom:14px;display:none;">
+        <label class="form-label">입고 불량증상 재현 여부 <span style="color:var(--text3);font-weight:400;">(다시 누르면 해제 · 불량 데이터/고객사 대시보드에 반영)</span></label>
+        <div id="edit-t2n-chips" style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;"></div>
+      </div>
       <div class="form-group" style="margin-bottom:20px;">
         <label class="form-label">특이사항 <span style="color:var(--text3);font-weight:400;">(선택)</span></label>
         <textarea id="edit-note" placeholder="특이사항을 입력하세요."></textarea>
@@ -3601,6 +3606,23 @@ function updateT2nRow() {
     (!window._t2nRepro ? `<span style="display:inline-flex;align-items:center;font-size:11.5px;color:var(--text3);">← 고르면 불량 데이터에 집계돼요 (선택 · 상세 증상은 수리메모에)</span>` : '');
   const ta = document.getElementById('t2n-symptom');
   if(ta) ta.style.display = 'none';   // 증상칸은 사용 안 함
+}
+// ⭐ v2.85: 수정 팝업용 재현 여부 칩 — 등록 후에도 판정 변경 가능 (태그는 노트 선두에 재부착)
+window._editT2nRepro = '';
+const T2N_REP_TAG_RE = /\[불량재현(O|X)(?::([^\]]*))?\]\s*/;   // 구버전 [불량재현O: 증상] 형식 포함
+function updateEditT2nRow(model) {
+  const row = document.getElementById('edit-t2n-row');
+  if(!row) return;
+  const isT2N = normalizeModel(model || document.getElementById('edit-model')?.value || '') === 'T2N';
+  row.style.display = isT2N ? '' : 'none';
+  if(!isT2N) return;
+  const mk = (v, label, color) => {
+    const on = window._editT2nRepro === v;
+    return `<button type="button" onclick="window._editT2nRepro = (window._editT2nRepro === '${v}' ? '' : '${v}'); updateEditT2nRow()" style="padding:6px 14px;border-radius:99px;font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid ${on ? color : 'var(--border)'};background:${on ? color : 'var(--surface)'};color:${on ? '#fff' : 'var(--text2)'};">${label}</button>`;
+  };
+  const chips = document.getElementById('edit-t2n-chips');
+  if(chips) chips.innerHTML = mk('O', '⚠️ 재현됨', '#ef4444') + mk('X', '✅ 재현 안 됨', '#16a34a') +
+    (!window._editT2nRepro ? `<span style="display:inline-flex;align-items:center;font-size:11.5px;color:var(--text3);">← 미선택 (불량 데이터에 미집계)</span>` : '');
 }
 function updateColorRow(autoWhite) {
   try { updateT2nRow(); } catch(e) {}   // ⭐ v2.78: 기종 변경 시 T2N 섹션도 함께 갱신
@@ -14326,7 +14348,17 @@ async function openEditModal(id) {
     </label>`;
   }).join('');
   try { syncEtcRuleEdit(); } catch(err) {}   // ⭐ v2.79n: 논배(포함) 건은 기타작업 잠금 상태로 열기
-  document.getElementById('edit-note').value = e.note || '';
+  // ⭐ v2.85: T2N 재현 태그를 칩 상태로 분리 — 메모창에는 태그 없이 표시 (저장 시 칩 기준으로 재부착)
+  //   구버전 [불량재현O: 증상] 형식이면 증상 텍스트를 메모 앞으로 옮겨 보존
+  {
+    const _rawNote = String(e.note || '');
+    const _repM = _rawNote.match(T2N_REP_TAG_RE);
+    window._editT2nRepro = _repM ? _repM[1] : '';
+    let _cleanNote = _rawNote.replace(T2N_REP_TAG_RE, '').trim();
+    if(_repM && _repM[2] && _repM[2].trim() && !_cleanNote.includes(_repM[2].trim())) _cleanNote = `${_repM[2].trim()} ${_cleanNote}`.trim();
+    document.getElementById('edit-note').value = _cleanNote;
+    try { updateEditT2nRow(e.model); } catch(err) {}
+  }
   // ⭐ v2.73: B급 체크박스 동기화 (노트의 [B급] 태그 기준)
   const _ebg = document.getElementById('edit-bgrade');
   if(_ebg) _ebg.checked = String(e.note || '').includes('[B급]');
@@ -14655,6 +14687,10 @@ async function saveEdit() {
   // ⭐ v2.73: B급 체크 반영 — 기존 [B급] 태그를 정리한 뒤 체크 상태에 따라 다시 부착 (중복 방지)
   let note = document.getElementById('edit-note').value.trim();
   note = note.replace(/\s*\[B급\]/g, '').trim();
+  // ⭐ v2.85: 재현 태그도 정리 후 칩 상태 기준으로 선두 재부착 (고객사 대시보드 파서는 선두 태그 인식)
+  note = note.replace(/\[불량재현(O|X)(?::[^\]]*)?\]\s*/g, '').trim();
+  const _editModelNow = document.getElementById('edit-model')?.value || '';
+  if(normalizeModel(_editModelNow) === 'T2N' && window._editT2nRepro) note = `[불량재현${window._editT2nRepro}] ${note}`.trim();
   if(document.getElementById('edit-bgrade')?.checked) note = `${note} [B급]`.trim();
   if(!works.length){ notify('수리 항목을 하나 이상 선택하세요.','error'); return; }
   const btn = document.getElementById('edit-ok-btn');
