@@ -2356,7 +2356,7 @@ let roleMap = {}; // { 이름: 'engineer'|'inspector'|'both' } - 검수 역할 (
 let hireDateMap = {}; // { 이름: 'YYYY-MM-DD' } - 입사일 (주차별 KPI 램프업용)
 let mentoringMap = {}; // { 이름: true } - 교육 중(신입 멘토) → 목표 면제
 let mentoringEndMap = {}; // ⭐ v2.63: { 이름: 'YYYY-MM-DD' } — 교육 해제일. 이전 날짜는 미달 집계 제외 (해제 시 과거 교육기간이 소급 미달로 잡히는 문제 방지)
-let actingDaysMap = {};   // ⭐ v2.79q: { 이름: ['YYYY-MM-DD',...] } — 파트장 대행일 (T3 휴무 시 T2가 대행). 그 날은 수리 목표 면제 + 기록에 남음
+let actingDaysMap = {};   // ⭐ v2.79q: { 이름: ['YYYY-MM-DD',...] } — 파트장 대행일 (파트장 휴무 시 시니어가 대행). 그 날은 수리 목표 면제 + 기록에 남음
 function isActingDay(name, dayStr) {
   try { return Array.isArray(actingDaysMap[name]) && actingDaysMap[name].includes(String(dayStr).slice(0,10)); } catch(e) { return false; }
 }
@@ -3784,6 +3784,9 @@ function _newTierScheme() {
 }
 function ADMIN_TIER() { return _newTierScheme() ? 'T5' : 'T4'; }
 function LEAD_TIER() { return _newTierScheme() ? 'T4' : 'T3'; }
+// ⭐ v2.85a: 파트장 대행 가능 티어 — 파트장 아래 시니어 엔지니어 (신체계 T2·T3, 구체계 T2).
+//   일일 현황 버튼이 구체계 조건(T2만)으로 남아 신체계에서 T3에게 대행을 못 넣던 문제의 공통 규칙.
+function canBeActing(name) { const t = tierMap[name] || ''; return t === 'T2' || (t === 'T3' && _newTierScheme()); }
 // 총괄 관리자 (마스터)
 function isFullAdmin() {
   if(!currentUser) return false;
@@ -15679,7 +15682,7 @@ async function renderSummary() {
         <div class="worker-block-meta">
           <span style="font-size:13px;color:var(--text2);">${acting ? `${cnt}건 · 목표 면제` : `${cnt} / ${target||'?'}건`}</span>
           <span class="badge ${bc}">${bt}</span>
-          ${(tierMap[w]==='T2' && (isMe || isAdmin)) ? `<button class="btn btn-sm" onclick="event.stopPropagation();toggleActingDay('${escapeJs(w)}','${sel}')" title="${acting ? '이 날 파트장 대행 해제' : 'T3 휴무 — 이 날 파트장 대행 (수리 목표 면제 · 기록에 남음)'}" style="height:26px;padding:0 9px;font-size:11px;font-weight:700;${acting ? 'border-color:#d97706;color:#d97706;background:#fff7ed;' : ''}">👑 대행${acting ? ' 해제' : ''}</button>` : ''}
+          ${(canBeActing(w) && (isMe || isAdmin)) ? `<button class="btn btn-sm" onclick="event.stopPropagation();toggleActingDay('${escapeJs(w)}','${sel}')" title="${acting ? '이 날 파트장 대행 해제' : '파트장 휴무 — 이 날 파트장 대행 (수리 목표 면제 · 기록에 남음)'}" style="height:26px;padding:0 9px;font-size:11px;font-weight:700;${acting ? 'border-color:#d97706;color:#d97706;background:#fff7ed;' : ''}">👑 대행${acting ? ' 해제' : ''}</button>` : ''}
           <span class="worker-block-revenue">${fmt(wrev)}원</span>
           <span id="arrow-${blockId}" style="font-size:16px;color:var(--text3);transition:transform .2s;display:inline-block;">${_isWbOpen(blockId, isMe)?'▲':'▼'}</span>
         </div>
@@ -16955,7 +16958,7 @@ async function renderReport() {
       .filter(x => x.all.length);
     if(!monthActs.length && !allActs.length) return;
     h += `<div class="card" style="padding:0;margin-top:14px;">
-      <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">👑 파트장 대행 이력 <span style="font-size:11px;color:var(--text3);font-weight:400;">· T3 휴무일에 T2가 대행 — 대행일은 수리 목표 면제 · 미달 미집계 (그 날 실적이 적은 건 대행 업무 때문) · 놓친 날은 관리자→작업자 관리에서 날짜를 골라 소급 등록하면 그 날 미달도 정리돼요</span></div>
+      <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">👑 파트장 대행 이력 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 파트장 휴무일에 시니어 엔지니어(T2·T3)가 대행 — 대행일은 수리 목표 면제 · 미달 미집계 (그 날 실적이 적은 건 대행 업무 때문) · 놓친 날은 관리자→작업자 관리에서 날짜를 골라 소급 등록하면 그 날 미달도 정리돼요</span></div>
       ${monthActs.length ? `<div class="table-wrap"><table>
         <thead><tr><th>대행자</th><th style="text-align:center">이 달 대행</th><th>대행일</th></tr></thead>
         <tbody>${monthActs.map(x => `<tr>
@@ -17570,9 +17573,10 @@ function renderWorkers() {
         </select>
         <input type="date" value="${hireVal}" onchange="saveWorkerHireDate('${w}',this.value)" title="입사일 (주차별 KPI 목표 산정)" style="height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);" />
         <button onclick="saveMentoring('${w}',${mentoringMap[w]?'false':'true'})" title="교육 중 (켜면 KPI 목표 면제 · 실적은 그대로 집계)" style="height:30px;padding:0 10px;font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;border:1px solid ${mentoringMap[w]?'#7c3aed':'var(--border2)'};background:${mentoringMap[w]?'#ede9fe':'transparent'};color:${mentoringMap[w]?'#7c3aed':'var(--text2)'};">🎓 교육${mentoringMap[w]?' 중':''}</button>
-        ${(tier==='T2' || (tier==='T3' && _newTierScheme())) ? (() => { const _act = isActingDay(w, todayStr()); return `
+        ${canBeActing(w) ? (() => { const _act = isActingDay(w, todayStr()); return `
+
         <input type="date" id="act-d-${_wi}" value="${todayStr()}" title="대행일 — 지난 날짜를 골라 놓친 대행 기록을 나중에 등록/해제할 수 있어요" style="height:30px;padding:0 6px;font-size:11px;border:1px solid ${_act?'#d97706':'var(--border2)'};border-radius:var(--radius-sm);color:var(--text2);" />
-        <button onclick="toggleActingDay('${escapeJs(w)}', document.getElementById('act-d-${_wi}')?.value)" title="파트장 대행 (T3 휴무일 — 왼쪽 날짜의 대행 기록을 등록/해제. 기본 오늘, 지난 날짜 소급 등록 가능)" style="height:30px;padding:0 10px;font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;border:1px solid ${_act?'#d97706':'var(--border2)'};background:${_act?'#fff7ed':'transparent'};color:${_act?'#d97706':'var(--text2)'};">👑 대행${_act?' (오늘 중)':''}</button>`; })() : ''}
+        <button onclick="toggleActingDay('${escapeJs(w)}', document.getElementById('act-d-${_wi}')?.value)" title="파트장 대행 (파트장 휴무일 — 왼쪽 날짜의 대행 기록을 등록/해제. 기본 오늘, 지난 날짜 소급 등록 가능)" style="height:30px;padding:0 10px;font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;border:1px solid ${_act?'#d97706':'var(--border2)'};background:${_act?'#fff7ed':'transparent'};color:${_act?'#d97706':'var(--text2)'};">👑 대행${_act?' (오늘 중)':''}</button>`; })() : ''}
 <input type="number" min="0" step="1" placeholder="자동" value="${dtVal!==undefined&&dtVal!==null?dtVal:''}" onchange="saveWorkerDailyTarget('${w}',this.value)" title="일일 목표 직접 지정 (비우면 입사일 기준 자동)" style="width:64px;height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);text-align:right;" />
         <span style="font-size:11px;color:var(--text3);">건/일</span>
         ${isFullAdmin() ? `<button class="btn btn-sm" onclick="resetWorkerPassword('${escapeJs(w)}')" title="비밀번호 초기화 — 다음 로그인 때 본인이 새 비밀번호를 설정" style="color:#d97706;border-color:#d97706;">🔑 비번 초기화</button>` : ''}
@@ -17833,7 +17837,7 @@ async function saveMentoring(name, on) {
   }
 }
 
-/* ⭐ v2.79q: 파트장 대행일 토글 — T3 휴무일에 T2가 파트장 대행.
+/* ⭐ v2.79q: 파트장 대행일 토글 — 파트장 휴무일에 시니어 엔지니어가 대행 (v2.85a: 신체계 T2·T3, 구체계 T2).
    그 날은 수리 목표가 면제되고(미달로 안 잡힘), 대행일이 명단에 기록으로 남아
    일일 현황 배지·월간 리포트 "대행 N일"·작업자 관리에서 확인된다.
    본인(T2 스스로) 또는 관리자(T3·T4·마스터)가 켜고 끌 수 있음. */
