@@ -1147,7 +1147,7 @@ window.addEventListener('DOMContentLoaded', function(){
       </div>
       <!-- ⭐ v2.78a: T2N 입고 불량증상 재현 확인 — 가로 전체 폭 블록 (기존: form-row 안에 끼어 레이아웃 깨짐) -->
       <div class="form-group" id="t2n-row" style="display:none;margin-bottom:16px;padding:12px 14px;border:1px dashed var(--border2);border-radius:10px;background:var(--surface2,rgba(148,163,184,.06));">
-        <label class="form-label">입고 불량증상 재현 여부 <span style="color:var(--text3);font-weight:400;">(선택 — 안 골라도 등록되고, 다시 누르면 해제 · 증상 상세는 수리메모에)</span></label>
+        <label class="form-label">입고 불량증상 재현 여부 · 고객과실 <span style="color:var(--text3);font-weight:400;">(선택 — 안 골라도 등록되고, 다시 누르면 해제 · 상세는 수리메모에)</span></label>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px;" id="t2n-chips"></div>
         <textarea id="t2n-symptom" placeholder="재현된 불량증상을 구체적으로 적어주세요 (예: 전원 인가 시 부팅 로고에서 멈춤)" style="display:none;margin-top:10px;width:100%;min-height:60px;"></textarea>
       </div>
@@ -3590,26 +3590,34 @@ function entryColor(e) {
 window._regColor = '';   // ⭐ v2.71a: 기본 선택 없음 — S2는 색상을 직접 골라야 등록 가능 (깜빡 방지)
 // ⭐ v2.78: T2N 입고 불량증상 재현 여부 ('' | 'O' | 'X')
 window._t2nRepro = '';
+// ⭐ v2.87: 고객과실(우발적 손상 — 찌그러짐·깨짐 등) 표시 (T2N)
+window._t2nFault = false;
 function updateT2nRow() {
   // ⭐ v2.83b: 재현됨/재현 안 됨 칩 선택은 유지 (선택 사항) — 증상 서술칸만 제거, 상세는 수리메모에.
   const row = document.getElementById('t2n-row');
   if(!row) return;
   const isT2N = normalizeModel(getModel()) === 'T2N';
   row.style.display = isT2N ? '' : 'none';
-  if(!isT2N) { window._t2nRepro = ''; return; }
+  if(!isT2N) { window._t2nRepro = ''; window._t2nFault = false; return; }
   const mk = (v, label, color) => {
     const on = window._t2nRepro === v;
     return `<button type="button" onclick="window._t2nRepro = (window._t2nRepro === '${v}' ? '' : '${v}'); updateT2nRow()" style="padding:6px 14px;border-radius:99px;font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid ${on ? color : 'var(--border)'};background:${on ? color : 'var(--surface)'};color:${on ? '#fff' : 'var(--text2)'};">${label}</button>`;
   };
+  // ⭐ v2.87: 고객과실 칩 — 찌그러짐·깨짐 등 우발적 손상이면 체크 (제품 불량과 분리 집계)
+  const fOn = !!window._t2nFault;
+  const faultChip = `<button type="button" onclick="window._t2nFault = !window._t2nFault; updateT2nRow()" style="padding:6px 14px;border-radius:99px;font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid ${fOn ? '#d97706' : 'var(--border)'};background:${fOn ? '#d97706' : 'var(--surface)'};color:${fOn ? '#fff' : 'var(--text2)'};">💥 고객과실 (우발 손상)</button>`;
   const chips = document.getElementById('t2n-chips');
   if(chips) chips.innerHTML = mk('O', '⚠️ 재현됨', '#ef4444') + mk('X', '✅ 재현 안 됨', '#16a34a') +
-    (!window._t2nRepro ? `<span style="display:inline-flex;align-items:center;font-size:11.5px;color:var(--text3);">← 고르면 불량 데이터에 집계돼요 (선택 · 상세 증상은 수리메모에)</span>` : '');
+    `<span style="width:1px;height:20px;background:var(--border);margin:0 4px;"></span>` + faultChip +
+    (!window._t2nRepro && !fOn ? `<span style="display:inline-flex;align-items:center;font-size:11.5px;color:var(--text3);">← 고르면 불량 데이터에 집계돼요 (선택 · 상세는 수리메모에)</span>` : '');
   const ta = document.getElementById('t2n-symptom');
   if(ta) ta.style.display = 'none';   // 증상칸은 사용 안 함
 }
 // ⭐ v2.85: 수정 팝업용 재현 여부 칩 — 등록 후에도 판정 변경 가능 (태그는 노트 선두에 재부착)
 window._editT2nRepro = '';
+window._editT2nFault = false;   // ⭐ v2.87
 const T2N_REP_TAG_RE = /\[불량재현(O|X)(?::([^\]]*))?\]\s*/;   // 구버전 [불량재현O: 증상] 형식 포함
+const T2N_FAULT_TAG_RE = /\[고객과실\]\s*/;   // ⭐ v2.87
 function updateEditT2nRow(model) {
   const row = document.getElementById('edit-t2n-row');
   if(!row) return;
@@ -3620,9 +3628,12 @@ function updateEditT2nRow(model) {
     const on = window._editT2nRepro === v;
     return `<button type="button" onclick="window._editT2nRepro = (window._editT2nRepro === '${v}' ? '' : '${v}'); updateEditT2nRow()" style="padding:6px 14px;border-radius:99px;font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid ${on ? color : 'var(--border)'};background:${on ? color : 'var(--surface)'};color:${on ? '#fff' : 'var(--text2)'};">${label}</button>`;
   };
+  const fOn = !!window._editT2nFault;   // ⭐ v2.87
+  const faultChip = `<button type="button" onclick="window._editT2nFault = !window._editT2nFault; updateEditT2nRow()" style="padding:6px 14px;border-radius:99px;font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid ${fOn ? '#d97706' : 'var(--border)'};background:${fOn ? '#d97706' : 'var(--surface)'};color:${fOn ? '#fff' : 'var(--text2)'};">💥 고객과실 (우발 손상)</button>`;
   const chips = document.getElementById('edit-t2n-chips');
   if(chips) chips.innerHTML = mk('O', '⚠️ 재현됨', '#ef4444') + mk('X', '✅ 재현 안 됨', '#16a34a') +
-    (!window._editT2nRepro ? `<span style="display:inline-flex;align-items:center;font-size:11.5px;color:var(--text3);">← 미선택 (불량 데이터에 미집계)</span>` : '');
+    `<span style="width:1px;height:20px;background:var(--border);margin:0 4px;"></span>` + faultChip +
+    (!window._editT2nRepro && !fOn ? `<span style="display:inline-flex;align-items:center;font-size:11.5px;color:var(--text3);">← 미선택 (불량 데이터에 미집계)</span>` : '');
 }
 function updateColorRow(autoWhite) {
   try { updateT2nRow(); } catch(e) {}   // ⭐ v2.78: 기종 변경 시 T2N 섹션도 함께 갱신
@@ -12218,8 +12229,9 @@ function _t2nParseRepro(note) {
   return { repro: m[1], symptom: (m[2] || '').trim() };
 }
 function _t2nStripTag(note) {
-  return String(note || '').replace(/\[불량재현(O|X)(?::[^\]]*)?\]\s*/, '').trim();
+  return String(note || '').replace(/\[불량재현(O|X)(?::[^\]]*)?\]\s*/, '').replace(/\[고객과실\]\s*/g, '').trim();   // ⭐ v2.87
 }
+function _t2nIsFault(note) { return /\[고객과실\]/.test(String(note || '')); }   // ⭐ v2.87: 고객과실(우발 손상)
 function _isT2NEntry(e) {
   return normalizeModel(e.model || '') === 'T2N' || String(e.serial || '').toUpperCase().startsWith('TN');
 }
@@ -12233,17 +12245,20 @@ function renderT2N() {
   }
   const nowM = new Date();
   const nowKey = `${nowM.getFullYear()}-${String(nowM.getMonth()+1).padStart(2,'0')}`;
-  let cO = 0, cX = 0, cU = 0, thisM = 0;
+  let cO = 0, cX = 0, cU = 0, cF = 0, thisM = 0;   // ⭐ v2.87: cF = 고객과실
   const byMonth = {};
   list.forEach(e => {
     const r = _t2nParseRepro(e.note).repro;
+    const f = _t2nIsFault(e.note);
     if(r === 'O') cO++; else if(r === 'X') cX++; else cU++;
+    if(f) cF++;
     const mk = String(e.date || '').slice(0, 7);
-    if(mk) { byMonth[mk] = byMonth[mk] || { n: 0, o: 0, x: 0 }; byMonth[mk].n++; if(r === 'O') byMonth[mk].o++; if(r === 'X') byMonth[mk].x++; }
+    if(mk) { byMonth[mk] = byMonth[mk] || { n: 0, o: 0, x: 0, f: 0 }; byMonth[mk].n++; if(r === 'O') byMonth[mk].o++; if(r === 'X') byMonth[mk].x++; if(f) byMonth[mk].f++; }
     if(mk === nowKey) thisM++;
   });
   const total = list.length;
   const reproRate = (cO + cX) ? Math.round(cO / (cO + cX) * 100) : 0;
+  const faultRate = total ? Math.round(cF / total * 1000) / 10 : 0;   // ⭐ v2.87: 인입 대비 고객과실 %
   const kcard = (label, val, sub, color) => `
     <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;">
       <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;margin-bottom:4px;">${label}</div>
@@ -12256,6 +12271,7 @@ function renderT2N() {
       ${kcard('이번 달 인입', fmt(thisM) + '건', nowKey, 'var(--accent)')}
       ${kcard('불량 재현', fmt(cO) + '건', '재현율 ' + reproRate + '%', '#ef4444')}
       ${kcard('재현 안 됨', fmt(cX) + '건', '', '#16a34a')}
+      ${kcard('💥 고객과실 (우발 손상)', fmt(cF) + '건', '인입 대비 ' + faultRate + '%', '#d97706')}
       ${cU ? kcard('재현 미기록', fmt(cU) + '건', '구버전 등록분', 'var(--text3)') : ''}
     </div>
   </div>`;
@@ -12267,7 +12283,7 @@ function renderT2N() {
       <thead><tr style="border-bottom:1px solid var(--border);color:var(--text3);font-size:11px;">
         <th style="text-align:left;padding:6px 8px;">월</th><th style="text-align:right;padding:6px 8px;">인입</th>
         <th style="text-align:right;padding:6px 8px;">재현</th><th style="text-align:right;padding:6px 8px;">미재현</th>
-        <th style="text-align:right;padding:6px 8px;">재현율</th></tr></thead>
+        <th style="text-align:right;padding:6px 8px;">재현율</th><th style="text-align:right;padding:6px 8px;">고객과실</th></tr></thead>
       <tbody>${months.map(mk => {
         const v = byMonth[mk];
         const rr = (v.o + v.x) ? Math.round(v.o / (v.o + v.x) * 100) : 0;
@@ -12276,7 +12292,8 @@ function renderT2N() {
           <td style="padding:6px 8px;text-align:right;">${v.n}건</td>
           <td style="padding:6px 8px;text-align:right;color:#ef4444;">${v.o}건</td>
           <td style="padding:6px 8px;text-align:right;color:#16a34a;">${v.x}건</td>
-          <td style="padding:6px 8px;text-align:right;font-weight:700;">${rr}%</td></tr>`;
+          <td style="padding:6px 8px;text-align:right;font-weight:700;">${rr}%</td>
+          <td style="padding:6px 8px;text-align:right;color:#d97706;font-weight:600;">${v.f ? v.f + '건 (' + Math.round(v.f / v.n * 100) + '%)' : '-'}</td></tr>`;
       }).join('')}</tbody>
     </table></div>
   </div>`;
@@ -12296,13 +12313,14 @@ function renderT2N() {
           : r.repro === 'X'
             ? '<span style="font-size:10.5px;font-weight:700;color:#16a34a;background:#dcfce7;border-radius:99px;padding:2px 8px;white-space:nowrap;">미재현</span>'
             : '<span style="font-size:10.5px;color:var(--text3);">-</span>';
+        const fb = _t2nIsFault(e.note) ? ' <span title="고객과실 (우발적 손상)" style="font-size:10.5px;font-weight:700;color:#d97706;background:#fff7ed;border-radius:99px;padding:2px 7px;white-space:nowrap;">💥 고객과실</span>' : '';   // ⭐ v2.87
         let st = '';
         try { st = statusBadgeHtml(e); } catch(err) { st = escapeHtml(String(e.status || '')); }
         return `<tr style="border-bottom:1px solid var(--border);">
           <td style="padding:6px 8px;font-family:monospace;font-size:12px;">${escapeHtml(e.serial || '')}</td>
           <td style="padding:6px 8px;white-space:nowrap;">${String(e.date || '').slice(0, 10)}</td>
           <td style="padding:6px 8px;white-space:nowrap;">${escapeHtml(String(e.worker || '').split('::')[0])}</td>
-          <td style="padding:6px 8px;text-align:center;white-space:nowrap;">${badge}</td>
+          <td style="padding:6px 8px;text-align:center;white-space:nowrap;">${badge}${fb}</td>
           <td style="padding:6px 8px;max-width:240px;color:${r.repro === 'O' ? '#ef4444' : 'var(--text3)'};">${escapeHtml(r.symptom || '-')}</td>
           <td style="padding:6px 8px;white-space:nowrap;">${st}</td>
           <td style="padding:6px 8px;max-width:280px;color:var(--text2);">${escapeHtml(_t2nStripTag(e.note))}</td></tr>`;
@@ -12708,8 +12726,9 @@ function clearChecks() {
   extraPartCounters = {};
   initPartQtys();
   try { syncEtcRule(); } catch(e) {}   // ⭐ v2.79n: 초기화 후 기타작업 기본 선택 복원
-  // ⭐ v2.78: T2N 재현 여부 입력 초기화
+  // ⭐ v2.78: T2N 재현 여부 입력 초기화 (⭐ v2.87: 고객과실도)
   window._t2nRepro = '';
+  window._t2nFault = false;
   const _t2ta = document.getElementById('t2n-symptom');
   if(_t2ta) _t2ta.value = '';
   try { updateT2nRow(); } catch(e) {}
@@ -12835,6 +12854,10 @@ async function addEntry() {
   window._nbCoverOk = false;   // ⭐ v2.79f: 백커버 확인 플래그 해제 (다음 등록 때 다시 확인)
 
 
+  // ⭐ v2.87: 고객과실(우발 손상) 태그 — 재현 태그보다 먼저 붙여 최종 순서는 [불량재현X] [고객과실] 메모
+  if(normalizeModel(model) === 'T2N' && window._t2nFault) {
+    note = `[고객과실] ${note}`.trim();
+  }
   // ⭐ v2.83b: T2N 재현 여부 칩(선택) — 골랐을 때만 태그 저장, 증상 상세는 수리메모에.
   if(normalizeModel(model) === 'T2N' && window._t2nRepro) {
     note = `[불량재현${window._t2nRepro}] ${note}`.trim();
@@ -14388,6 +14411,7 @@ async function renderMyDash() {
       </div>
       <div id="t3-notice-slot"></div>
       <div id="t3-triple-slot"></div>
+      ${_partOveruseCard()}
       ${_qualityWeakCard()}
       ${_partAnomalyCard()}
       <details id="t3-board-details" style="margin-top:4px;"${window._board3Open?' open':''}>
@@ -14539,7 +14563,8 @@ async function openEditModal(id) {
     const _rawNote = String(e.note || '');
     const _repM = _rawNote.match(T2N_REP_TAG_RE);
     window._editT2nRepro = _repM ? _repM[1] : '';
-    let _cleanNote = _rawNote.replace(T2N_REP_TAG_RE, '').trim();
+    window._editT2nFault = T2N_FAULT_TAG_RE.test(_rawNote);   // ⭐ v2.87
+    let _cleanNote = _rawNote.replace(T2N_REP_TAG_RE, '').replace(/\[고객과실\]\s*/g, '').trim();
     if(_repM && _repM[2] && _repM[2].trim() && !_cleanNote.includes(_repM[2].trim())) _cleanNote = `${_repM[2].trim()} ${_cleanNote}`.trim();
     document.getElementById('edit-note').value = _cleanNote;
     try { updateEditT2nRow(e.model); } catch(err) {}
@@ -14873,8 +14898,10 @@ async function saveEdit() {
   let note = document.getElementById('edit-note').value.trim();
   note = note.replace(/\s*\[B급\]/g, '').trim();
   // ⭐ v2.85: 재현 태그도 정리 후 칩 상태 기준으로 선두 재부착 (고객사 대시보드 파서는 선두 태그 인식)
-  note = note.replace(/\[불량재현(O|X)(?::[^\]]*)?\]\s*/g, '').trim();
+  note = note.replace(/\[불량재현(O|X)(?::[^\]]*)?\]\s*/g, '').replace(/\[고객과실\]\s*/g, '').trim();
   const _editModelNow = document.getElementById('edit-model')?.value || '';
+  // ⭐ v2.87: 고객과실 → 재현 순으로 붙여 최종 [불량재현X] [고객과실] 메모 순서 유지
+  if(normalizeModel(_editModelNow) === 'T2N' && window._editT2nFault) note = `[고객과실] ${note}`.trim();
   if(normalizeModel(_editModelNow) === 'T2N' && window._editT2nRepro) note = `[불량재현${window._editT2nRepro}] ${note}`.trim();
   if(document.getElementById('edit-bgrade')?.checked) note = `${note} [B급]`.trim();
   if(!works.length){ notify('수리 항목을 하나 이상 선택하세요.','error'); return; }
