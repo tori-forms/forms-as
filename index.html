@@ -10569,8 +10569,12 @@ function _grWeeklySeries(n, maxWeeks = 260) {
   for(let cur = new Date(ws); cur <= today; cur.setDate(cur.getDate() + 7)) {
     const wEnd = new Date(cur); wEnd.setDate(wEnd.getDate() + 6);
     const from = cur < start ? new Date(start) : new Date(cur);
-    const to = wEnd > today ? new Date(today) : wEnd;
-    if(from > to) continue;
+    // ⭐ v2.85c: 진행 중인 주(오늘 포함)는 '어제'까지만 집계 — 아직 안 끝난 오늘이 영업일 분모에
+    //   통으로 잡혀 주초마다(특히 월요일 아침) 일평균이 0점대로 꺾여 보이던 왜곡 수정.
+    const live = wEnd >= today;
+    let to = wEnd > today ? new Date(today) : wEnd;
+    if(live) { to = new Date(today); to.setDate(to.getDate() - 1); }
+    if(from > to) continue;   // 이번 주에 '끝난 날'이 아직 없으면 (월요일 등) 그 주는 표시하지 않음
     const biz = _grBizDays(from, to);
     const toX = new Date(to); toX.setDate(toX.getDate() + 1);
     const cnt = mine.filter(e => { const t = new Date(e.date); return t >= from && t < toX; }).length;
@@ -10586,7 +10590,7 @@ function _grWeeklySeries(n, maxWeeks = 260) {
     let target = null;
     try { target = tenureDailyTarget(n, new Date(cur.getTime() + 3.5 * 86400000)); } catch(e) {}
     if(target === null || target === undefined) target = KPI_STD_DAILY;
-    weeks.push({ from: new Date(from), cnt, biz: eff, act, daily: eff > 0 ? cnt / eff : 0, target });
+    weeks.push({ from: new Date(from), cnt, biz: eff, act, daily: eff > 0 ? cnt / eff : 0, target, live });
   }
   return weeks.slice(-maxWeeks);
 }
@@ -10821,7 +10825,7 @@ function _grSvg(weeks) {
     const m = w.from.getMonth();
     if(m !== lastM) { ticks += `<text x="${x(i).toFixed(1)}" y="${H - 4}" font-size="9" fill="#94a3b8" text-anchor="middle">${m + 1}월</text>`; lastM = m; }
   });
-  const dots = weeks.map((w, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(w.daily).toFixed(1)}" r="2.6" fill="var(--accent,#6366f1)"><title>${w.from.getMonth() + 1}/${w.from.getDate()} 주 — 수리 등록 ${w.cnt}건 / 영업일 ${w.biz}일${w.act ? ` (파트장 대행 ${w.act}일 제외)` : ''} = 일 ${w.daily.toFixed(1)}건 (주간 목표 일 ${w.target}건)</title></circle>`
+  const dots = weeks.map((w, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(w.daily).toFixed(1)}" r="${w.live ? '3.2' : '2.6'}" ${w.live ? 'fill="var(--surface,#fff)" stroke="var(--accent,#6366f1)" stroke-width="1.6" stroke-dasharray="2,1.5"' : 'fill="var(--accent,#6366f1)"'}><title>${w.from.getMonth() + 1}/${w.from.getDate()} 주${w.live ? ' (진행 중 — 어제까지 집계)' : ''} — 수리 등록 ${w.cnt}건 / 영업일 ${w.biz}일${w.act ? ` (파트장 대행 ${w.act}일 제외)` : ''} = 일 ${w.daily.toFixed(1)}건 (주간 목표 일 ${w.target}건)</title></circle>`
     + (w.act ? `<text x="${x(i).toFixed(1)}" y="${(y(w.daily) - 7).toFixed(1)}" font-size="9" text-anchor="middle">👑</text>` : '')).join('');
   const grid = [0.33, 0.66, 1].map(f => {
     const v = rawMax * f;
@@ -10970,6 +10974,7 @@ function _finGrowthHtml(team, _ovOf) {
         <span><span style="display:inline-block;width:14px;height:3px;background:var(--accent,#6366f1);border-radius:2px;vertical-align:middle;"></span> 주별 일평균 수리 등록(건/영업일)</span>
         <span><span style="display:inline-block;width:14px;border-top:2px dashed #94a3b8;vertical-align:middle;"></span> 주차별 목표</span>
         <span>👑 파트장 대행일 있는 주 — 대행일은 집계(분모)에서 제외</span>
+        <span>◌ 진행 중인 주 — 어제까지만 집계 · 영업일은 주말·공휴일·회사휴무 제외</span>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px;margin-bottom:10px;">
         ${mstat.map(t => `<div style="background:var(--surface2,rgba(148,163,184,.07));border-radius:9px;padding:8px 10px;">
