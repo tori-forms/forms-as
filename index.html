@@ -18320,11 +18320,14 @@ function updateDoaLotSel() {
   }
   // ⭐ v2.85b: 입고 이력이 없어도(로그 보존 범위 밖·구매 오래됨) 입고분 날짜를 직접 넣을 수 있게
   sel.innerHTML = (opts || '') + `<option value="">입고분 모름/기록 안 함</option>` + `<option value="__custom">📅 입고 날짜 직접 입력…</option>`;
+  // ⭐ v2.85e: 입고 이력이 전혀 없는 부품(액정 등 — 로그 보존 범위 밖 구매분)은
+  //   '날짜 직접 입력'을 기본 선택해 입고분이 비어 기록되는 일을 줄임 (모름 선택도 가능)
+  if(!opts) sel.value = '__custom';
   _doaLotCustomToggle();
   const hint = document.getElementById('doa-lot-hint');
   if(hint) hint.textContent = relay
-    ? '직전 등록과 같은 입고분에 이어 달아요 — 새 입고분 박스를 개봉했을 때만 바꿔주세요.'
-    : (est ? '이 부품은 첫 DOA 등록이라 FIFO 소진 위치로 추정했어요 — 실제 개봉한 입고분이 다르면 바꿔주세요.' : '입고 이력이 없어요 — 목록 맨 아래 "날짜 직접 입력"으로 입고분을 남길 수 있어요.');
+    ? '입고분: 직전 등록과 같은 입고분에 이어 달아요 — 새 입고분 박스를 개봉했을 때만 바꿔주세요.'
+    : (est ? '입고분: 이 부품은 첫 DOA 등록이라 FIFO 소진 위치로 추정했어요 — 실제 개봉한 입고분이 다르면 바꿔주세요.' : '입고분: 전산에 입고 이력이 없는 부품이라 목록이 비어 있어요 — 박스·거래명세서의 입고 날짜를 직접 입력해 주세요 (모르면 "모름" 선택).');
 }
 // ⭐ v2.85b: '날짜 직접 입력' 선택 시 날짜 입력칸 표시
 function _doaLotCustomToggle() {
@@ -18364,22 +18367,23 @@ function renderDoa() {
       새 부품이 개봉 시점부터 불량이면 여기에 등록하세요 — <b>재고에서 자동 차감</b>되고 아래 목록·집계에 기록됩니다.<br>
       ⚠ DOA로 등록했으면 <b>수리 등록의 부품 수량은 1 그대로</b> 두세요 (수량 +1과 병행하면 이중 차감).
       실물은 화살표 스티커 붙여 DOA 박스에 보관 — 재고 대사 때 이 집계와 실물을 대조합니다.</div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
-      <div class="form-group" style="margin:0;min-width:260px;flex:1;">
+    <!-- ⭐ v2.85e: 칸 틀어짐 수정 — 입고분 힌트가 그룹 높이를 키워 bottom 정렬이 어긋나던 것.
+         상단 정렬(라벨 기준) + 입고분 폭 고정 + 힌트는 행 아래 별도 줄로 분리 -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;">
+      <div class="form-group" style="margin:0;min-width:240px;flex:1;">
         <label class="form-label">부품</label>
         <select id="doa-part" style="width:100%;height:36px;" onchange="updateDoaLotSel()">${partOpts}</select>
       </div>
-      <div class="form-group" style="margin:0;min-width:230px;">
+      <div class="form-group" style="margin:0;flex:0 0 240px;max-width:240px;">
         <label class="form-label">입고분 <span style="color:var(--text3);font-weight:400;">(직전 등록에 이어짐)</span></label>
         <select id="doa-lot" style="width:100%;height:36px;" onchange="_doaLotCustomToggle()"></select>
         <input type="date" id="doa-lot-date" onclick="try{this.showPicker()}catch(e){}" style="display:none;width:100%;height:34px;margin-top:6px;padding:0 10px;font-size:12.5px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);" />
-        <div id="doa-lot-hint" style="font-size:10.5px;color:var(--text3);margin-top:3px;line-height:1.4;"></div>
       </div>
-      <div class="form-group" style="margin:0;">
+      <div class="form-group" style="margin:0;flex:0 0 70px;">
         <label class="form-label">수량</label>
         <input type="number" id="doa-qty" value="1" min="1" style="width:70px;height:36px;text-align:center;">
       </div>
-      <div class="form-group" style="margin:0;min-width:220px;flex:1;">
+      <div class="form-group" style="margin:0;min-width:180px;flex:1;">
         <label class="form-label">증상</label>
         <input type="text" id="doa-sym" list="doa-sym-list" placeholder="예: 고스트 터치" style="width:100%;height:36px;">
         <datalist id="doa-sym-list">
@@ -18388,8 +18392,9 @@ function renderDoa() {
           <option value="백라이트 불량"></option><option value="동작 불가"></option>
         </datalist>
       </div>
-      <button class="btn btn-primary" style="height:36px;" onclick="registerDoa()">🚫 DOA 등록</button>
+      <button class="btn btn-primary" style="height:36px;margin-top:23px;white-space:nowrap;" onclick="registerDoa()">🚫 DOA 등록</button>
     </div>
+    <div id="doa-lot-hint" style="font-size:10.5px;color:var(--text3);margin-top:6px;line-height:1.4;"></div>
   </div>`;
 
   // ⭐ v2.79p: 부품 × 입고분별 집계 — 어느 로트에서 얼마나 나왔는지 (공급사 클레임 근거)
