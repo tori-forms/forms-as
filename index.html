@@ -17332,7 +17332,17 @@ function deleteKPI(key) {
 
 /* ===== 축하 팡파레 ===== */
 let cheerTimer, cheerTimer2;
-let alreadyCheered = new Set(); // 이미 축하한 엔지니어 (날짜별)
+// ⭐ v2.85g: 축하 기억을 브라우저에 하루 단위로 보존 — 새로고침·재로그인해도 같은 날 같은 사람 축하는 1회만
+let alreadyCheered = new Set();
+try {
+  const _d = new Date();
+  const _ckKey = `fa_cheered_${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
+  window._cheerStoreKey = _ckKey;
+  alreadyCheered = new Set(JSON.parse(localStorage.getItem(_ckKey) || '[]'));
+  // 지난 날짜의 축하 기억은 정리
+  Object.keys(localStorage).forEach(k => { if(k.startsWith('fa_cheered_') && k !== _ckKey) localStorage.removeItem(k); });
+} catch(e) {}
+function _cheerPersist() { try { localStorage.setItem(window._cheerStoreKey || 'fa_cheered', JSON.stringify([...alreadyCheered])); } catch(e) {} }
 
 function launchConfetti(count=120) {
   const colors = ['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#db2777'];
@@ -17374,6 +17384,13 @@ function showCheer(names) {
 }
 
 function checkAchievements(list, dailyTarget, activeWorkers) {
+  // ⭐ v2.85f: 일일 현황 화면이 실제로 보일 때만 팡파레 — 공휴일 로드·출고 이력 도착 등으로
+  //   백그라운드에서 renderSummary가 돌 때(내 대시보드·로그인 직후) 난데없이 터지던 문제.
+  //   여기서 조기 반환하면 alreadyCheered에 안 남으므로, 일일 현황을 실제로 열면 그때 축하한다.
+  try {
+    const _pane = document.getElementById('summary-workers');
+    if(!_pane || !_pane.offsetParent) return;
+  } catch(e) { return; }
   const sel = getDate('summary');
   const newAchievers = [];
   activeWorkers.forEach(w => {
@@ -17389,6 +17406,7 @@ function checkAchievements(list, dailyTarget, activeWorkers) {
   });
   // 동시 달성자 한번에 팡파레
   if(newAchievers.length > 0) {
+    _cheerPersist();   // ⭐ v2.85g: 새로고침해도 같은 날 재축하 없음
     setTimeout(()=>showCheer(newAchievers), 300);
   }
 }
