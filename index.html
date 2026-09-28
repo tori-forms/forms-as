@@ -6045,8 +6045,9 @@ function renderQualityDashboard() {
       } else if(window._qdHasPrev) {
         delta = `<span style="font-size:10px;color:var(--text3);margin-left:6px;" title="${escapeHtml(window._qdPrevLabel||'직전')} 데이터 없음">신규</span>`;
       }
-      html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-radius:8px;background:${bg};border-left:3px solid ${color};">
-        <span style="font-weight:600;color:var(--text);font-size:13px;">${dot} ${escapeHtml(s.name)}</span>
+      // ⭐ v2.85b: 이름(행) 클릭 → 전체 품질 이력으로 전환 (같은 기간 · 그 엔지니어 불량만)
+      html += `<div onclick="qdOpenEngineerDefects('${escapeJs(s.name)}')" title="클릭 → ${escapeHtml(s.name)}님의 불량 이력 보기 (같은 기간)" style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-radius:8px;background:${bg};border-left:3px solid ${color};cursor:pointer;" onmouseover="this.style.filter='brightness(1.12)'" onmouseout="this.style.filter=''">
+        <span style="font-weight:600;color:var(--text);font-size:13px;">${dot} ${escapeHtml(s.name)} <span style="font-size:10px;color:var(--text3);font-weight:400;">🔎 이력</span></span>
         <span style="display:flex;align-items:baseline;gap:8px;">
           <span style="color:${color};font-weight:700;font-size:17px;">${s.rate.toFixed(1)}%${delta}</span>
           <span style="color:var(--text3);font-size:11px;">검수 ${s.registered} · 불량 ${s.defects}</span>
@@ -6520,6 +6521,39 @@ function setQualityHistoryPeriod(p) {
   renderQualityHistory();
 }
 
+// ⭐ v2.85b: 품질 대시보드 '엔지니어별 불량률'에서 이름 클릭 → 전체 품질 이력으로 전환.
+//   대시보드에서 보던 기간을 그대로 들고 가고(custom 범위), 그 엔지니어의 불량만 필터.
+function qdOpenEngineerDefects(name) {
+  try {
+    const { start, end } = getQualityPeriodRange();
+    if(isFinite(start) && isFinite(end) && end > start) {
+      const _ds = t => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+      window._qhPeriod = 'custom';
+      window._qhCustomStart = _ds(start);
+      window._qhCustomEnd = _ds(end - 1);   // end는 미포함 경계 → 하루 빼서 표시
+    } else {
+      window._qhPeriod = 'all';
+    }
+  } catch(e) { window._qhPeriod = 'all'; }
+  window._qhWorker = name;
+  switchInspectSubtab('defect');
+  switchDefectView('history');
+  notify(`👤 ${name}님의 불량 이력만 표시 중 — 해제는 이력 화면의 ✕ 버튼`);
+}
+function qhClearWorker() { window._qhWorker = ''; renderQualityHistory(); }
+// ⭐ v2.85b: 검수 기록 → 담당 엔지니어 귀속 (품질 대시보드의 entryForInsp와 같은 규칙 — 검수 시점 이전 최신 수리건)
+function _qhEngOf(insp) {
+  const list = (entries || []).filter(e => normalizeSerial(e.serial) === normalizeSerial(insp.serial))
+    .sort((a,b) => (new Date(a.date).getTime()||0) - (new Date(b.date).getTime()||0));
+  if(!list.length) return '미정';
+  let e = list[0];
+  if(list.length > 1) {
+    const t = new Date(insp.inspectedAt || 0).getTime() || 0;
+    for(let i = list.length - 1; i >= 0; i--) { if((new Date(list[i].date).getTime() || 0) <= t) { e = list[i]; break; } }
+  }
+  return String(e.worker || '').split('::')[0] || '미정';
+}
+
 // ⭐ v2.23: 전체 품질 이력 렌더 (불량 발생 수리건만, 수리건당 1건, 첫 불량 메모만)
 function renderQualityHistory() {
   const el = document.getElementById('defect-list');
@@ -6531,9 +6565,13 @@ function renderQualityHistory() {
 
   // ⭐ 기간 필터 (검수일 inspectedAt 기준)
   const qhRange = getQualityHistoryRange();
+  // ⭐ v2.85b: 엔지니어 필터 — 품질 대시보드와 같은 귀속 기준(검수 시점 담당자)
+  const _qhW = window._qhWorker || '';
   const failList = failListAll.filter(insp => {
     const t = new Date(insp.inspectedAt || 0).getTime();
-    return t >= qhRange.start && t < qhRange.end;
+    if(t < qhRange.start || t >= qhRange.end) return false;
+    if(_qhW && _qhEngOf(insp) !== _qhW) return false;
+    return true;
   });
 
   const filterBar = `
@@ -6546,13 +6584,14 @@ function renderQualityHistory() {
       <span style="font-size:12px;color:var(--text2);">~</span>
       <input type="date" id="qh-end" value="${window._qhCustomEnd||''}" style="height:28px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:6px;background:var(--surface);color:var(--text);">
       <button class="btn btn-sm" onclick="setQualityHistoryPeriod('custom')" style="height:28px;padding:0 10px;font-size:12px;${(window._qhPeriod||'')==='custom'?'background:var(--accent);color:#fff;border-color:var(--accent);':''}">조회</button>
-      <span style="margin-left:auto;font-size:11px;color:var(--text2);">${qhRange.label}</span>
+      ${_qhW ? `<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#6366f1;background:rgba(99,102,241,.1);border:1px solid #6366f166;border-radius:99px;padding:3px 10px;">👤 ${escapeHtml(_qhW)}님 불량만 <button onclick="qhClearWorker()" title="엔지니어 필터 해제" style="border:none;background:none;cursor:pointer;color:#6366f1;font-weight:800;font-size:13px;padding:0;line-height:1;">✕</button></span>` : ''}
+      <span style="margin-left:auto;font-size:11px;color:var(--text2);">${qhRange.label}${_qhW ? ` · ${escapeHtml(_qhW)}` : ''}</span>
     </div>`;
 
   if(failList.length === 0) {
     el.innerHTML = filterBar + `<div class="card" style="padding:40px;text-align:center;color:var(--muted);">
       <div style="font-size:48px;margin-bottom:12px;">📋</div>
-      <div style="font-size:15px;">${qhRange.label}에 불량 이력이 없습니다.</div>
+      <div style="font-size:15px;">${qhRange.label}에 ${_qhW ? `${escapeHtml(_qhW)}님의 ` : ''}불량 이력이 없습니다.</div>
       <div style="font-size:12px;margin-top:6px;color:var(--text2,#999);">다른 기간을 선택해보세요.</div>
     </div>`;
     return;
@@ -10482,17 +10521,37 @@ function _finMonthlyCost(salaryMan, irPct) { return Math.round(salaryMan * 10000
    품질(검수 불합격률)·재인입 유발까지 합쳐 "계속 데리고 갈 만한가"의 근거를 제시.
    소견은 규칙 기반 — 어떤 수치로 그렇게 판단했는지 근거를 전부 함께 표기한다. */
 function _grBizDays(from, to) {
+  // ⭐ v2.85b: 법정 공휴일(holidayCache — 추석·설 연휴 등)도 영업일에서 제외.
+  //   기존엔 회사휴무만 빼서, 추석 낀 주의 일평균이 급락해 '정체'로 오판되던 문제.
   let c = 0;
   const d = new Date(from); d.setHours(0, 0, 0, 0);
   const end = new Date(to); end.setHours(0, 0, 0, 0);
   const hol = (typeof window !== 'undefined' && Array.isArray(window.COMPANY_HOLIDAYS)) ? window.COMPANY_HOLIDAYS : [];
   while(d <= end) {
     const dow = d.getDay();
-    const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    if(dow !== 0 && dow !== 6 && !hol.includes(ds)) c++;
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const ds = `${key}-${String(d.getDate()).padStart(2, '0')}`;
+    const pubHol = (typeof holidayCache === 'object' && Array.isArray(holidayCache[key])) ? holidayCache[key].includes(ds) : false;
+    if(dow !== 0 && dow !== 6 && !hol.includes(ds) && !pubHol) c++;
     d.setDate(d.getDate() + 1);
   }
   return c;
+}
+// ⭐ v2.85b: 성장분석·이달의엔지니어에 필요한 달(팀 최초 입사~오늘)의 공휴일을 1회 프리로드하고,
+//   로드 후 경영분석을 한 번만 다시 렌더 (이미 로드된 달은 API 호출 없음)
+async function _grKickHolidays() {
+  if(window._grHolKicked) return;
+  window._grHolKicked = true;
+  try {
+    let earliest = Date.now();
+    Object.values(hireDateMap || {}).forEach(h => { const t = new Date(String(h).slice(0,10) + 'T00:00:00').getTime(); if(t && !isNaN(t) && t < earliest) earliest = t; });
+    (entries || []).forEach(e => { const t = new Date(e.date || 0).getTime(); if(t && !isNaN(t) && t < earliest) earliest = t; });
+    await ensureHolidaysLoaded(earliest, Date.now(), () => {
+      window._grAggMemo = null;   // 영업일이 달라졌으니 성장분석 메모 무효화
+      try { if(typeof renderFinance === 'function' && document.getElementById('finance-content')) renderFinance(); } catch(e) {}
+      try { if(typeof renderSummary === 'function') renderSummary(); } catch(e) {}   // 내 대시보드 이달의엔지니어 카드도 갱신
+    });
+  } catch(e) { console.warn('공휴일 프리로드 실패', e); }
 }
 function _grWeeklySeries(n, maxWeeks = 260) {
   const mine = (entries || []).filter(e => String(e.worker || '').split('::')[0] === n);
@@ -10942,6 +11001,7 @@ async function renderFinance() {
   const el = document.getElementById('finance-content');
   if(!el) return;
   if(!isFullAdmin()) { el.innerHTML = '<div class="empty"><div class="empty-icon">🔒</div>경영 분석은 팀장(T4)만 볼 수 있습니다.</div>'; return; }
+  try { _grKickHolidays(); } catch(e) {}   // ⭐ v2.85b: 공휴일 프리로드 (성장분석 영업일 — 추석 등 반영, 로드 후 1회 재렌더)
   const f = _finData();
   const now = new Date();
   const mv = document.getElementById('fin-month')?.value || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -15518,6 +15578,7 @@ function setSummarySerialQuery(v) {
 }
 async function renderSummary() {
   updateLbl('summary');
+  try { _grKickHolidays(); } catch(e) {}   // ⭐ v2.85b: 이달의엔지니어 카드 가용일에 공휴일 반영 (1회 프리로드)
   const sel = getDate('summary');
   // ⭐ 타임존 버그 수정: UTC ISO 저장값도 로컬(KST) 날짜로 변환 비교
   const list = entries.filter(e => toLocalDay(e.date) === sel);
@@ -18241,11 +18302,20 @@ function updateDoaLotSel() {
   if(relay && !listDates.includes(relay)) {
     opts = `<option value="${relay}" selected>${relay} 입고분 — 직전 등록에 이어짐</option>` + opts;
   }
-  sel.innerHTML = (opts || '') + `<option value="">입고분 모름/기록 안 함</option>`;
+  // ⭐ v2.85b: 입고 이력이 없어도(로그 보존 범위 밖·구매 오래됨) 입고분 날짜를 직접 넣을 수 있게
+  sel.innerHTML = (opts || '') + `<option value="">입고분 모름/기록 안 함</option>` + `<option value="__custom">📅 입고 날짜 직접 입력…</option>`;
+  _doaLotCustomToggle();
   const hint = document.getElementById('doa-lot-hint');
   if(hint) hint.textContent = relay
     ? '직전 등록과 같은 입고분에 이어 달아요 — 새 입고분 박스를 개봉했을 때만 바꿔주세요.'
-    : (est ? '이 부품은 첫 DOA 등록이라 FIFO 소진 위치로 추정했어요 — 실제 개봉한 입고분이 다르면 바꿔주세요.' : '입고 이력이 없어요 — 필요하면 그대로 등록해도 됩니다.');
+    : (est ? '이 부품은 첫 DOA 등록이라 FIFO 소진 위치로 추정했어요 — 실제 개봉한 입고분이 다르면 바꿔주세요.' : '입고 이력이 없어요 — 목록 맨 아래 "날짜 직접 입력"으로 입고분을 남길 수 있어요.');
+}
+// ⭐ v2.85b: '날짜 직접 입력' 선택 시 날짜 입력칸 표시
+function _doaLotCustomToggle() {
+  const sel = document.getElementById('doa-lot');
+  const inp = document.getElementById('doa-lot-date');
+  if(!sel || !inp) return;
+  inp.style.display = (sel.value === '__custom') ? '' : 'none';
 }
 function renderDoa() {
   const el = document.getElementById('doa-content');
@@ -18285,7 +18355,8 @@ function renderDoa() {
       </div>
       <div class="form-group" style="margin:0;min-width:230px;">
         <label class="form-label">입고분 <span style="color:var(--text3);font-weight:400;">(직전 등록에 이어짐)</span></label>
-        <select id="doa-lot" style="width:100%;height:36px;"></select>
+        <select id="doa-lot" style="width:100%;height:36px;" onchange="_doaLotCustomToggle()"></select>
+        <input type="date" id="doa-lot-date" onclick="try{this.showPicker()}catch(e){}" style="display:none;width:100%;height:34px;margin-top:6px;padding:0 10px;font-size:12.5px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);" />
         <div id="doa-lot-hint" style="font-size:10.5px;color:var(--text3);margin-top:3px;line-height:1.4;"></div>
       </div>
       <div class="form-group" style="margin:0;">
@@ -18347,7 +18418,13 @@ async function registerDoa() {
   const sp = stock[idx];
   if(!sp) { notify('부품을 선택하세요.', 'error'); return; }
   if(!sym) { notify('증상을 입력하세요 (예: 고스트 터치).', 'error'); try{document.getElementById('doa-sym').focus();}catch(e){} return; }
-  const lot = (document.getElementById('doa-lot')?.value || '').trim();   // ⭐ v2.79q: 입고분 (직전 등록에 릴레이, 변경 가능)
+  let lot = (document.getElementById('doa-lot')?.value || '').trim();   // ⭐ v2.79q: 입고분 (직전 등록에 릴레이, 변경 가능)
+  // ⭐ v2.85b: 입고분 날짜 직접 입력 — 입고 이력이 없는 부품도 날짜를 남길 수 있게
+  if(lot === '__custom') {
+    lot = (document.getElementById('doa-lot-date')?.value || '').trim();
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(lot)) { notify('입고분 날짜를 선택해주세요.', 'error'); return; }
+    if(lot > todayStr()) { notify('입고분 날짜가 미래입니다 — 다시 확인해주세요.', 'error'); return; }
+  }
   if(!confirm(`${sp.name} ${qty}개를 DOA(개봉 불량)로 등록할까요?\n재고에서 ${qty}개 차감됩니다. (증상: ${sym}${lot ? ` · ${lot} 입고분` : ''})`)) return;
   const r = await adjustStockOp({ idx, delta: -qty, type: 'out', note: `DOA 불량 [${sym}]${lot ? ` (${lot} 입고분)` : ''}` });
   if(r && r.ok) { notify(`🚫 DOA 등록 완료 — ${sp.name} −${qty} (실물은 스티커 붙여 DOA 박스에 보관하세요)`); }
