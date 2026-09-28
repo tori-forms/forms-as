@@ -13987,7 +13987,8 @@ function _partOveruseCard(days = 30) {
         if(String(name).startsWith('⚑')) return;   // 품질 특이 체크 키 제외
         const got = Number(q) || 0;
         const eq = exp[name];
-        const excess = (eq !== undefined) ? (got - eq) : got;   // 표준 외 추가 부품은 전량 초과로
+        // ⭐ v2.86b: 표준 외 부품(와이파이 모듈 등 기타부품)도 1개까지는 정상 사용 — 2개부터 초과 (마스터 지시)
+        const excess = (eq !== undefined) ? (got - eq) : (got - 1);
         if(excess <= 0) return;
         const b = (byEng[w] = byEng[w] || { parts: {}, total: 0 });
         const pr = (b.parts[name] = b.parts[name] || { excess: 0, cnt: 0 });
@@ -14008,7 +14009,7 @@ function _partOveruseCard(days = 30) {
           </div>`;
         }).join('')}
       </div>
-      <div style="padding:8px 16px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text3);line-height:1.6;">표준 매핑에 없는 추가 부품(기타부품 포함)은 전량 초과로 집계 · 부품 기록이 없는 출고건은 제외</div>
+      <div style="padding:8px 16px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text3);line-height:1.6;">기준: 표준 수량(매핑 없는 부품은 1개)을 넘는 추가분만 집계 · DOA(개봉 불량)는 재고 관리에서 따로 차감되므로 이 집계에 포함되지 않음 — 수리 등록 수량을 +1하지 말고 DOA로 등록해야 정확 · 부품 기록이 없는 출고건은 제외</div>
     </div>`;
   } catch(e) { return ''; }
 }
