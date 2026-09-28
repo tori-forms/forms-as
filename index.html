@@ -10597,7 +10597,7 @@ function _grWeeklySeries(n, maxWeeks = 260) {
 /* 전체 인원 공통 집계 1회 패스 — 품질(누적 + 최근 60일/이전 60일)·재인입 유발(누적+최근)·월별 출고(전 기간) */
 function _grAggregates() {
   // 같은 데이터로 한 렌더에서 두 번 불려도 1회만 계산 (entries/inspections 참조가 바뀌면 재계산)
-  if(window._grAggMemo && window._grAggMemo.e === entries && window._grAggMemo.i === inspections && (Date.now() - window._grAggMemo.t) < 30000) return window._grAggMemo.v;
+  if(window._grAggMemo && window._grAggMemo.e === entries && window._grAggMemo.i === inspections && window._grAggMemo.s === shipHistory && (Date.now() - window._grAggMemo.t) < 30000) return window._grAggMemo.v;   // ⭐ v2.85d: 출고이력 참조도 키에 포함
   const now = Date.now(), cut = now - 60 * 86400000, cut2 = cut - 60 * 86400000;
   // 시리얼 → 등록건 인덱스 (검수·출고·재인입 역추적 공용)
   const idx = new Map();
@@ -10706,7 +10706,7 @@ function _grAggregates() {
     defects: w => Object.entries(defBy[w] || {}).sort((a, b) => b[1] - a[1]),
     qMonth: (w, m) => { const mm = qMonth[w + '|' + m] || {}; const ids = Object.keys(mm); return { ins: ids.length, fail: ids.filter(k => mm[k]).length }; }
   };
-  window._grAggMemo = { e: entries, i: inspections, t: Date.now(), v: _ret };
+  window._grAggMemo = { e: entries, i: inspections, s: shipHistory, t: Date.now(), v: _ret };   // ⭐ v2.85d
   return _ret;
 }
 function _grVerdict(n, weeks, q) {
@@ -10843,6 +10843,8 @@ function _grSvg(weeks) {
 /* ⭐ v2.81: 이 달의 엔지니어 (포상 참고) — 수리 등록·실제 출고·품질을 투명한 공식으로 종합해
    부문별 우수자와 종합 1·2·3등을 표시. 공식과 원자료를 전부 함께 보여줘 시비 없이 쓸 수 있게. */
 function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
+  // ⭐ v2.85d: 출고 이력이 아직 없으면(내 대시보드 진입 등) 백그라운드 로드 — 도착 시 자동 재렌더
+  try { if(typeof _shipHistoryLoaded !== 'undefined' && !_shipHistoryLoaded) loadShipHistory(); } catch(e) {}
   const cand = team.filter(n => _ovOf(n) === 'direct');
   if(cand.length < 2) return '';
   // 전월 키
@@ -10931,7 +10933,7 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
         <td style="text-align:right;">${r.qScore.toFixed(0)}${r.qNeutral ? '<span style="font-size:10px;color:var(--text3);">*</span>' : ''}</td>
         <td style="text-align:right;font-weight:800;color:${i === 0 ? '#d97706' : 'var(--text)'};">${r.total.toFixed(1)}</td>
       </tr>`).join('')}</tbody></table></div>
-    <div style="padding:10px 16px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">종합점 = 실제 출고 40%(매출 기준) + 수리 등록 25% + 품질 35%${maxShip > 0 ? '' : ' (이 달 출고 데이터 없음 → 등록 65% + 품질 35%)'} · 등록·출고는 가용 영업일(파트장 대행일만 제외 — 입사 시기는 참작 없음) 일평균의 팀 최고 대비 %, 품질점 = 100 − 불합격률×5 · *표본 부족(검수 10건 미만)은 팀 평균 품질점으로 중립 처리 · 교품 처리는 참고 표기(점수 미반영)</div>
+    <div style="padding:10px 16px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">종합점 = 실제 출고 40%(매출 기준) + 수리 등록 25% + 품질 35%${maxShip > 0 ? '' : (typeof _shipHistoryLoaded !== 'undefined' && !_shipHistoryLoaded ? ' (⏳ 출고 이력을 아직 못 불러왔어요 — 불러오면 자동 반영, 임시로 등록 65% + 품질 35%)' : ' (이 달 출고 데이터 없음 → 등록 65% + 품질 35%)')} · 등록·출고는 가용 영업일(파트장 대행일만 제외 — 입사 시기는 참작 없음) 일평균의 팀 최고 대비 %, 품질점 = 100 − 불합격률×5 · *표본 부족(검수 10건 미만)은 팀 평균 품질점으로 중립 처리 · 교품 처리는 참고 표기(점수 미반영)</div>
   </div>`;
 }
 
@@ -11370,6 +11372,15 @@ async function loadShipHistory(force) {
       // ⭐ v2.63a: T4 대시보드 임베드 리포트는 '출고 기준' 집계 — 출고이력이 늦게 도착하므로
       //   도착 시점에 무효화 후 다시 그린다. (기존: 출고 0건 상태로 렌더된 게 '완료'로 고정돼
       //   관리자탭에선 잡히는데 대시보드에선 0으로 보이던 문제)
+      // ⭐ v2.85d: 이달의엔지니어(경영분석·내 대시보드)의 실제 출고 0대 표시 갱신
+      try {
+        window._grAggMemo = null;
+        const _fc = document.getElementById('finance-content');
+        if(_fc && _fc.innerHTML && typeof renderFinance === 'function') renderFinance();
+        const _md = document.getElementById('mydash-body');
+        if(_md && _md.innerHTML && typeof renderMyDash === 'function') renderMyDash();
+        if(typeof renderSummary === 'function') renderSummary();
+      } catch(e) {}
       try {
         const _rs = document.getElementById('t4-report-slot');
         if(_rs) {
