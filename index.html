@@ -4170,8 +4170,8 @@ function loginAs(name) {
   // ⭐ 목표 미달 사유 검사 (수리 엔지니어만, 직전 영업일 미달 시 강제 입력)
   // ⭐ v2.64c: 지연 사유 수집 중단 (대시보드에서 미달 명단만 노출하기로 결정) — 필요 시 이 줄 복원
   // setTimeout(() => { try { checkMissOnLogin(); } catch(e){ console.error(e); } }, 1200);
-  // ⭐ v2.70o: 오늘 특이사항 공지가 있으면 팝업 (전 직원, 1회)
-  setTimeout(() => { try { checkDailyNotice(); } catch(e){ console.warn(e); } }, 1500);
+  // ⭐ v2.86: 특이사항 공지 팝업은 총괄·파트장만 (마스터 지시 — 기록·대시보드 카드·미달 참작은 유지)
+  setTimeout(() => { try { if(isFullAdmin() || isPartMaster()) checkDailyNotice(); } catch(e){ console.warn(e); } }, 1500);
 }
 async function loginMaster() {
   if(!_selectedAdminName) {
@@ -10019,6 +10019,7 @@ async function renderReportInto(targetId, monthVal) {
   const origVal = rm?.value;
   if(rm) rm.value = monthVal;
   try {
+    window._reportEmbedTarget = targetId;   // ⭐ v2.86: renderReport가 임베드 대상(T5 대시보드)을 알 수 있게
     await renderReport();                       // 렌더 '완료'를 기다린 뒤 복사 (타이머 레이스 제거)
     const src = document.getElementById('report-content');
     if(src && src.innerHTML.trim() && el) {
@@ -10027,7 +10028,7 @@ async function renderReportInto(targetId, monthVal) {
       el.dataset.reportFilled = '1';
     }
   } catch(e) { console.warn('[실적리포트 임베드]', e); }
-  finally { if(rm && origVal !== undefined && origVal !== null) rm.value = origVal; }
+  finally { window._reportEmbedTarget = null; if(rm && origVal !== undefined && origVal !== null) rm.value = origVal; }
 }
 
 function renderReport2() {
@@ -13930,8 +13931,8 @@ function _partAnomalyCard(days = 30) {
       const under = [], over = [];
       Object.entries(exp).forEach(([name, eq]) => {
         const got = Number(p[name] ?? 0);
-        if(got < eq) under.push(`${name} ${got}/${eq}`);
-        else if(got > eq) over.push(`${name} ${got}/${eq}`);
+        if(got < eq) under.push(`${name} ${got}개 등록 (표준 ${eq}개)`);   // ⭐ v2.86: 읽기 쉬운 문장으로
+        else if(got > eq) over.push(`${name} ${got}개 등록 (표준 ${eq}개)`);
       });
       const w = String(e.worker || '').split('::')[0];
       if(!byEng[w]) byEng[w] = { under: 0, over: 0, total: 0 };
@@ -13943,19 +13944,27 @@ function _partAnomalyCard(days = 30) {
     if(!engRows.length) return '';
     rows.sort((a, b) => b.t - a.t);
     const recent = rows.filter(r => r.kind === 'under').slice(0, 12);
-    return `<div class="card" style="padding:0;margin-bottom:14px;">
-      <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🧾 부품 사용 이상 감지 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 ${days}일 · 작업 기본 매핑(표준 수량) 대비 미달/초과 등록 — "쓴 부품을 덜 적은" 누락 후보 점검용</span></div>
-      <div style="padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;">
+    const underTotal = engRows.reduce((s2, [, v]) => s2 + v.under, 0);
+    // ⭐ v2.86: 재고가 안 맞는 원인 점검 카드 — 쉬운 말로, 접어서 (펼치면 상세)
+    return `<details class="card" style="padding:0;margin-bottom:14px;">
+      <summary style="cursor:pointer;list-style:none;padding:12px 16px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span>🧾 부품 누락 점검</span>
+        <span style="font-size:11.5px;font-weight:400;color:var(--text2);">최근 ${days}일, 표준보다 <b style="color:#d97706;">적게 등록된 수리 ${fmt(underTotal)}건</b> — 재고가 전산보다 모자랄 때 여기부터 확인 <span style="color:var(--text3);">(펼치기 ▾)</span></span>
+      </summary>
+      <div style="padding:2px 16px 6px;font-size:11.5px;color:var(--text3);line-height:1.6;border-top:1px solid var(--border);">
+        예: LCD 교체를 하면 보통 액정 1개가 들어가는데, 그 수리에 액정이 0개로 등록돼 있으면 "실제론 썼는데 전산에 안 적었을" 가능성이 있어요. 그런 건들을 모아 보여줍니다.
+      </div>
+      <div style="padding:8px 16px;display:flex;gap:8px;flex-wrap:wrap;">
         ${engRows.map(([w, v]) => { const pr = Math.round(v.under / v.total * 100); return `<div style="min-width:120px;background:var(--surface2,rgba(148,163,184,.07));border-radius:9px;padding:8px 12px;">
           <div style="font-size:12px;font-weight:700;">${escapeHtml(w)}</div>
-          <div style="font-size:11px;color:${pr >= 25 ? '#d97706' : 'var(--text2)'};">표준 미달 ${v.under}건 / ${v.total}건 (${pr}%)${v.over ? ` · 초과 ${v.over}건` : ''}</div>
+          <div style="font-size:11px;color:${pr >= 25 ? '#d97706' : 'var(--text2)'};">적게 등록 ${v.under}건 / 판정 대상 ${v.total}건 (${pr}%)${v.over ? ` · 많게 등록 ${v.over}건` : ''}</div>
         </div>`; }).join('')}
       </div>
       ${recent.length ? `<div style="padding:0 16px 12px;font-size:11.5px;line-height:1.8;color:var(--text2);">
-        ${recent.map(r => `· <span class="mono" style="font-size:11px;">${escapeHtml(r.serial)}</span> (${escapeHtml(r.w)}) — ${escapeHtml(r.txt)} <span style="color:var(--text3);">등록/표준</span>`).join('<br>')}
+        ${recent.map(r => `· <span class="mono" style="font-size:11px;">${escapeHtml(r.serial)}</span> (${escapeHtml(r.w)}) — ${escapeHtml(r.txt)}`).join('<br>')}
       </div>` : ''}
-      <div style="padding:8px 16px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text3);line-height:1.6;">미달이 전부 누락은 아니에요(부품 재사용·미교체 케이스 존재) — 비율이 유난히 높은 사람·부품을 실물 재고 실사와 함께 점검하는 용도예요. 부품 기록이 없는 출고건은 판정에서 제외.</div>
-    </div>`;
+      <div style="padding:8px 16px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text3);line-height:1.6;">⚠ 적게 등록됐다고 전부 누락은 아니에요 — 부품을 안 갈고 수리한 경우도 있어요. 비율이 유난히 높은 사람·부품만 실물 재고 실사와 함께 확인하는 참고 자료입니다.</div>
+    </details>`;
   } catch(e) { return ''; }
 }
 /* ⭐ v2.83: 이 달의 엔지니어를 내 대시보드(전 직급)에서 공개 — 연봉 등 민감정보 없이 실적·품질만 쓰므로 안전 */
@@ -14002,8 +14011,7 @@ async function renderMyDash() {
       </div>` +
       `<div id="t4-report-slot"><div style="color:var(--text3);font-size:13px;padding:10px 2px;">실적 리포트 불러오는 중…</div></div>` +
       `<div id="t4-triple-slot"></div>` +   // ⭐ v2.70d: 3중 작업 현황 카드 자리
-      `<div id="t4-parts-slot"></div>` +    // ⭐ v2.70s: 부품별 교체 사유 분석 자리
-      _awardsCardForMyDash() +               // ⭐ v2.83: 이 달의 엔지니어 (경영분석에서 이동)
+      _awardsCardForMyDash() +               // ⭐ v2.86: 부품별 교체 사유 분석 카드 제거 (마스터 지시)               // ⭐ v2.83: 이 달의 엔지니어 (경영분석에서 이동)
       _partAnomalyCard() +                   // ⭐ v2.84: 부품 사용 이상 감지 (누락 후보 점검)
       `<details id="t4-board-details" style="margin-top:4px;"${boardOpen?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
@@ -14020,8 +14028,6 @@ async function renderMyDash() {
     try { renderReportInto('t4-report-slot', t4ReportMonth).catch(e => console.warn('[실적리포트]', e)); } catch(e) { console.warn(e); }
     // ⭐ v2.70d: 3중 작업 현황 카드 (실적 리포트 아래) — v2.70h: 필터 지원 공용 렌더러
     renderTripleSlot();
-    // ⭐ v2.70s: 부품별 교체 사유 분석 카드
-    renderPartCauseSlot().catch(e => console.warn('[부품사유]', e));
 
     const det = document.getElementById('t4-board-details');
     const boardSlot = document.getElementById('t4-board-slot');
@@ -14281,7 +14287,6 @@ async function renderMyDash() {
       </div>
       <div id="t3-notice-slot"></div>
       <div id="t3-triple-slot"></div>
-      <div id="t3-parts-slot"></div>
       ${_partAnomalyCard()}
       <details id="t3-board-details" style="margin-top:4px;"${window._board3Open?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
@@ -14311,8 +14316,7 @@ async function renderMyDash() {
       });
     }
 
-    renderNoticeSlot().catch(e => console.warn('[공지카드]', e));   // ⭐ v2.70q: 특이사항 공지 카드 (T3)
-    renderPartCauseSlot().catch(e => console.warn('[부품사유]', e));   // ⭐ v2.70s: 부품별 교체 사유 (T3)
+    renderNoticeSlot().catch(e => console.warn('[공지카드]', e));   // ⭐ v2.70q: 특이사항 공지 카드 (파트장)
   }
 }
 
@@ -16922,6 +16926,8 @@ async function renderReport() {
   const maxShare = rows.length ? Math.max(...rows.map(r => r.share)) : 0;
   const medals = ['🥇', '🥈', '🥉'];
 
+  // ⭐ v2.86: T5 대시보드(t4-report-slot 임베드)에서는 KPI 기여도 표 생략 — 이달의엔지니어와 기준이 달라 혼선 (관리자 월간 리포트에는 유지)
+  if(window._reportEmbedTarget !== 't4-report-slot') {
   h += `<div class="card" style="padding:0;">
     <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">엔지니어별 KPI 기여도 <span style="font-size:11px;color:var(--text3);font-weight:400;">· (출고 완료 + 교품 8:1 환산) ÷ ${monthKPI>0?`월 KPI ${fmt(monthKPI)}건`:'전체 출고'} 기준</span></div>
     <div class="table-wrap"><table>
@@ -17020,6 +17026,7 @@ async function renderReport() {
       <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);">${fmt(footRev)}원</td>
     </tr></tfoot>
   </table></div>`;
+  }   // ⭐ v2.86: 기여도 표 조건 끝
 
   // ⭐ v2.79q: 파트장 대행 이력 카드 — 누가 어떤 날 대행 업무로 수리에서 빠졌는지 월간 리포트에 기록으로 남김.
   //   대행일은 목표 면제·미달 미집계라, 위 표에서 실적이 적어 보여도 "대행 때문"임을 여기서 확인.
@@ -17051,12 +17058,27 @@ async function renderReport() {
   })();
 
   // ⭐ 신입 주차별 목표 스케줄 안내 (대표님 이해용)
+  // ⭐ v2.86: 지금 각 주차에 해당하는 엔지니어 이름을 스케줄 칸에 표시
+  const _rampByWeek = {};   // {주차: [이름...]}
+  const _rampNow = [];
+  (workers || []).filter(w => w !== MASTER_NAME && isActiveWorker(w)).forEach(w => {
+    try {
+      if(mentoringMap[w]) return;   // 교육 중은 목표 면제라 제외
+      const tw2 = tenureWeek(w);
+      if(tw2 != null && tw2 >= 1 && tw2 <= KPI_RAMP_SCHEDULE.length) {
+        (_rampByWeek[tw2] = _rampByWeek[tw2] || []).push(w);
+        _rampNow.push(`<b>${escapeHtml(w)}</b> ${tw2}주차(일 ${KPI_RAMP_SCHEDULE[tw2-1]}건)`);
+      }
+    } catch(e) {}
+  });
   const schedCells = KPI_RAMP_SCHEDULE.map((v, idx) => {
     const wkNo = idx + 1;
     const settled = v >= KPI_STD_DAILY;
-    return `<div style="flex:1;min-width:46px;text-align:center;padding:8px 4px;border-radius:6px;background:${settled?'#dcfce7':'#fff7ed'};">
+    const who = _rampByWeek[wkNo] || [];
+    return `<div style="flex:1;min-width:46px;text-align:center;padding:8px 4px;border-radius:6px;background:${settled?'#dcfce7':'#fff7ed'};${who.length?'box-shadow:0 0 0 2px #7c3aed;':''}">
       <div style="font-size:10px;color:var(--text3);">${wkNo}주</div>
       <div style="font-size:15px;font-weight:700;color:${settled?'#16a34a':'#d97706'};">${v}</div>
+      ${who.length?`<div style="font-size:9.5px;font-weight:700;color:#7c3aed;line-height:1.3;margin-top:2px;">${who.map(escapeHtml).join('<br>')}</div>`:''}
     </div>`;
   }).join('');
   h += `<div class="card" style="padding:0;margin-top:14px;">
@@ -17068,6 +17090,7 @@ async function renderReport() {
         <strong>1개월차 6건 → 6주차 10건 → 8주차(약 2개월) 12건 안착</strong>, 이후 정착 목표 <strong>${KPI_STD_DAILY}건</strong> 유지.
         <br>→ 수습 3개월 평가 전 약 한 달간 12건을 꾸준히 수행하는 구조입니다.
         <br>🌱 <strong>온보딩</strong>(입사 1개월 이내) 엔지니어는 적응 단계라 출고 건수가 적은 것이 정상입니다.
+        <br>👤 <strong>현재 적응 구간:</strong> ${_rampNow.length ? _rampNow.join(' · ') : '해당 엔지니어 없음 (전원 정착 단계)'}
       </div>
     </div>
   </div>`;
