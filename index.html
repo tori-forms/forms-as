@@ -13967,6 +13967,105 @@ function _partAnomalyCard(days = 30) {
     </details>`;
   } catch(e) { return ''; }
 }
+/* ⭐ v2.86a: 부품 초과 사용 TOP — 엔지니어별로 표준 수량보다 '더' 쓴 부품 집계 (T5 대시보드)
+   초과가 잘못이라는 뜻이 아니라(파손·부품 불량으로 추가 소모), 누가 어떤 부품을 많이 더 쓰는지 소모 패턴 파악용 */
+function _partOveruseCard(days = 30) {
+  try {
+    if(!window.WORK_PARTS_MAP) return '';
+    const cut = Date.now() - days * 86400000;
+    const byEng = {};   // {worker: {parts:{이름:{excess,cnt}}, total}}
+    (entries || []).forEach(e => {
+      const t = new Date(e.date).getTime();
+      if(!(t >= cut)) return;
+      const p = (e.parts && typeof e.parts === 'object') ? e.parts : null;
+      if(!p || !Object.keys(p).length) return;
+      const ws = parseWorks(e.works);
+      const exp = {};
+      ws.forEach(k => { try { getWorkParts(k, e.model).forEach(pp => { exp[pp.name] = Math.max(exp[pp.name] ?? 0, Number(pp.qty) || 1); }); } catch(err) {} });
+      const w = String(e.worker || '').split('::')[0];
+      Object.entries(p).forEach(([name, q]) => {
+        if(String(name).startsWith('⚑')) return;   // 품질 특이 체크 키 제외
+        const got = Number(q) || 0;
+        const eq = exp[name];
+        const excess = (eq !== undefined) ? (got - eq) : got;   // 표준 외 추가 부품은 전량 초과로
+        if(excess <= 0) return;
+        const b = (byEng[w] = byEng[w] || { parts: {}, total: 0 });
+        const pr = (b.parts[name] = b.parts[name] || { excess: 0, cnt: 0 });
+        pr.excess += excess; pr.cnt++; b.total += excess;
+      });
+    });
+    const engs = Object.entries(byEng).filter(([, v]) => v.total > 0).sort((a, b) => b[1].total - a[1].total);
+    if(!engs.length) return '';
+    return `<div class="card" style="padding:0;margin-bottom:14px;">
+      <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🧰 부품 초과 사용 TOP <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 ${days}일 · 표준 수량보다 추가로 쓴 부품 — 파손·부품 불량 등으로 소모가 많은 사람·부품 파악용</span></div>
+      <div style="padding:10px 16px 12px;display:flex;flex-direction:column;gap:8px;">
+        ${engs.map(([w, v]) => {
+          const tops = Object.entries(v.parts).sort((a, b) => b[1].excess - a[1].excess).slice(0, 4);
+          return `<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:8px 12px;border-radius:9px;background:var(--surface2,rgba(148,163,184,.07));">
+            <span style="font-size:12.5px;font-weight:700;min-width:64px;">${escapeHtml(w)}</span>
+            <span style="font-size:11.5px;font-weight:700;color:#d97706;">총 +${fmt(v.total)}개</span>
+            <span style="font-size:11.5px;color:var(--text2);">${tops.map(([n, x]) => `${escapeHtml(n)} <b style="color:#d97706;">+${fmt(x.excess)}</b> <span style="color:var(--text3);">(${x.cnt}건)</span>`).join(' · ')}</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="padding:8px 16px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text3);line-height:1.6;">표준 매핑에 없는 추가 부품(기타부품 포함)은 전량 초과로 집계 · 부품 기록이 없는 출고건은 제외</div>
+    </div>`;
+  } catch(e) { return ''; }
+}
+
+/* ⭐ v2.86a: 엔지니어별 품질 약점 — 검수 불합격의 '상세 사유(defectReason)'를 사람별로 통계 (T5·파트장 대시보드)
+   유형(외관/기능)보다 구체적인 사유 문구를 그대로 집계해 "이 사람은 어떤 품질이 약한지"를 보여준다 */
+function _qualityWeakCard(days = 90) {
+  try {
+    const cut = Date.now() - days * 86400000;
+    const byEng = {};   // {worker: {fail, reasons:{사유:건수}, types:{유형:건수}}}
+    (inspections || []).forEach(insp => {
+      if(insp.result !== 'fail') return;
+      const t = new Date(insp.inspectedAt || 0).getTime();
+      if(!(t >= cut)) return;
+      const w = (typeof _qhEngOf === 'function') ? _qhEngOf(insp) : '미정';
+      if(!w || w === '미정' || !(workers || []).includes(w)) return;
+      const b = (byEng[w] = byEng[w] || { fail: 0, reasons: {}, types: {} });
+      b.fail++;
+      // 상세 사유: defectReason 우선 (콤마로 여러 사유면 나눠 집계), 없으면 유형, 그것도 없으면 미기재
+      let rs = String(insp.defectReason || '').trim();
+      if(rs) {
+        rs.split(',').map(x => x.trim().replace(/\s+/g, ' ')).filter(Boolean).forEach(r => {
+          if(r.length > 30) r = r.slice(0, 30) + '…';
+          b.reasons[r] = (b.reasons[r] || 0) + 1;
+        });
+      } else {
+        const types = (typeof parseDefectTypes === 'function') ? parseDefectTypes(insp.defectTypes) : [];
+        const r = types.length ? types.join('·') + ' (사유 미기재)' : '사유 미기재';
+        b.reasons[r] = (b.reasons[r] || 0) + 1;
+      }
+      ((typeof parseDefectTypes === 'function') ? parseDefectTypes(insp.defectTypes) : []).forEach(tp => { b.types[tp] = (b.types[tp] || 0) + 1; });
+    });
+    const engs = Object.entries(byEng).sort((a, b) => b[1].fail - a[1].fail);
+    if(!engs.length) return '';
+    return `<div class="card" style="padding:0;margin-bottom:14px;">
+      <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🩺 엔지니어별 품질 약점 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 ${days}일 검수 불합격의 상세 사유 집계 — 누가 어떤 품질에서 자주 걸리는지</span></div>
+      <div style="padding:10px 16px 12px;display:flex;flex-direction:column;gap:8px;">
+        ${engs.map(([w, v]) => {
+          const tops = Object.entries(v.reasons).sort((a, b) => b[1] - a[1]).slice(0, 5);
+          const topType = Object.entries(v.types).sort((a, b) => b[1] - a[1])[0];
+          return `<div style="padding:8px 12px;border-radius:9px;background:var(--surface2,rgba(148,163,184,.07));">
+            <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
+              <span style="font-size:12.5px;font-weight:700;">${escapeHtml(w)}</span>
+              <span style="font-size:11.5px;font-weight:700;color:#ef4444;">불합격 ${fmt(v.fail)}건</span>
+              ${topType ? `<span style="font-size:10.5px;color:var(--text3);">주 유형: ${escapeHtml(topType[0])} ${topType[1]}건</span>` : ''}
+            </div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;">
+              ${tops.map(([r, c], i) => `<span style="font-size:11px;font-weight:${i === 0 ? '800' : '600'};padding:2px 9px;border-radius:99px;background:${i === 0 ? 'rgba(239,68,68,.12)' : 'var(--surface)'};border:1px solid ${i === 0 ? '#ef444466' : 'var(--border)'};color:${i === 0 ? '#ef4444' : 'var(--text2)'};">${escapeHtml(r)} ×${c}</span>`).join('')}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="padding:8px 16px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text3);line-height:1.6;">같은 사유 문구끼리 묶어 세요 — QC가 사유를 콤마로 여러 개 적으면 각각 집계 · 가장 잦은 사유는 빨간 강조 · 담당자 귀속은 품질 대시보드와 동일(검수 시점 기준). 교육·코칭 포인트를 찾는 용도예요.</div>
+    </div>`;
+  } catch(e) { return ''; }
+}
+
 /* ⭐ v2.83: 이 달의 엔지니어를 내 대시보드(전 직급)에서 공개 — 연봉 등 민감정보 없이 실적·품질만 쓰므로 안전 */
 function _awardsCardForMyDash() {
   try {
@@ -14012,7 +14111,8 @@ async function renderMyDash() {
       `<div id="t4-report-slot"><div style="color:var(--text3);font-size:13px;padding:10px 2px;">실적 리포트 불러오는 중…</div></div>` +
       `<div id="t4-triple-slot"></div>` +   // ⭐ v2.70d: 3중 작업 현황 카드 자리
       _awardsCardForMyDash() +               // ⭐ v2.86: 부품별 교체 사유 분석 카드 제거 (마스터 지시)               // ⭐ v2.83: 이 달의 엔지니어 (경영분석에서 이동)
-      _partAnomalyCard() +                   // ⭐ v2.84: 부품 사용 이상 감지 (누락 후보 점검)
+      _partOveruseCard() +                   // ⭐ v2.86a: 부품 초과 사용 TOP (누락 점검 대체 — 마스터 지시)
+      _qualityWeakCard() +                   // ⭐ v2.86a: 엔지니어별 품질 약점 (상세 사유 통계)
       `<details id="t4-board-details" style="margin-top:4px;"${boardOpen?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
           <span style="font-size:12px;transition:transform .15s;" class="t4-board-arrow">${boardOpen?'▼':'▶'}</span>
@@ -14287,6 +14387,7 @@ async function renderMyDash() {
       </div>
       <div id="t3-notice-slot"></div>
       <div id="t3-triple-slot"></div>
+      ${_qualityWeakCard()}
       ${_partAnomalyCard()}
       <details id="t3-board-details" style="margin-top:4px;"${window._board3Open?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
