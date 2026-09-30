@@ -18596,7 +18596,7 @@ function renderDoa() {
       <td style="text-align:right;">${fmt(l.qty)}</td>
       <td>${escapeHtml(_symOf(l.note))}</td>
       <td>${escapeHtml(String(l.worker||'').split('::')[0])}</td>
-      <td>${(isAdmin || String(l.worker||'').split('::')[0] === currentUser) ? `<button class="btn btn-sm" onclick="undoDoa('${escapeJs(String(l.logId||''))}')" title="잘못/중복 등록한 DOA 되돌리기 (재고 환입) — 본인 등록건은 직접 가능">되돌리기</button>` : ''}</td>
+      <td>${_doaUndone(l) ? '<span style="font-size:11px;color:var(--text3);">↩ 되돌려짐</span>' : ((isAdmin || String(l.worker||'').split('::')[0] === currentUser) ? `<button class="btn btn-sm" onclick="undoDoa('${escapeJs(String(l.logId||''))}')" title="잘못/중복 등록한 DOA 되돌리기 (재고 환입) — 본인 등록건은 직접 가능">되돌리기</button>` : '')}</td>
     </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:18px;">DOA 기록이 없습니다.</td></tr>`}</tbody>
     </table></div></div>`;
   el.innerHTML = h;
@@ -18647,17 +18647,34 @@ async function registerDoa() {
   const symEl = document.getElementById('doa-sym'); if(symEl) symEl.value = '';
   renderDoa();
 }
+// ⭐ v2.87c: 이 DOA 건이 이미 되돌려졌는지 (취소 기록의 참조 시각으로 대조)
+function _doaUndone(l) {
+  try {
+    const ref = `DOA 등록 취소 (${_doaUndoRef(l)})`;
+    return (stockLog||[]).some(x => x !== l && String(x.note||'').includes(ref) &&
+      (String(x.partId) === String(l.partId) || x.partName === l.partName));
+  } catch(e) { return false; }
+}
 async function undoDoa(logId) {
+  // ⭐ v2.87c: 되돌리기도 등록과 같은 보호 — 처리 중 잠금 + 이미 되돌린 건 차단 (연타 시 재고 과다 환입 사고 방지)
+  if(window._doaBusy) { notify('처리 중입니다 — 잠시만 기다려주세요. (서버가 느릴 땐 30초 이상 걸릴 수 있어요)', 'error'); return; }
   const l = (stockLog||[]).find(x => String(x.logId) === String(logId));
-  if(!l) { notify('기록을 찾지 못했습니다.', 'error'); return; }
+  if(!l) { notify('기록을 찾지 못했습니다 — 상단 🔄 새로고침 후 다시 시도해주세요.', 'error'); return; }
   // ⭐ v2.87b: 관리자 + 등록자 본인 되돌리기 허용 (중복 등록 자가 정리)
   const _owner = String(l.worker||'').split('::')[0];
   if(!isAdmin && _owner !== currentUser) { notify('본인이 등록한 DOA 또는 관리자만 되돌릴 수 있습니다.', 'error'); return; }
+  if(_doaUndone(l)) { notify('이미 되돌려진 DOA입니다 — 재고 이력에서 확인하세요. (또 누르면 재고가 이중 환입돼요)', 'error'); renderDoa(); return; }
   const idx = stock.findIndex(p => String(p.id) === String(l.partId) || p.name === l.partName);
   if(idx < 0) { notify('해당 부품이 재고 목록에 없습니다.', 'error'); return; }
   if(!confirm(`${l.partName} DOA 등록을 되돌릴까요? 재고에 ${l.qty}개 환입됩니다.`)) return;
-  const r = await adjustStockOp({ idx, delta: Number(l.qty)||1, type: 'in', note: `DOA 등록 취소 (${_doaUndoRef(l)})` });
-  if(r && r.ok) notify('↩ DOA 등록을 되돌렸습니다.');
+  window._doaBusy = true;
+  notifyPersist('⏳ 되돌리는 중… (서버가 느릴 땐 30초 이상 걸릴 수 있어요 — 다시 누르지 마세요)');
+  let r = null;
+  try {
+    r = await adjustStockOp({ idx, delta: Number(l.qty)||1, type: 'in', note: `DOA 등록 취소 (${_doaUndoRef(l)})` });
+  } finally { window._doaBusy = false; }
+  if(r && r.ok) notify('↩ DOA 등록을 되돌렸습니다 — 재고에 환입 완료.');
+  else notifyPersist(`⏳ 서버 지연으로 대기 중 — 자동으로 재전송돼요. ⚠ 다시 누르지 마세요 (재고가 이중 환입됩니다).`);
   renderDoa();
 }
 function _doaUndoRef(l) { try { return String(l.date).slice(5,16).replace('T',' '); } catch(e) { return ''; } }
