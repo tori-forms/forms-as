@@ -18489,7 +18489,11 @@ function updateDoaLotSel() {
     opts = `<option value="${relay}" selected>${relay} 입고분 — 직전 등록에 이어짐</option>` + opts;
   }
   // ⭐ v2.85b: 입고 이력이 없어도(로그 보존 범위 밖·구매 오래됨) 입고분 날짜를 직접 넣을 수 있게
-  sel.innerHTML = (opts || '') + `<option value="">입고분 모름/기록 안 함</option>` + `<option value="__custom">📅 입고 날짜 직접 입력…</option>`;
+  // ⭐ v2.87e: '모름'도 직전 기록이 있으면 그 입고분을 따라감 — '-'(미지정)로 남는 걸 최소화
+  const unknownOpt = relay
+    ? `<option value="${relay}">입고분 모름 — 직전 기록(${relay}) 따라감</option>`
+    : `<option value="">입고분 모름/기록 안 함</option>`;
+  sel.innerHTML = (opts || '') + unknownOpt + `<option value="__custom">📅 입고 날짜 직접 입력…</option>`;
   // ⭐ v2.85e: 입고 이력이 전혀 없는 부품(액정 등 — 로그 보존 범위 밖 구매분)은
   //   '날짜 직접 입력'을 기본 선택해 입고분이 비어 기록되는 일을 줄임 (모름 선택도 가능)
   if(!opts) sel.value = '__custom';
@@ -18514,12 +18518,28 @@ function renderDoa() {
   const _symOf = n => { const m = String(n||'').match(/^DOA[^\[]*\[([^\]]*)\]/); return m ? m[1] : '-'; };
   // ⭐ v2.79p: 노트의 입고분 태그 파싱 — "DOA 불량 [증상] (2026-08-26 입고분)"
   const _lotOf = n => { const m = String(n||'').match(/\((\d{4}-\d{2}-\d{2}) 입고분\)/); return m ? m[1] : ''; };
-  // 부품 × 입고분별 집계
+  // ⭐ v2.87e: 입고분 미기재('-') 건은 같은 부품의 가장 가까운(직전 우선) 기록의 입고분을 따라 '추정' 처리
+  const _datedByPart = {};
+  logs.forEach(l => { const d0 = _lotOf(l.note); if(d0) (_datedByPart[l.partName] = _datedByPart[l.partName] || []).push({ t: new Date(l.date).getTime() || 0, date: d0 }); });
+  const _lotResolved = (l) => {
+    const d0 = _lotOf(l.note);
+    if(d0) return { date: d0, est: false };
+    const arr = _datedByPart[l.partName] || [];
+    if(!arr.length) return { date: '', est: false };
+    const t = new Date(l.date).getTime() || 0;
+    let best = null;
+    arr.forEach(x => { if(x.t <= t && (!best || x.t > best.t)) best = x; });   // 직전 기록 우선
+    if(!best) arr.forEach(x => { if(!best || x.t < best.t) best = x; });      // 없으면 이후 기록
+    return { date: best.date, est: true };
+  };
+  // 부품 × 입고분별 집계 (추정 포함)
   const agg = {};
   logs.forEach(l => {
-    const k = (l.partName || '?') + '|' + (_lotOf(l.note) || '미지정');
-    if(!agg[k]) agg[k] = { part: l.partName || '?', lot: _lotOf(l.note) || '', total: 0, month: 0 };
+    const lr = _lotResolved(l);
+    const k = (l.partName || '?') + '|' + (lr.date || '미지정');
+    if(!agg[k]) agg[k] = { part: l.partName || '?', lot: lr.date || '', total: 0, month: 0, est: 0 };
     agg[k].total += Number(l.qty)||0;
+    if(lr.est) agg[k].est += Number(l.qty)||0;
     if(String(l.date).slice(0,7) === curMonth) agg[k].month += Number(l.qty)||0;
   });
   // 입고분별 입고 수량 조회용 (부품명 → {입고일: 수량})
@@ -18577,7 +18597,7 @@ function renderDoa() {
       const inQ = (v.lot && lotQty[v.part] && lotQty[v.part][v.lot]) || 0;
       const rate = inQ > 0 ? (v.total / inQ * 100) : null;
       return `<tr><td style="font-weight:600;">${escapeHtml(v.part)}</td>
-        <td>${v.lot ? v.lot + ' 입고' : '<span style="color:var(--text3);">미지정</span>'}</td>
+        <td>${v.lot ? v.lot + ' 입고' + (v.est ? ' <span title="입고분 미기재 건 ' + fmt(v.est) + '개는 직전 기록을 따라 추정" style="font-size:10px;color:#d97706;">(추정 ' + fmt(v.est) + ')</span>' : '') : '<span style="color:var(--text3);">미지정</span>'}</td>
         <td style="text-align:right;color:var(--text2);">${inQ ? fmt(inQ) : '-'}</td>
         <td style="text-align:right;">${fmt(v.month)}</td>
         <td style="text-align:right;font-weight:700;color:var(--red);">${fmt(v.total)}</td>
@@ -18592,7 +18612,7 @@ function renderDoa() {
     <tbody>${logs.length ? logs.slice(0,100).map(l => `<tr>
       <td style="white-space:nowrap;color:var(--text2);">${_d(l.date)}${l._pending ? ' <span title="서버 반영 중 — 자동으로 전송됩니다" style="font-size:10px;">⏳</span>' : ''}</td>
       <td style="font-weight:600;">${escapeHtml(l.partName||'')}</td>
-      <td style="white-space:nowrap;">${_lotOf(l.note) || '<span style="color:var(--text3);">-</span>'}</td>
+      <td style="white-space:nowrap;">${(() => { const lr = _lotResolved(l); return lr.date ? (lr.est ? `${lr.date} <span title="입고분 미기재 — 같은 부품의 직전 기록을 따라 추정" style="font-size:10px;color:#d97706;">(추정)</span>` : lr.date) : '<span style="color:var(--text3);">-</span>'; })()}</td>
       <td style="text-align:right;">${fmt(l.qty)}</td>
       <td>${escapeHtml(_symOf(l.note))}</td>
       <td>${escapeHtml(String(l.worker||'').split('::')[0])}</td>
