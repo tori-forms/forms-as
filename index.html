@@ -18590,7 +18590,7 @@ function renderDoa() {
     <div class="table-wrap"><table>
     <thead><tr><th>일시</th><th>부품</th><th>입고분</th><th style="text-align:right">수량</th><th>증상</th><th>등록자</th><th></th></tr></thead>
     <tbody>${logs.length ? logs.slice(0,100).map(l => `<tr>
-      <td style="white-space:nowrap;color:var(--text2);">${_d(l.date)}</td>
+      <td style="white-space:nowrap;color:var(--text2);">${_d(l.date)}${l._pending ? ' <span title="서버 반영 중 — 자동으로 전송됩니다" style="font-size:10px;">⏳</span>' : ''}</td>
       <td style="font-weight:600;">${escapeHtml(l.partName||'')}</td>
       <td style="white-space:nowrap;">${_lotOf(l.note) || '<span style="color:var(--text3);">-</span>'}</td>
       <td style="text-align:right;">${fmt(l.qty)}</td>
@@ -18631,21 +18631,21 @@ async function registerDoa() {
     }
   } catch(e) {}
   if(!confirm(`${sp.name} ${qty}개를 DOA(개봉 불량)로 등록할까요?\n재고에서 ${qty}개 차감됩니다. (증상: ${sym}${lot ? ` · ${lot} 입고분` : ''})`)) return;
-  window._doaBusy = true;
-  const _btn = document.querySelector('#doa-content button.btn-primary');
-  const _orig = _btn ? _btn.innerHTML : '';
-  if(_btn) { _btn.disabled = true; _btn.innerHTML = '⏳ 등록 중…'; }
-  let r = null;
-  try {
-    r = await adjustStockOp({ idx, delta: -qty, type: 'out', note: `DOA 불량 [${sym}]${lot ? ` (${lot} 입고분)` : ''}` });
-  } finally {
-    window._doaBusy = false;
-    if(_btn) { _btn.disabled = false; _btn.innerHTML = _orig || '🚫 DOA 등록'; }
-  }
-  if(r && r.ok) { notify(`🚫 DOA 등록 완료 — ${sp.name} −${qty} (실물은 스티커 붙여 DOA 박스에 보관하세요)`); }
-  else { notifyPersist(`⏳ DOA 등록이 서버 지연으로 대기 중입니다 — 자동으로 재전송돼요. ⚠ 다시 등록하지 마세요 (잠시 후 아래 목록에 나타납니다)`); }
+  // ⭐ v2.87d: 낙관적 즉시 반영 — 누르는 순간 목록·재고에 바로 표시하고, 서버 전송은 백그라운드
+  //   (전송은 내구 큐가 보장 — 실패해도 자동 재전송. 엔지니어가 서버 응답을 기다릴 필요 없음)
+  const _note = `DOA 불량 [${sym}]${lot ? ` (${lot} 입고분)` : ''}`;
+  const _pend = { logId: 'pend_' + Date.now(), partId: sp.id, partName: sp.name, type: 'out', qty,
+    note: _note + ' · ⏳ 서버 반영 중', date: new Date().toISOString(), worker: currentUser || '', _pending: true };
+  stockLog.push(_pend);
+  sp.qty = Math.max(0, Number(sp.qty) - qty);
+  notify(`🚫 DOA 등록 완료 — ${sp.name} −${qty} (실물은 스티커 붙여 DOA 박스에 보관하세요)`);
   const symEl = document.getElementById('doa-sym'); if(symEl) symEl.value = '';
   renderDoa();
+  adjustStockOp({ idx, delta: -qty, type: 'out', note: _note }).then(r => {
+    const i = stockLog.indexOf(_pend);
+    if(r && r.ok) { if(i > -1) stockLog.splice(i, 1); }   // 서버 확정 행이 대신 들어옴 → 임시 행 제거
+    renderDoa();
+  }).catch(() => {});
 }
 // ⭐ v2.87c: 이 DOA 건이 이미 되돌려졌는지 (취소 기록의 참조 시각으로 대조)
 function _doaUndone(l) {
@@ -18667,15 +18667,19 @@ async function undoDoa(logId) {
   const idx = stock.findIndex(p => String(p.id) === String(l.partId) || p.name === l.partName);
   if(idx < 0) { notify('해당 부품이 재고 목록에 없습니다.', 'error'); return; }
   if(!confirm(`${l.partName} DOA 등록을 되돌릴까요? 재고에 ${l.qty}개 환입됩니다.`)) return;
-  window._doaBusy = true;
-  notifyPersist('⏳ 되돌리는 중… (서버가 느릴 땐 30초 이상 걸릴 수 있어요 — 다시 누르지 마세요)');
-  let r = null;
-  try {
-    r = await adjustStockOp({ idx, delta: Number(l.qty)||1, type: 'in', note: `DOA 등록 취소 (${_doaUndoRef(l)})` });
-  } finally { window._doaBusy = false; }
-  if(r && r.ok) notify('↩ DOA 등록을 되돌렸습니다 — 재고에 환입 완료.');
-  else notifyPersist(`⏳ 서버 지연으로 대기 중 — 자동으로 재전송돼요. ⚠ 다시 누르지 마세요 (재고가 이중 환입됩니다).`);
+  // ⭐ v2.87d: 낙관적 즉시 반영 — 행이 바로 '되돌려짐'으로 바뀌고 재고 환입, 서버 전송은 백그라운드 (내구 큐 보장)
+  const _uNote = `DOA 등록 취소 (${_doaUndoRef(l)})`;
+  const _uPend = { logId: 'pend_' + Date.now(), partId: l.partId, partName: l.partName, type: 'in',
+    qty: Number(l.qty) || 1, note: _uNote + ' · ⏳ 서버 반영 중', date: new Date().toISOString(), worker: currentUser || '', _pending: true };
+  stockLog.push(_uPend);
+  const _usp = stock[idx]; if(_usp) _usp.qty = Number(_usp.qty) + (Number(l.qty) || 1);
+  notify(`↩ DOA 등록을 되돌렸습니다 — ${l.partName} 재고 +${l.qty} 환입.`);
   renderDoa();
+  adjustStockOp({ idx, delta: Number(l.qty)||1, type: 'in', note: _uNote }).then(r => {
+    const i = stockLog.indexOf(_uPend);
+    if(r && r.ok) { if(i > -1) stockLog.splice(i, 1); }
+    renderDoa();
+  }).catch(() => {});
 }
 function _doaUndoRef(l) { try { return String(l.date).slice(5,16).replace('T',' '); } catch(e) { return ''; } }
 
