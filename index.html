@@ -18533,8 +18533,10 @@ function renderDoa() {
     return { date: best.date, est: true };
   };
   // 부품 × 입고분별 집계 (추정 포함)
+  // ⭐ v2.88a: 되돌려진(취소된) DOA는 집계에서 제외 — 중복 정리한 건이 누적 DOA에 계속 잡히던 문제
   const agg = {};
   logs.forEach(l => {
+    if(_doaUndone(l)) return;
     const lr = _lotResolved(l);
     const k = (l.partName || '?') + '|' + (lr.date || '미지정');
     if(!agg[k]) agg[k] = { part: l.partName || '?', lot: lr.date || '', total: 0, month: 0, est: 0 };
@@ -18590,7 +18592,7 @@ function renderDoa() {
   // ⭐ v2.79p: 부품 × 입고분별 집계 — 어느 로트에서 얼마나 나왔는지 (공급사 클레임 근거)
   const aggRows = Object.values(agg).sort((a,b) => (a.part+a.lot).localeCompare(b.part+b.lot) || b.total - a.total)
     .sort((a,b) => b.total - a.total);
-  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">부품 × 입고분별 DOA 집계 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 이력 기준 (재고 로그 보존 범위)</span></div>
+  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">부품 × 입고분별 DOA 집계 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 이력 기준 (재고 로그 보존 범위) · 되돌려진 건 제외</span></div>
     <div class="table-wrap"><table>
     <thead><tr><th>부품명</th><th>입고분</th><th style="text-align:right">입고 수량</th><th style="text-align:right">이번 달</th><th style="text-align:right">누적 DOA</th><th style="text-align:right">DOA율</th></tr></thead>
     <tbody>${aggRows.length ? aggRows.map(v => {
