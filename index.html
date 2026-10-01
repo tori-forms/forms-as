@@ -19863,12 +19863,29 @@ async function adjustStockBatchOps(ops) {   // ops: [{idx, delta?|set?, type, no
       worker: currentUser || '', date: new Date().toISOString() });
   } catch(e) {}
   if(!res || !res.ok || !Array.isArray(res.results)) {
-    // 구버전 GAS(adjustStockBatch 미지원 → load 폴스루) 또는 busy-lock/실패 → 기존 개별 호출 폴백
-    // ⭐ v2.74: 폴백은 '새 logId'로 다시 실행되므로, 배치용 logId는 큐에서 제거 (이중 반영 방지)
-    _stockQRemove(items.map(it => it.logId));
-    const out = [];
-    for(const o of valid) { try { out.push(await adjustStockOp(o)); } catch(e) { out.push(null); } }
-    return out;
+    // ⭐ v2.88: 이중 차감 사고 수정 (2026-09-22·09-28 실사 불일치 원인) —
+    //   배치 응답이 유실(타임아웃)돼도 서버는 이미 적용했을 수 있다. 기존 폴백은 '새 logId'로
+    //   전 부품을 개별 재실행해 멱등 보호를 스스로 무력화 → 등록 1건에 전 부품 2회 차감됐음.
+    //   수정: 같은 logId 배치로만 1회 재시도하고, 그래도 안 되면 내구 큐(_stockQFlush — 같은
+    //   logId, 멱등 재전송)에 맡긴다. 개별 폴백은 '구버전 GAS(load 폴스루 응답)'일 때만 —
+    //   그 경우는 서버가 아무것도 적용하지 않았음이 확실하다.
+    const legacyGas = !!(res && (res.entries !== undefined || res.workers !== undefined));
+    if(legacyGas) {
+      _stockQRemove(items.map(it => it.logId));
+      const out = [];
+      for(const o of valid) { try { out.push(await adjustStockOp(o)); } catch(e) { out.push(null); } }
+      return out;
+    }
+    await new Promise(r => setTimeout(r, 2500));
+    try {
+      res = await gasCall({ action: 'adjustStockBatch', ops: JSON.stringify(items),
+        worker: currentUser || '', date: new Date().toISOString() });
+    } catch(e) {}
+    if(!res || !res.ok || !Array.isArray(res.results)) {
+      notifyPersist('⏳ 재고 차감 응답 지연 — 같은 전표로 자동 재전송됩니다 (이중 차감 없음 · 수량은 잠시 후 반영).');
+      setTimeout(() => { try { _stockQFlush(); } catch(e) {} }, 15000);
+      return valid.map(() => null);
+    }
   }
   // 서버가 확인한 항목은 큐에서 제거
   _stockQRemove(res.results.map((r, i) => (r && (r.ok || r.error === 'part not found')) ? items[i].logId : null).filter(Boolean));
