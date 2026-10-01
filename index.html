@@ -10465,7 +10465,7 @@ function loadPriceSettings() {
  * ═══════════════════════════════════════════════════════════════ */
 function __finEnc(obj) { try { return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))); } catch(e) { return ''; } }
 function __finDec(raw) { try { return JSON.parse(decodeURIComponent(escape(atob(String(raw))))); } catch(e) { return null; } }
-function _finDefaults() { return { indirectRate: 35, fixedMonthly: 0, unitPrice: 27000, salaries: {}, exclude: {} }; }
+function _finDefaults() { return { indirectRate: 35, fixedMonthly: 0, unitPrice: 27000, salaries: {}, exclude: {}, departures: {} }; }
 function _finData() { return Object.assign(_finDefaults(), window.FINANCE || {}); }
 /* 서버 로드 시 적용 — 내 최근 저장(12분) 보호: 낡은 캐시 응답이 방금 저장한 연봉을 되돌리지 않게 */
 function __applyFinance(raw) {
@@ -10498,15 +10498,20 @@ async function saveFinance() {
   f.indirectRate = Math.max(0, Number(g('fin-ir')?.value) || 0);
   f.fixedMonthly = Math.max(0, Number(g('fin-fixed')?.value) || 0);
   f.unitPrice   = Math.max(0, Number(g('fin-unit')?.value) || 0) || 27000;
-  f.salaries = {}; f.exclude = {}; f.overhead = {};
+  // ⭐ v2.89: 화면에 없는 이름(옛 퇴사자 등)의 연봉·설정은 보존 — 표시 중인 이름만 입력값으로 갱신.
+  //   (기존엔 매 저장마다 전체 리셋이라, 계정 삭제된 퇴사자의 연봉이 다음 저장에서 사라졌음)
+  f.salaries = f.salaries || {}; f.exclude = f.exclude || {}; f.overhead = f.overhead || {}; f.departures = f.departures || {};
   // ⭐ v2.79s: 직접/간접 구분 저장 (기본값 = T3·QC는 간접 — 기본과 다를 때만 기록)
   const _ovDef = n => (tierMap[n] === LEAD_TIER() || (roleMap[n] || 'engineer') === 'inspector') ? 'indirect' : 'direct';
   (window._finNames || []).forEach((n, i) => {
     const v = Number(g('fin-sal-' + i)?.value);
-    if(!isNaN(v) && v > 0) f.salaries[n] = v;
-    if(g('fin-inc-' + i) && !g('fin-inc-' + i).checked) f.exclude[n] = true;
+    if(!isNaN(v) && v > 0) f.salaries[n] = v; else delete f.salaries[n];
+    if(g('fin-inc-' + i) && !g('fin-inc-' + i).checked) f.exclude[n] = true; else delete f.exclude[n];
     const ov = g('fin-ov-' + i)?.value;
-    if((ov === 'direct' || ov === 'indirect') && ov !== _ovDef(n)) f.overhead[n] = ov;
+    if((ov === 'direct' || ov === 'indirect') && ov !== _ovDef(n)) f.overhead[n] = ov; else delete f.overhead[n];
+    // ⭐ v2.89: 퇴사일 (퇴사자 행에만 입력칸이 있음 — 없으면 기존 값 유지)
+    const dp = g('fin-dep-' + i);
+    if(dp) { const dv = String(dp.value || '').slice(0, 10); if(/^\d{4}-\d{2}-\d{2}$/.test(dv)) f.departures[n] = dv; else delete f.departures[n]; }
   });
   // ⭐ v2.79s: 충원 시뮬레이션 입력도 저장
   const _dm = Number(g('fin-demand')?.value); if(!isNaN(_dm) && _dm > 0) f.demand = _dm; else delete f.demand;
@@ -11071,10 +11076,25 @@ async function renderFinance() {
   const avgUnitSrc = shipAvgUnit ? `이 달 출고 ${fmt(shipAvgCnt)}건 평균`
     : (totalCnt > 0 ? '출고 건 평균' : (regCntMonth > 0 ? '등록 건 평균 (출고 없음)' : '수동 기준값'));
 
-  // 분석 대상: 현재 명단(활동중, 마스터 제외) + 이 달 매출 있는 퇴사자(참고 표기)
+  // 분석 대상: 현재 명단(활동중, 마스터 제외) + 퇴사자(연봉 데이터가 남아 있는 비명단자)
   const team = (workers || []).filter(n => n !== MASTER_NAME && isActiveWorker(n));
-  const gone = Object.keys(revBy).filter(n => n !== MASTER_NAME && !team.includes(n));
-  window._finNames = team;
+  const _mStart = new Date(fy, fm - 1, 1), _mEnd = new Date(fy, fm, 0);
+  // ⭐ v2.89: 퇴사자도 퇴사일까지는 인건비 상계에 포함 (일할 계산).
+  //   계정을 삭제해도 연봉은 경영분석 설정에 남으므로, 그 이름을 퇴사자 행으로 되살린다.
+  //   표시 조건: 퇴사일 미입력(입력 유도) 또는 퇴사일이 조회 달 이후 — 지난 달 기록을 볼 때도 그 달에 재직했으면 나온다.
+  //   연봉 칸을 비우고 저장하면 목록에서 완전히 제거된다.
+  const depAll = Array.from(new Set([...Object.keys(f.salaries || {}), ...Object.keys(f.departures || {})]))
+    .filter(n => n && n !== MASTER_NAME && !team.includes(n));
+  const departed = depAll.filter(n => {
+    if(!(f.salaries || {})[n]) return false;               // 연봉 지워진 이름은 표시 안 함
+    const dv = (f.departures || {})[n];
+    if(!dv) return true;                                    // 퇴사일 미입력 → 입력하라고 표시
+    const dd = new Date(String(dv).slice(0, 10) + 'T00:00:00');
+    return isNaN(dd) || dd >= _mStart;                      // 조회 달(이후)까지 재직했으면 표시
+  });
+  const names = team.concat(departed);
+  const gone = Object.keys(revBy).filter(n => n !== MASTER_NAME && !names.includes(n));
+  window._finNames = names;
 
   // ⭐ v2.79s: 직접(수리) / 간접(배분) 구분 — T3(관리 전담)·QC 전담은 수리가 디폴트가 아니라
   //   본인 매출로 인건비를 충당할 수 없음 → 간접 인건비로 보고, 본인 매출로 먼저 상계한 뒤
@@ -11083,20 +11103,23 @@ async function renderFinance() {
   const _ovOf = n => { const o = (f.overhead || {})[n]; return (o === 'direct' || o === 'indirect') ? o : _ovDefault(n); };
 
   // ⭐ v2.79u: 입사일 반영 — 조회 달에 아직 입사 전이면 인건비 0(제외), 월중 입사면 일할 계산.
-  //   퇴사·비활동 인원은 team에서 이미 빠져 인건비 미포함 (그 달 매출만 아래 참고 행에 표기).
-  const _mStart = new Date(fy, fm - 1, 1), _mEnd = new Date(fy, fm, 0);
+  // ⭐ v2.89: 퇴사일 반영 — 퇴사월은 1일~퇴사일 일할, 퇴사 다음 달부터 0 (퇴사해도 재직 기간 인건비는 상계에 남음)
   const _empFrac = (n) => {
     const hd = hireDateMap[n] ? new Date(String(hireDateMap[n]).slice(0, 10) + 'T00:00:00') : null;
-    if(!hd || isNaN(hd)) return { frac: 1, note: '' };
-    if(hd > _mEnd) return { frac: 0, note: '입사 전' };
-    if(hd >= _mStart) {
-      const frac = (_mEnd.getDate() - hd.getDate() + 1) / _mEnd.getDate();
-      return { frac, note: `${hd.getMonth() + 1}/${hd.getDate()} 입사 · 일할 ${(frac * 100).toFixed(0)}%` };
-    }
-    return { frac: 1, note: '' };
+    const dvRaw = (f.departures || {})[n];
+    const dd = dvRaw ? new Date(String(dvRaw).slice(0, 10) + 'T00:00:00') : null;
+    if(hd && !isNaN(hd) && hd > _mEnd) return { frac: 0, note: '입사 전' };
+    if(dd && !isNaN(dd) && dd < _mStart) return { frac: 0, note: '퇴사' };
+    let start = _mStart, end = _mEnd; const notes = [];
+    if(hd && !isNaN(hd) && hd >= _mStart) { start = hd; notes.push(`${hd.getMonth() + 1}/${hd.getDate()} 입사`); }
+    if(dd && !isNaN(dd) && dd <= _mEnd) { end = dd; notes.push(`${dd.getMonth() + 1}/${dd.getDate()} 퇴사`); }
+    if(end < start) return { frac: 0, note: notes.join(' · ') || '재직 없음' };
+    if(!notes.length) return { frac: 1, note: '' };
+    const frac = (end.getDate() - start.getDate() + 1) / _mEnd.getDate();
+    return { frac, note: `${notes.join(' · ')} · 일할 ${(frac * 100).toFixed(0)}%` };
   };
   let teamCost = 0, incCnt = 0;
-  const rows = team.map((n, i) => {
+  const rows = names.map((n, i) => {
     const sal = f.salaries[n] || 0;
     const inc = !f.exclude[n];
     const emp = _empFrac(n);
@@ -11104,7 +11127,7 @@ async function renderFinance() {
     const rev = revBy[n] || 0, cnt = cntBy[n] || 0;
     const kind = _ovOf(n);
     if(inc && sal && cost > 0) { teamCost += cost; incCnt++; }
-    return { n, i, sal, inc, cost, rev, cnt, kind, empNote: emp.note, preHire: emp.frac === 0 };
+    return { n, i, sal, inc, cost, rev, cnt, kind, empNote: emp.note, preHire: emp.frac === 0, dep: !team.includes(n), depDate: String((f.departures || {})[n] || '').slice(0, 10) };
   });
   // 간접 인건비 순부담 = Σ(간접 인력 인건비 − 본인 매출, 음수면 0) → 직접 인력에 매출 비중 배분
   const indRows = rows.filter(r => r.inc && r.kind === 'indirect');
@@ -11150,21 +11173,21 @@ async function renderFinance() {
 
   // ── 엔지니어별 상계 표
   h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-      👥 엔지니어별 인건비 상계 <span style="font-size:11px;color:var(--text3);font-weight:400;">연봉은 만원 단위 (예: 3050) · <b>간접(T3·QC)</b>은 본인 매출로 먼저 상계 후 남는 인건비를 직접 인력에 매출 비중대로 배분</span>
+      👥 엔지니어별 인건비 상계 <span style="font-size:11px;color:var(--text3);font-weight:400;">연봉은 만원 단위 (예: 3050) · <b>간접(T3·QC)</b>은 본인 매출로 먼저 상계 후 남는 인건비를 직접 인력에 매출 비중대로 배분 · <b>🚪 퇴사자</b>는 퇴사일까지 일할 포함 — 연봉 칸을 비우고 저장하면 목록에서 제거</span>
       <button class="btn btn-sm btn-primary" onclick="saveFinance()">💾 저장 (서버)</button></div>
     <div class="table-wrap"><table>
     <thead><tr><th>포함</th><th>구분</th><th>엔지니어</th><th style="text-align:right">연봉 (만원)</th><th style="text-align:right">월 인건비</th><th style="text-align:right">이 달 매출 (출고)</th><th style="text-align:right">출고 건수</th><th style="text-align:right">배분 부담</th><th style="text-align:right">최종 손익</th><th style="text-align:right">BEP</th><th>달성</th></tr></thead>
     <tbody>${rows.map(r => {
       const pct = r.bepCnt > 0 ? Math.min(200, Math.round(r.cnt / r.bepCnt * 100)) : 0;
       const isInd = r.kind === 'indirect';
-      return `<tr style="${!r.inc ? 'opacity:.45;' : ''}${isInd ? 'background:rgba(3,105,161,.05);' : ''}">
+      return `<tr style="${!r.inc ? 'opacity:.45;' : ''}${isInd ? 'background:rgba(3,105,161,.05);' : r.dep ? 'background:rgba(107,114,128,.07);' : ''}">
       <td><input type="checkbox" id="fin-inc-${r.i}" ${r.inc ? 'checked' : ''} onchange="saveFinance()"></td>
       <td><select id="fin-ov-${r.i}" onchange="saveFinance()" title="간접 = 수리가 기본 업무가 아님 (T3 관리·QC 등) — 인건비를 직접 인력에 배분" style="height:28px;padding:0 4px;font-size:11px;border:1px solid var(--border2);border-radius:var(--radius-sm);color:${isInd ? '#0369a1' : 'var(--text2)'};">
         <option value="direct" ${!isInd ? 'selected' : ''}>🔧 직접</option><option value="indirect" ${isInd ? 'selected' : ''}>👥 간접</option></select></td>
-      <td style="font-weight:700;">${escapeHtml(r.n)} ${tierBadge(tierMap[r.n] || '')}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;font-weight:700;">🎓</span>' : ''}</td>
+      <td style="font-weight:700;">${escapeHtml(r.n)} ${r.dep ? '<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#f3f4f6;color:#6b7280;">🚪 퇴사</span>' : `${tierBadge(tierMap[r.n] || '')}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;font-weight:700;">🎓</span>' : ''}`}${r.dep ? `<div style="margin-top:3px;display:flex;align-items:center;gap:5px;"><input type="date" id="fin-dep-${r.i}" value="${r.depDate}" onchange="saveFinance()" title="퇴사일 — 이 날짜까지 일할로 인건비에 포함" style="height:26px;font-size:11px;padding:0 4px;border:1.5px solid ${r.depDate ? 'var(--border2)' : '#f59e0b'};border-radius:var(--radius-sm);">${!r.depDate ? '<span style="font-size:10px;color:#d97706;font-weight:700;">퇴사일 입력</span>' : ''}</div>` : ''}</td>
       <td style="text-align:right;"><input type="number" id="fin-sal-${r.i}" value="${r.sal || ''}" placeholder="미입력" min="0" style="width:84px;height:30px;text-align:right;padding:0 6px;border:1px solid var(--border2);border-radius:var(--radius-sm);"></td>
       <td style="text-align:right;color:var(--text2);">${!r.sal ? '<span style="color:var(--text3);">—</span>'
-        : r.preHire ? '<span style="color:var(--text3);font-size:11px;">입사 전 · 제외</span>'
+        : r.preHire ? `<span style="color:var(--text3);font-size:11px;">${r.empNote || '제외'} · 제외</span>`
         : `${_w(r.cost)}${r.empNote ? `<div style="font-size:10px;color:#0369a1;">${r.empNote}</div>` : ''}`}</td>
       <td style="text-align:right;font-weight:600;">${_w(r.rev)}</td>
       <td style="text-align:right;">${fmt(r.cnt)}</td>
