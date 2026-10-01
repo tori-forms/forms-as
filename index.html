@@ -11083,14 +11083,16 @@ async function renderFinance() {
   //   계정을 삭제해도 연봉은 경영분석 설정에 남으므로, 그 이름을 퇴사자 행으로 되살린다.
   //   표시 조건: 퇴사일 미입력(입력 유도) 또는 퇴사일이 조회 달 이후 — 지난 달 기록을 볼 때도 그 달에 재직했으면 나온다.
   //   연봉 칸을 비우고 저장하면 목록에서 완전히 제거된다.
-  const depAll = Array.from(new Set([...Object.keys(f.salaries || {}), ...Object.keys(f.departures || {})]))
-    .filter(n => n && n !== MASTER_NAME && !team.includes(n));
+  // ⭐ v2.89a: 이 달 매출이 있는 비명단자(연봉 데이터가 지워진 옛 퇴사자 포함)도 입력 가능한 행으로 —
+  //   연봉·퇴사일을 그 자리에서 입력하면 상계에 포함된다. (연봉 미입력 동안은 매출만 팀 합계에 반영)
+  const depAll = Array.from(new Set([...Object.keys(f.salaries || {}), ...Object.keys(f.departures || {}), ...Object.keys(revBy)]))
+    .filter(n => n && n !== '?' && n !== MASTER_NAME && !team.includes(n));
   const departed = depAll.filter(n => {
-    if(!(f.salaries || {})[n]) return false;               // 연봉 지워진 이름은 표시 안 함
+    if(!(f.salaries || {})[n]) return !!cntBy[n];           // 연봉 없음: 이 달 출고 실적 있으면 입력 유도 행으로 표시
     const dv = (f.departures || {})[n];
     if(!dv) return true;                                    // 퇴사일 미입력 → 입력하라고 표시
     const dd = new Date(String(dv).slice(0, 10) + 'T00:00:00');
-    return isNaN(dd) || dd >= _mStart;                      // 조회 달(이후)까지 재직했으면 표시
+    return isNaN(dd) || dd >= _mStart || !!cntBy[n];        // 조회 달(이후)까지 재직했거나 이 달 실적이 있으면 표시
   });
   const names = team.concat(departed);
   const gone = Object.keys(revBy).filter(n => n !== MASTER_NAME && !names.includes(n));
@@ -11130,12 +11132,13 @@ async function renderFinance() {
     return { n, i, sal, inc, cost, rev, cnt, kind, empNote: emp.note, preHire: emp.frac === 0, dep: !team.includes(n), depDate: String((f.departures || {})[n] || '').slice(0, 10) };
   });
   // 간접 인건비 순부담 = Σ(간접 인력 인건비 − 본인 매출, 음수면 0) → 직접 인력에 매출 비중 배분
-  const indRows = rows.filter(r => r.inc && r.kind === 'indirect');
-  const dirRows = rows.filter(r => r.inc && r.kind === 'direct');
+  // ⭐ v2.89a: 연봉 미입력 퇴사자는 배분 계산에서 제외 (종전 '매출만 포함' 참고 행과 동일 취급 — 연봉 넣으면 합류)
+  const indRows = rows.filter(r => r.inc && r.kind === 'indirect' && !(r.dep && !r.sal));
+  const dirRows = rows.filter(r => r.inc && r.kind === 'direct' && !(r.dep && !r.sal));
   const netOverhead = indRows.reduce((s, r) => s + Math.max(0, r.cost - r.rev), 0);
   const dirRevSum = dirRows.reduce((s, r) => s + r.rev, 0);
   rows.forEach(r => {
-    if(r.kind === 'direct' && r.inc) {
+    if(r.kind === 'direct' && r.inc && !(r.dep && !r.sal)) {
       r.alloc = dirRevSum > 0 ? Math.round(netOverhead * r.rev / dirRevSum) : (dirRows.length ? Math.round(netOverhead / dirRows.length) : 0);
       r.profit = r.rev - r.cost - r.alloc;
       r.bepCnt = avgUnit > 0 && (r.cost + r.alloc) > 0 ? Math.ceil((r.cost + r.alloc) / avgUnit) : 0;   // 배분 포함 월 BEP
@@ -11186,7 +11189,7 @@ async function renderFinance() {
         <option value="direct" ${!isInd ? 'selected' : ''}>🔧 직접</option><option value="indirect" ${isInd ? 'selected' : ''}>👥 간접</option></select></td>
       <td style="font-weight:700;">${escapeHtml(r.n)} ${r.dep ? '<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#f3f4f6;color:#6b7280;">🚪 퇴사</span>' : `${tierBadge(tierMap[r.n] || '')}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;font-weight:700;">🎓</span>' : ''}`}${r.dep ? `<div style="margin-top:3px;display:flex;align-items:center;gap:5px;"><input type="date" id="fin-dep-${r.i}" value="${r.depDate}" onchange="saveFinance()" title="퇴사일 — 이 날짜까지 일할로 인건비에 포함" style="height:26px;font-size:11px;padding:0 4px;border:1.5px solid ${r.depDate ? 'var(--border2)' : '#f59e0b'};border-radius:var(--radius-sm);">${!r.depDate ? '<span style="font-size:10px;color:#d97706;font-weight:700;">퇴사일 입력</span>' : ''}</div>` : ''}</td>
       <td style="text-align:right;"><input type="number" id="fin-sal-${r.i}" value="${r.sal || ''}" placeholder="미입력" min="0" style="width:84px;height:30px;text-align:right;padding:0 6px;border:1px solid var(--border2);border-radius:var(--radius-sm);"></td>
-      <td style="text-align:right;color:var(--text2);">${!r.sal ? '<span style="color:var(--text3);">—</span>'
+      <td style="text-align:right;color:var(--text2);">${!r.sal ? (r.dep ? '<span style="color:#d97706;font-size:10.5px;font-weight:700;" title="연봉과 퇴사일을 입력하고 저장하면 재직 기간만큼 일할로 인건비 상계에 포함됩니다">연봉 입력 시 포함</span>' : '<span style="color:var(--text3);">—</span>')
         : r.preHire ? `<span style="color:var(--text3);font-size:11px;">${r.empNote || '제외'} · 제외</span>`
         : `${_w(r.cost)}${r.empNote ? `<div style="font-size:10px;color:#0369a1;">${r.empNote}</div>` : ''}`}</td>
       <td style="text-align:right;font-weight:600;">${_w(r.rev)}</td>
