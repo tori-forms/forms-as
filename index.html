@@ -11133,12 +11133,15 @@ async function renderFinance() {
   });
   // 간접 인건비 순부담 = Σ(간접 인력 인건비 − 본인 매출, 음수면 0) → 직접 인력에 매출 비중 배분
   // ⭐ v2.89a: 연봉 미입력 퇴사자는 배분 계산에서 제외 (종전 '매출만 포함' 참고 행과 동일 취급 — 연봉 넣으면 합류)
-  const indRows = rows.filter(r => r.inc && r.kind === 'indirect' && !(r.dep && !r.sal));
-  const dirRows = rows.filter(r => r.inc && r.kind === 'direct' && !(r.dep && !r.sal));
+  // ⭐ v2.89b: 인건비 일할 0인 달(입사 전·퇴사 후)도 배분·BEP에서 제외 — 인건비를 안 지는 달에
+  //   간접비 배분을 떠안으면 본인 배분이 과소/타인 배분이 왜곡됨. 매출은 팀 합계에만 반영.
+  const _allocOut = r => (r.dep && !r.sal) || r.preHire;
+  const indRows = rows.filter(r => r.inc && r.kind === 'indirect' && !_allocOut(r));
+  const dirRows = rows.filter(r => r.inc && r.kind === 'direct' && !_allocOut(r));
   const netOverhead = indRows.reduce((s, r) => s + Math.max(0, r.cost - r.rev), 0);
   const dirRevSum = dirRows.reduce((s, r) => s + r.rev, 0);
   rows.forEach(r => {
-    if(r.kind === 'direct' && r.inc && !(r.dep && !r.sal)) {
+    if(r.kind === 'direct' && r.inc && !_allocOut(r)) {
       r.alloc = dirRevSum > 0 ? Math.round(netOverhead * r.rev / dirRevSum) : (dirRows.length ? Math.round(netOverhead / dirRows.length) : 0);
       r.profit = r.rev - r.cost - r.alloc;
       r.bepCnt = avgUnit > 0 && (r.cost + r.alloc) > 0 ? Math.ceil((r.cost + r.alloc) / avgUnit) : 0;   // 배분 포함 월 BEP
