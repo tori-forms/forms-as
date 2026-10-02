@@ -15406,9 +15406,10 @@ function calcMissForDay(name, dayStr) {
   const target = getPersonalDailyTarget(name, refD);
   if(!target || target <= 0) return null;          // 목표 없는 사람(관리자·교육중·QC) 제외
   const done = entries.filter(e => e.worker === name && toLocalDay(e.date) === dayStr).length;
-  // ⭐ v2.70o: 교품 8:1 환산 포함 (2026-07-21 정책 시작일부터) — 교품 8건 = 수리 1건으로 달성 인정
+  // ⭐ v2.70o: 교품 8:1 환산 포함 (2026-07-21~09-30 정책 기간만) — 교품 8건 = 수리 1건으로 달성 인정
+  // ⭐ v2.90: 10월부터 환산 중단 — 기간 밖 교품은 달성 계산에 반영 안 함
   let excCnt = 0, excConv = 0;
-  if(dayStr >= EXC_CONV_START) {
+  if(_excConvOn(dayStr)) {
     excCnt = (exchangeList || []).filter(x => String(x.worker||'').split('::')[0] === name && toLocalDay(x.date) === dayStr).length;
     excConv = Math.floor(excCnt / 8);
   }
@@ -15417,6 +15418,8 @@ function calcMissForDay(name, dayStr) {
   return { target, done: doneTotal, doneRepair: done, exc: excCnt, short: target - doneTotal };
 }
 const EXC_CONV_START = '2026-07-21';   // ⭐ v2.70o: 교품 8:1 환산 정책 시작일 (월별 마감과 동일)
+const EXC_CONV_END = '2026-10-01';     // ⭐ v2.90: 환산 정책 종료 — 이 날짜부터의 교품은 환산 안 함 (7/21~9/30 기록은 유지)
+function _excConvOn(ds) { return ds >= EXC_CONV_START && ds < EXC_CONV_END; }   // ⭐ v2.90: 이 날짜의 교품이 환산 대상인가
 const NOTICE_NAME = '__공지__';        // ⭐ v2.70o: 특이사항 공지 저장 키 (미달기록 시트의 이름 칸)
 window._noticeByDate = window._noticeByDate || {};   // { 'YYYY-MM-DD': '사유' | '' }
 
@@ -15772,12 +15775,12 @@ async function renderSummary() {
   const _wkEnd = new Date(_wkStart); _wkEnd.setDate(_wkStart.getDate() + 6);
   const _fmtD2 = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const _wkSs = _fmtD2(_wkStart), _wkEs = _fmtD2(_wkEnd);
-  const EXC_CONV_START = '2026-07-21';   // ⭐ v2.68c: 환산 집계 시작일 — 이전 교품은 환산에 미포함
+  // ⭐ v2.90: 환산은 정책 기간(EXC_CONV_START~END)의 교품만 — 10월부터는 카드 자체가 안 뜸
   const _cntFrom = _wkSs > EXC_CONV_START ? _wkSs : EXC_CONV_START;
   const _excByW = {};
   (exchangeList || []).forEach(x => {
     const d = toLocalDay(x.date);
-    if(d >= _cntFrom && d <= _wkEs) { const w = String(x.worker || '?'); _excByW[w] = (_excByW[w] || 0) + 1; }
+    if(d >= _cntFrom && d <= _wkEs && _excConvOn(d)) { const w = String(x.worker || '?'); _excByW[w] = (_excByW[w] || 0) + 1; }
   });
   window._excWeekInfo = { range: `${_cntFrom.slice(5)}~${_wkEs.slice(5)}`, byW: _excByW, started: _cntFrom === EXC_CONV_START && _wkSs < EXC_CONV_START };
 
@@ -16250,7 +16253,7 @@ function renderExchangeList() {
       const mKey = ds.slice(0, 7);
       (byMonth[mKey] = byMonth[mKey] || { total: 0, byW: {} }).total++;
       byMonth[mKey].byW[w] = (byMonth[mKey].byW[w] || 0) + 1;
-      if(ds >= CONV_START) {
+      if(ds >= CONV_START && ds < EXC_CONV_END) {   // ⭐ v2.90: 환산은 정책 기간(~09-30)의 교품만
         const d0 = new Date(ds + 'T00:00:00');
         const off = (d0.getDay() + 6) % 7;
         d0.setDate(d0.getDate() - off);
@@ -16265,7 +16268,7 @@ function renderExchangeList() {
     });
     const months = Object.keys(byMonth).sort().reverse();
     monthlyHtml = `<div class="card" style="padding:14px 16px;margin-bottom:12px;">
-      <div style="font-size:13.5px;font-weight:800;margin-bottom:4px;">📅 월별 마감 집계 <span style="font-size:11px;font-weight:600;color:var(--text3);">환산 = 주 단위(월~일) 교품 8개당 수리 1건 · 07-21 이후 집계 · 주의 월요일이 속한 달로 귀속</span></div>
+      <div style="font-size:13.5px;font-weight:800;margin-bottom:4px;">📅 월별 마감 집계 <span style="font-size:11px;font-weight:600;color:var(--text3);">환산 = 주 단위(월~일) 교품 8개당 수리 1건 · <b>07-21~09-30 정책 기간만</b> (10월부터 환산 중단) · 주의 월요일이 속한 달로 귀속</span></div>
       ${months.map(mk => {
         const m = byMonth[mk];
         const ws = Object.entries(m.byW).sort((a, b) => b[1] - a[1]);
@@ -16274,7 +16277,7 @@ function renderExchangeList() {
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <span style="font-size:13px;font-weight:800;min-width:74px;">${mk.replace('-', '년 ')}월</span>
             <span style="font-size:12.5px;font-weight:700;">교품 ${m.total}개</span>
-            <span style="font-size:12px;color:${conv !== undefined ? 'var(--accent)' : 'var(--text3)'};font-weight:700;">${conv !== undefined ? `환산 ${conv}건` : '환산 — (집계 전)'}</span>
+            <span style="font-size:12px;color:${conv !== undefined ? 'var(--accent)' : 'var(--text3)'};font-weight:700;">${conv !== undefined ? `환산 ${conv}건` : (mk >= EXC_CONV_END.slice(0, 7) ? '환산 없음 (정책 종료)' : '환산 — (집계 전)')}</span>
             <span style="font-size:11.5px;color:var(--text3);">${ws.map(([w, c]) => `${escapeHtml(w)} ${c}`).join(' · ')}</span>
           </div>
         </div>`;
@@ -17008,10 +17011,11 @@ async function renderReport() {
     regCntByWorker[wn] = (regCntByWorker[wn] || 0) + 1;
   });
   // ⭐ v2.70o: 그 달 엔지니어별 교품 건수 (8:1 환산 — 환산분은 기여도 실적에 합산)
+  // ⭐ v2.90: 환산은 정책 기간(7/21~9/30)의 교품만 — 10월부터는 기여도에 교품 미반영
   const excByWorker = {};
   (exchangeList || []).forEach(x => {
     const xd = toLocalDay(x.date);
-    if(!xd.startsWith(monthVal) || xd < EXC_CONV_START) return;
+    if(!xd.startsWith(monthVal) || !_excConvOn(xd)) return;
     const wn = String(x.worker||'').split('::')[0];
     if(!wn) return;
     excByWorker[wn] = (excByWorker[wn] || 0) + 1;
@@ -17087,7 +17091,7 @@ async function renderReport() {
   // ⭐ v2.86: T5 대시보드(t4-report-slot 임베드)에서는 KPI 기여도 표 생략 — 이달의엔지니어와 기준이 달라 혼선 (관리자 월간 리포트에는 유지)
   if(window._reportEmbedTarget !== 't4-report-slot') {
   h += `<div class="card" style="padding:0;">
-    <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">엔지니어별 KPI 기여도 <span style="font-size:11px;color:var(--text3);font-weight:400;">· (출고 완료 + 교품 8:1 환산) ÷ ${monthKPI>0?`월 KPI ${fmt(monthKPI)}건`:'전체 출고'} 기준</span></div>
+    <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">엔지니어별 KPI 기여도 <span style="font-size:11px;color:var(--text3);font-weight:400;">· (출고 완료 + 교품 8:1 환산) ÷ ${monthKPI>0?`월 KPI ${fmt(monthKPI)}건`:'전체 출고'} 기준 · 교품 환산은 7/21~9/30 기간만 (10월부터 중단)</span></div>
     <div class="table-wrap"><table>
       <thead><tr>
         <th style="width:44px;text-align:center">순위</th>
