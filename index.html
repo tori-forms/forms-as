@@ -1094,6 +1094,7 @@ window.addEventListener('DOMContentLoaded', function(){
 <nav class="nav">
   <button class="nav-btn" id="nav-mydash" onclick="switchTab('mydash',this)" style="display:none;">✨ 내 대시보드</button>
   <button class="nav-btn active" onclick="switchTab('input',this)">🔧 수리 등록</button>
+  <button class="nav-btn" id="nav-doa" onclick="switchTab('doa',this)">🚫 부품 DOA</button>
   <button class="nav-btn" onclick="switchTab('exchange',this)">💸 교품 처리</button>
   <button class="nav-btn" id="nav-inspect" onclick="switchTab('inspect',this)">🧪 검수대기</button>
   <button class="nav-btn" id="nav-aging" onclick="switchTab('aging',this)">🕐 에이징</button>
@@ -1409,6 +1410,15 @@ window.addEventListener('DOMContentLoaded', function(){
     <!-- (v2.79e) 구 단가 설정 카드 제거 — 중복 id(price-*)로 관리자 탭 단가 저장이 숨은 입력값을 읽던 문제 해소 -->
     </div>
 
+  <!-- 부품 DOA (⭐ v2.91: 재고 관리 서브탭에서 메인 탭으로 분리 — 엔지니어가 바로 접근) -->
+  <div id="tab-doa" class="section">
+    <div class="section-header">
+      <span class="section-title">🚫 부품 DOA</span>
+      <span id="doa-fresh-note" style="margin-left:10px;font-size:11.5px;color:var(--text3);"></span>
+    </div>
+    <div id="doa-content"></div>
+  </div>
+
   <!-- 재고 관리 -->
   <div id="tab-stock" class="section">
     <div class="section-header">
@@ -1424,8 +1434,9 @@ window.addEventListener('DOMContentLoaded', function(){
         📦 재고 현황
       </button>
       <!-- (v2.79q) 불량 PPM 서브탭 제거 — 대신 발주 알림(소모 추이 기반)으로 교체 -->
-      <button id="stocktab-doa" onclick="switchStockTab('doa')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
-        🚫 부품 DOA
+      <!-- (v2.91) 부품 DOA 서브탭 → 메인 탭으로 분리 -->
+      <button id="stocktab-receive" onclick="switchStockTab('receive')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
+        📥 입고 기록
       </button>
       <button id="stocktab-order" onclick="switchStockTab('order')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
         🚨 발주 알림<span id="order-tab-badge"></span>
@@ -1443,8 +1454,8 @@ window.addEventListener('DOMContentLoaded', function(){
     <div id="stock-usage-panel" style="display:none;">
       <div id="usage-content"></div>
     </div>
-    <div id="stock-doa-panel" style="display:none;">
-      <div id="doa-content"></div>
+    <div id="stock-receive-panel" style="display:none;">
+      <div id="receive-content"></div>
     </div>
     <div id="stock-order-panel" style="display:none;">
       <div id="order-content"></div>
@@ -2929,14 +2940,16 @@ async function ensureFreshStock(throttleMs = 90000) {
     await syncData(true, true);
     window._stockFreshCheckedAt = Date.now();
     try {
+      // ⭐ v2.91: 부품 DOA는 메인 탭 — 열려 있으면 서버 확인 후 갱신
+      if(document.getElementById('tab-doa')?.classList.contains('active')) renderDoa();
       const active = document.querySelector('#stocktab-order[style*="var(--accent)"]') ? 'order'
-        : document.querySelector('#stocktab-doa[style*="var(--accent)"]') ? 'doa'
         : document.querySelector('#stocktab-audit[style*="var(--accent)"]') ? 'audit'
+        : document.querySelector('#stocktab-receive[style*="var(--accent)"]') ? 'receive'
         : document.querySelector('#stocktab-history[style*="var(--accent)"]') ? 'history' : 'inventory';
       if(active === 'inventory') renderStock();
       else if(active === 'order') renderOrderList();
-      else if(active === 'doa') renderDoa();
       else if(active === 'audit') renderStockAudit();
+      else if(active === 'receive') renderReceive();
       else if(active === 'history') renderStockHistory();
     } catch(e) {}
     return true;
@@ -3324,6 +3337,8 @@ function renderAll() {
     else if(activeStockTab === 'usage') { try { renderPartsUsage(); } catch {} }
     else if(activeStockTab === 'history') { try { renderStockHistory(); } catch {} }  // ⭐ 데이터 도착/동기화 시 이력도 갱신
   }
+  // ⭐ v2.91: 부품 DOA 메인 탭 — 데이터 도착/동기화 시 갱신
+  if(tab?.includes('부품 DOA')) { try { renderDoa(); } catch {} }
   // 출고 관리/현황 탭
   // ⭐ v2.22: 체크박스 선택 중이면 재렌더 스킵 (선택 초기화 방지)
   const shippingHasChecks = document.querySelectorAll('.ship-row-check:checked').length > 0;
@@ -12379,6 +12394,7 @@ function switchTab(name, btn) {
   if(name==='kpi') renderKPI();
   if(name==='report') renderReport();
   if(name==='stock') { switchStockTab('inventory'); try { ensureFreshStock(); } catch(e) {} }   // ⭐ v2.79x: 탭 열 때 서버 재고 직행 확인
+  if(name==='doa') { renderDoa(); try { ensureFreshStock(); } catch(e) {} }   // ⭐ v2.91: 부품 DOA 메인 탭
   if(name==='docs') renderDocs();
   if(name==='shipping') { initShipping(); }
   if(name==='shipview') { setSvFilter('all', true); }
@@ -18414,17 +18430,17 @@ function switchStockTab(tab) {
   const orderPanel = document.getElementById('stock-order-panel');
   const auditPanel = document.getElementById('stock-audit-panel');
   const historyPanel = document.getElementById('stock-history-panel');
-  const doaPanel = document.getElementById('stock-doa-panel');   // ⭐ v2.79m
+  const receivePanel = document.getElementById('stock-receive-panel');   // ⭐ v2.91: 입고 기록
   const historyBtn = document.getElementById('stocktab-history');
   const invBtn = document.getElementById('stocktab-inventory');
   const usageBtn = document.getElementById('stocktab-usage');
   const orderBtn = document.getElementById('stocktab-order');
   const auditBtn = document.getElementById('stocktab-audit');
-  const doaBtn = document.getElementById('stocktab-doa');   // ⭐ v2.79m
+  const receiveBtn = document.getElementById('stocktab-receive');   // ⭐ v2.91
 
-  // 모든 패널 숨기고 모든 버튼 비활성화 (v2.79q: 불량 PPM 서브탭 제거)
-  [inventoryPanel, usagePanel, orderPanel, auditPanel, historyPanel, doaPanel].forEach(p => { if(p) p.style.display = 'none'; });
-  [invBtn, usageBtn, orderBtn, auditBtn, historyBtn, doaBtn].forEach(b => {
+  // 모든 패널 숨기고 모든 버튼 비활성화 (v2.91: DOA 서브탭 → 메인 탭 분리, 입고 기록 추가)
+  [inventoryPanel, usagePanel, orderPanel, auditPanel, historyPanel, receivePanel].forEach(p => { if(p) p.style.display = 'none'; });
+  [invBtn, usageBtn, orderBtn, auditBtn, historyBtn, receiveBtn].forEach(b => {
     if(b) { b.style.borderBottomColor = 'transparent'; b.style.color = 'var(--text2)'; }
   });
 
@@ -18448,10 +18464,10 @@ function switchStockTab(tab) {
     auditPanel.style.display = 'block';
     if(auditBtn) { auditBtn.style.borderBottomColor = 'var(--accent)'; auditBtn.style.color = 'var(--accent)'; }
     renderStockAudit();
-  } else if(tab === 'doa') {
-    if(doaPanel) doaPanel.style.display = 'block';
-    if(doaBtn) { doaBtn.style.borderBottomColor = 'var(--accent)'; doaBtn.style.color = 'var(--accent)'; }
-    renderDoa();
+  } else if(tab === 'receive') {   // ⭐ v2.91: 입고 기록
+    if(receivePanel) receivePanel.style.display = 'block';
+    if(receiveBtn) { receiveBtn.style.borderBottomColor = 'var(--accent)'; receiveBtn.style.color = 'var(--accent)'; }
+    renderReceive();
   }
 }
 
@@ -18470,7 +18486,8 @@ function _partLots(part) {
   const pid = String(part.id); const pname = String(part.name);
   const mine = (stockLog || []).filter(l => String(l.partId) === pid || String(l.partName) === pname);
   const lots = mine.filter(l => l.type === 'in' && !/복구|취소|환입/.test(String(l.note || '')))
-    .map(l => ({ date: String(l.date).slice(0,10), qty: Number(l.qty) || 0 }))
+    // ⭐ v2.91: 입고 기록에 "(YYYY-MM-DD 입고분)" 태그가 있으면 그 날짜를 로트로 (지난 날짜 입고를 뒤늦게 기록해도 정확)
+    .map(l => { const m = String(l.note || '').match(/\((\d{4}-\d{2}-\d{2}) 입고분\)/); return { date: m ? m[1] : String(l.date).slice(0,10), qty: Number(l.qty) || 0 }; })
     .sort((a,b) => a.date.localeCompare(b.date));
   // 같은 날짜 입고는 하나의 로트로 합침
   const merged = [];
@@ -19253,6 +19270,93 @@ function copyOrderList() {
 }
 
 // ⭐ 재고 실사 — 실물 센 수량 입력 → 장부와 차이 표시 → 조정(입출고 기록)
+/* ⭐ v2.91: 실사 모드 전환 (간단 ↔ 상세) */
+function setAuditMode(m) { window._auditMode = (m === 'detail') ? 'detail' : 'simple'; renderStockAudit(); }
+
+/* ⭐ v2.91: 입고 기록 — 부품 입고(몇천 개 단위)를 날짜·부품별로 기록.
+   기록하면 'in' 로그에 "(YYYY-MM-DD 입고분)" 태그가 붙어 재고가 올라가고,
+   DOA 등록의 입고분 드롭다운·발주 알림 환입 계산이 이 기록을 그대로 쓴다. */
+function renderReceive() {
+  const el = document.getElementById('receive-content');
+  if(!el) return;
+  if(!isAdmin) { el.innerHTML = `<div class="empty"><div class="empty-icon">🔒</div>입고 기록은 관리자만 가능합니다.</div>`; return; }
+  if(!(stock || []).length) { el.innerHTML = `<div class="empty"><div class="empty-icon">📦</div>등록된 부품이 없습니다.</div>`; return; }
+  const today = todayStr();
+  let h = `<div class="card" style="margin-bottom:14px;">
+    <div class="card-title" style="margin-bottom:6px;">📥 부품 입고 기록</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.7;">
+      입고된 부품의 수량을 입력하고 반영하면 재고가 올라가고 <b>그 날짜의 입고분(로트)</b>으로 기록돼요 —
+      부품 DOA 등록의 "입고분" 선택지와 재고 이력에 그대로 쓰입니다. 비워둔 부품은 건너뜁니다.</div>
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;">
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">입고일</label>
+        <input type="date" id="rcv-date" value="${today}" onclick="try{this.showPicker()}catch(e){}" style="height:36px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);">
+      </div>
+      <div class="form-group" style="margin:0;flex:1;min-width:200px;">
+        <label class="form-label">메모 <span style="color:var(--text3);font-weight:400;">(선택 — 발주처·송장 등)</span></label>
+        <input type="text" id="rcv-memo" placeholder="예: 10월 정기 발주분" style="width:100%;height:36px;">
+      </div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>부품명</th><th style="text-align:right">현재 재고</th><th style="text-align:center">입고 수량</th></tr></thead>
+      <tbody>${(stock || []).map((p, i) => `<tr>
+        <td style="font-weight:600;">${escapeHtml(p.name)}${p.model && p.model !== '공용' ? ` <span style="font-size:10.5px;color:var(--text3);">(${escapeHtml(p.model)})</span>` : ''}</td>
+        <td style="text-align:right;color:var(--text2);">${fmt(p.qty)}</td>
+        <td style="text-align:center;"><input type="number" id="rcv-qty-${i}" placeholder="0" min="1" style="width:100px;height:34px;text-align:center;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:6px;"></td>
+      </tr>`).join('')}</tbody></table></div>
+    <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button class="btn btn-primary" id="rcv-apply-btn" onclick="applyReceive()">📥 입고 반영</button>
+      <span style="font-size:11px;color:var(--text3);">반영하면 되돌릴 수 없어요 — 수량을 한 번 더 확인하세요 (잘못 넣었으면 재고 현황에서 수동 조정)</span>
+    </div></div>`;
+  // 최근 입고 기록 (환입·복구 제외한 'in' 로그를 입고분 날짜로 묶어 표시)
+  const groups = {};
+  (stockLog || []).forEach(l => {
+    if(l.type !== 'in' || /복구|취소|환입/.test(String(l.note || ''))) return;
+    const m = String(l.note || '').match(/\((\d{4}-\d{2}-\d{2}) 입고분\)/);
+    const d = m ? m[1] : String(l.date).slice(0, 10);
+    (groups[d] = groups[d] || []).push(l);
+  });
+  const days = Object.keys(groups).sort().reverse().slice(0, 15);
+  h += `<div class="card" style="padding:0;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">📜 최근 입고 기록 <span style="font-size:11px;color:var(--text3);font-weight:400;">입고분(날짜)별 · 최근 15개</span></div>
+    ${days.length ? days.map(d => {
+      const ls = groups[d];
+      const byPart = {};
+      ls.forEach(l => { byPart[l.partName || '?'] = (byPart[l.partName || '?'] || 0) + (Number(l.qty) || 0); });
+      const who = Array.from(new Set(ls.map(l => l.worker).filter(Boolean))).join('·');
+      return `<div style="padding:10px 16px;border-bottom:1px solid var(--border);">
+        <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;">
+          <span style="font-size:13px;font-weight:800;">${d} 입고분</span>
+          <span style="font-size:11px;color:var(--text3);">총 ${fmt(ls.reduce((s, l) => s + (Number(l.qty) || 0), 0))}개${who ? ` · ${escapeHtml(who)}` : ''}</span>
+        </div>
+        <div style="font-size:12px;color:var(--text2);margin-top:3px;">${Object.entries(byPart).map(([n, q]) => `${escapeHtml(n)} <b>+${fmt(q)}</b>`).join(' · ')}</div>
+      </div>`;
+    }).join('') : '<div class="empty" style="padding:24px;">아직 입고 기록이 없습니다.</div>'}
+  </div>`;
+  el.innerHTML = h;
+}
+async function applyReceive() {
+  if(!isAdmin) { notify('입고 기록은 관리자만 가능합니다.', 'error'); return; }
+  const date = String(document.getElementById('rcv-date')?.value || '').slice(0, 10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) { notify('입고일을 선택해주세요.', 'error'); return; }
+  const memo = String(document.getElementById('rcv-memo')?.value || '').trim();
+  const ops = [];
+  (stock || []).forEach((p, i) => {
+    const v = Number(document.getElementById('rcv-qty-' + i)?.value);
+    if(!isNaN(v) && v > 0) ops.push({ idx: i, delta: v, type: 'in', note: `입고 (${date} 입고분)${memo ? ' · ' + memo : ''}`, _label: `${p.name} +${v}` });
+  });
+  if(!ops.length) { notify('입고 수량을 입력한 부품이 없습니다.', 'error'); return; }
+  if(!confirm(`${date} 입고분으로 반영할까요?\n\n${ops.map(o => '· ' + o._label).join('\n')}`)) return;
+  const btn = document.getElementById('rcv-apply-btn');
+  if(btn) { btn.disabled = true; btn.textContent = '반영 중...'; }
+  try {
+    await adjustStockBatchOps(ops.map(({ _label, ...o }) => o));
+    notify(`📥 ${date} 입고분 ${ops.length}개 부품 반영 완료`);
+  } catch(e) { notify('⚠ 입고 반영 중 오류 — 재고 이력을 확인하세요.', 'error'); }
+  if(btn) { btn.disabled = false; btn.textContent = '📥 입고 반영'; }
+  renderReceive();
+  try { renderStock(); } catch(e) {}
+}
+
 /* ⭐ v2.79e: 재고 대사(실사) — 구 '실물 입력만 받는 실사 표'를 대체.
    부품별로 [직전 실사(재고 수정) 이후] 구간을 자동으로 잡아
    수리건수 → 기대 사용량 → 실제 차감 → 과차감 의심 → 기대 실물을 계산하고,
@@ -19313,9 +19417,37 @@ function renderStockAudit() {
     el.innerHTML = `<div class="empty"><div class="empty-icon">📦</div>등록된 부품이 없습니다.</div>`;
     return;
   }
+  // ⭐ v2.91: 기본은 '월말 실사(간단)' — 부품별 실물 수량만 세서 입력하면 차이 확인 후 바로 반영.
+  //   분석용 상세 대사(기간 대조·추가 사용·DOA 대조)는 토글로 전환.
+  const _auditMode = window._auditMode || 'simple';
+  const _modeBtns = `<div style="display:flex;gap:6px;margin-bottom:12px;align-items:center;flex-wrap:wrap;">
+    <button class="btn btn-sm" onclick="setAuditMode('simple')" style="${_auditMode === 'simple' ? 'color:var(--accent);border-color:var(--accent);font-weight:700;' : ''}">📋 월말 실사 (간단)</button>
+    <button class="btn btn-sm" onclick="setAuditMode('detail')" style="${_auditMode === 'detail' ? 'color:var(--accent);border-color:var(--accent);font-weight:700;' : ''}">🔎 상세 대사 (분석)</button>
+    <span style="font-size:11px;color:var(--text3);">실사는 간단 모드로 충분 — 차이가 이상하게 크면 상세 대사로 원인 추적</span>
+  </div>`;
+  if(_auditMode === 'simple') {
+    window._reconCache = {};   // 간단 모드: 차이는 '현재 장부' 기준
+    let sh = _modeBtns + `<div style="font-size:12.5px;color:var(--text2);margin-bottom:12px;line-height:1.7;">
+      선반의 <b>사용 가능분</b>을 부품별로 세서 실물 수량에 입력하세요 (불량 박스·작업대 재공품 제외).
+      비워둔 부품은 변동 없음 · <b>✅ 실사 반영</b>을 누르면 입력한 수량이 새 장부가 되고, 그 시점이 다음 실사의 기준이 돼요.</div>
+    <div class="card" style="padding:0;"><div class="table-wrap"><table>
+      <thead><tr><th>부품명</th><th style="text-align:right">현재 장부</th><th style="text-align:center">실물 수량</th><th style="text-align:right">차이</th></tr></thead>
+      <tbody>${(stock || []).map(p => `<tr>
+        <td style="font-weight:600;">${escapeHtml(p.name)}${p.model && p.model !== '공용' ? ` <span style="font-size:10.5px;color:var(--text3);">(${escapeHtml(p.model)})</span>` : ''}</td>
+        <td style="text-align:right;" id="recon-book-${p.id}">${fmt(p.qty)}</td>
+        <td style="text-align:center;"><input type="number" id="audit-real-${p.id}" placeholder="${p.qty}" style="width:90px;height:34px;text-align:center;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:6px;" oninput="updateAuditDiff('${p.id}')"></td>
+        <td style="text-align:right;font-weight:700;" id="audit-diff-${p.id}">-</td>
+      </tr>`).join('')}</tbody></table></div></div>
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="applyStockAudit()">✅ 실사 반영</button>
+      <span style="font-size:11px;color:var(--text3);align-self:center;">비워둔 항목은 변동 없음 · 차이가 큰 부품은 반영 전에 🔎 상세 대사로 원인을 확인하세요</span>
+    </div>`;
+    el.innerHTML = sh;
+    return;
+  }
   const fmtD = v => { const d = new Date(v); return isNaN(d) ? '' : `${d.getMonth()+1}/${d.getDate()}`; };
   window._reconCache = {};
-  let h = `<div style="font-size:13px;color:var(--text2);margin-bottom:6px;">
+  let h = _modeBtns + `<div style="font-size:13px;color:var(--text2);margin-bottom:6px;">
     부품별로 <b>직전 실사 이후</b>의 수리 사용량과 장부 차감을 대조해요. <b>추가 사용</b> = 같은 수리건에 기준 수량(보통 1개)보다 많이 기록된 초과분 — 정상이라면 DOA(개봉 불량) 교체 등 실제 추가 소모예요.</div>
   <div style="font-size:11.5px;color:var(--text3);margin-bottom:14px;">
     ① <b>불량(DOA) 실물</b>에 불량 박스 수량을 입력하면 추가 사용 기록과 대조돼요 — 기록보다 불량이 많으면 미기록 소모, 적으면 이중 기록 의심.
