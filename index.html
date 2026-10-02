@@ -18390,8 +18390,36 @@ function renderStockHistory() {
       : '<span style="background:rgba(239,68,68,.12);color:#ef4444;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">차감</span>';
     return '<span style="background:rgba(245,158,11,.14);color:#d97706;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:700;">조정/변경</span>';
   };
+  // ⭐ v2.91a: 실사 기록 — 실사 반영 '전' 장부와 실사 수량을 날짜별로 보존해 표시 (요청:
+  //   재고 이력을 볼 이유가 없다 → 실사 때마다 전/후·차이가 역사로 남는 화면으로)
+  const _axy = n => { const m = String(n || '').match(/재고\s*([\d,]+)\s*→\s*([\d,]+)/); return m ? { from: +m[1].replace(/,/g, ''), to: +m[2].replace(/,/g, '') } : null;  };
+  const _audits = {};
+  rows.forEach(l => {
+    if(!/실사/.test(String(l.note || ''))) return;
+    const xy = _axy(l.note); if(!xy) return;
+    const d = String(l.date).slice(0, 10);
+    (_audits[d] = _audits[d] || []).push({ part: l.partName || '-', from: xy.from, to: xy.to, worker: l.worker || '' });
+  });
+  const _auditDays = Object.keys(_audits).sort().reverse().slice(0, 12);
+  const auditHtml = _auditDays.length ? `<div class="card" style="padding:0;margin-top:12px;margin-bottom:12px;">
+    <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🧮 실사 기록 <span style="font-size:11px;color:var(--text3);font-weight:400;">실사 반영 전 장부 → 실사 수량 · 차이는 그날 전산과 실물의 어긋남 · 최근 12회</span></div>
+    ${_auditDays.map(d => {
+      const ls = _audits[d];
+      const who = Array.from(new Set(ls.map(x => x.worker).filter(Boolean))).join('·');
+      const diffSum = ls.reduce((s, x) => s + (x.to - x.from), 0);
+      return `<div style="padding:10px 16px;border-bottom:1px solid var(--border);">
+        <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px;">
+          <span style="font-size:13px;font-weight:800;">${d} 실사</span>
+          <span style="font-size:11px;color:var(--text3);">부품 ${ls.length}개 조정${who ? ` · ${escapeHtml(who)}` : ''} · 합계 차이 <b style="color:${diffSum === 0 ? 'var(--green)' : (diffSum > 0 ? 'var(--accent)' : '#ef4444')};">${diffSum > 0 ? '+' : ''}${fmt(diffSum)}</b></span>
+        </div>
+        <div style="display:flex;gap:6px 14px;flex-wrap:wrap;">
+          ${ls.map(x => { const df = x.to - x.from; return `<span style="font-size:12px;white-space:nowrap;">${escapeHtml(x.part)} <span style="color:var(--text3);">${fmt(x.from)} →</span> <b>${fmt(x.to)}</b> <b style="color:${df === 0 ? 'var(--text3)' : (df > 0 ? 'var(--accent)' : '#ef4444')};">(${df > 0 ? '+' : ''}${fmt(df)})</b></span>`; }).join('')}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>` : '';
   const LIM = 300;
-  el.innerHTML = rows.length ? `
+  el.innerHTML = (rows.length ? auditHtml : '') + (rows.length ? `
     <details style="margin-top:6px;">
       <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--text2);padding:10px 4px;">📜 상세 이력 펼쳐 보기 <span style="font-weight:500;color:var(--text3);">(참고용 · 최근 ${Math.min(LIM, rows.length)}건)</span></summary>
       <div style="overflow-x:auto;margin-top:8px;">
@@ -18412,7 +18440,7 @@ function renderStockHistory() {
         }).join('')}</tbody>
       </table></div>
       <div style="margin-top:8px;font-size:11.5px;color:var(--text3);">서버에서 최근 3,000건까지 보관 · 그 이전 기록은 구글시트 '재고이력' 탭 참고</div>
-    </details>` : '<div style="text-align:center;color:var(--text2);padding:30px 0;">이력이 없습니다.</div>';
+    </details>` : '<div style="text-align:center;color:var(--text2);padding:30px 0;">이력이 없습니다.</div>');
 }
 
 // ⭐ v2.70l: 재고 이력의 시리얼 클릭 → 시리얼 조회 탭에서 그 기기 수리 내역 바로 열기
