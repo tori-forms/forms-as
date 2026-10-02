@@ -990,6 +990,57 @@ th{
 
 /* 12. 매트릭스 — 새 4단계 채도 로직은 JS에서 직접 계산하므로 여기선 override 없음 */
 /* 라이트모드의 광역 color:#fff override가 매트릭스 셀을 역으로 해치지 않게, rgb(255,255,255)는 피해감 */
+
+/* ════════════════════════════════════════════════════════════════════
+   ⭐ v2.92 모바일 대응 — 스타일시트 '마지막' 레이어.
+   PILLOW 스킨이 !important로 데스크톱 값(.main 28px 패딩, 헤더 64px, 탭 36px 등)을
+   고정해 기존 640px 모바일 블록(위쪽, 387행)이 전부 밀리던 문제 → 같은 !important를
+   미디어쿼리로 뒤에서 다시 덮는다. 데스크톱(>640px)은 어떤 규칙도 건드리지 않음.
+   ════════════════════════════════════════════════════════════════════ */
+@media(max-width:640px){
+  /* 헤더: 한 줄 고정 — 날짜·동기화 문구 숨기고 로고/유저만 */
+  .header{height:52px!important;padding:0 10px!important;gap:6px;}
+  .header-title{font-size:13px!important;gap:6px!important;}
+  .header-title img{height:20px!important;}
+  .header-date{display:none!important;}
+  .sync-wrap{padding:4px 8px!important;}
+  .sync-wrap .sync-txt{display:none!important;}
+  .header-right{gap:6px!important;}
+  .header .header-right button[onclick="syncData()"]{padding:6px 9px!important;font-size:11px!important;height:32px!important;}
+  .current-user-badge{padding:4px 9px!important;font-size:10.5px!important;}
+  .theme-toggle{width:32px!important;height:32px!important;font-size:13px!important;}
+  /* 탭: 가로 스크롤 (이미 overflow-x:auto) + 터치 크기 */
+  .nav{padding:8px 8px 6px!important;top:52px!important;-webkit-overflow-scrolling:touch;}
+  .nav-btn{height:34px!important;padding:0 11px!important;font-size:12px!important;}
+  /* 본문 */
+  .main{max-width:100%!important;padding:10px 10px 56px!important;}
+  .section-title{font-size:17px!important;}
+  .section-header{flex-wrap:wrap;gap:8px;}
+  .card{padding:14px!important;}
+  /* 폼: 세로 쌓기 + iOS 자동 확대 방지(16px 미만 입력란에서 사파리가 화면을 줌인함) */
+  .form-row{flex-direction:column!important;align-items:stretch!important;gap:10px!important;}
+  .form-row .form-group{width:100%!important;min-width:0!important;}
+  .form-row input,.form-row select{width:100%!important;}
+  select,input[type=text],input[type=number],input[type=date],input[type=month],input[type=password],textarea{font-size:16px!important;}
+  /* 표: 가로 스크롤 유지 + 밀도 */
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  th,td{padding:7px 7px!important;font-size:12px!important;}
+  /* 통계 카드 */
+  .stat-grid{grid-template-columns:1fr 1fr!important;gap:8px!important;}
+  #summary-stats{grid-template-columns:1fr 1fr!important;}
+  .stat-card{padding:12px!important;}
+  .work-grid{grid-template-columns:1fr 1fr!important;}
+  /* 모달: 화면 안에 들어오고 내부 스크롤 */
+  .modal{width:auto!important;max-width:94vw!important;max-height:86vh;overflow-y:auto;padding:18px!important;}
+  /* 버튼 터치 타깃 */
+  .btn{height:38px;}
+  .btn-sm{height:32px;}
+}
+/* 아주 좁은 화면(폴드 외부 등): 2열 그리드도 1열로 */
+@media(max-width:380px){
+  .stat-grid,#summary-stats{grid-template-columns:1fr!important;}
+  .work-grid{grid-template-columns:1fr!important;}
+}
 </style>
 <script>
 // ─────────────────────────────────────────────────────────────
