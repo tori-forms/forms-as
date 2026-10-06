@@ -14187,10 +14187,30 @@ function _qualityWeakCard(days = 90) {
 }
 
 /* ⭐ v2.83: 이 달의 엔지니어를 내 대시보드(전 직급)에서 공개 — 연봉 등 민감정보 없이 실적·품질만 쓰므로 안전 */
+/* ⭐ v2.93: 관리자(T5·T4)는 ◀ 전월 버튼으로 지난 달 수상자도 조회 가능 (포상 소급 확인용).
+   일반 엔지니어는 종전처럼 이번 달만. */
+function _awardsNav(d) {
+  try {
+    const now = new Date();
+    const curMv = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    if(d === 0) { window._awardsMv = null; }
+    else {
+      const base = (window._awardsMv && /^\d{4}-\d{2}$/.test(window._awardsMv)) ? window._awardsMv : curMv;
+      const [y, m] = base.split('-').map(Number);
+      const nd = new Date(y, m - 1 + d, 1);
+      let mv = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}`;
+      if(mv >= curMv) mv = null;                          // 이번 달 이후로는 못 감 → 기본(이번 달)으로
+      window._awardsMv = mv;
+    }
+  } catch(e) {}
+  try { renderMyDash(); } catch(e) {}
+}
 function _awardsCardForMyDash() {
   try {
     const now = new Date();
-    const mv = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const curMv = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    let mv = curMv;
+    if(isAdmin && window._awardsMv && /^\d{4}-\d{2}$/.test(window._awardsMv) && window._awardsMv < curMv) mv = window._awardsMv;
     const team = (workers || []).filter(n => n !== MASTER_NAME && isActiveWorker(n));
     const _ov = n => (tierMap[n] === LEAD_TIER() || (roleMap[n] || 'engineer') === 'inspector') ? 'indirect' : 'direct';
     const cntBy = {};
@@ -14199,7 +14219,16 @@ function _awardsCardForMyDash() {
       const w = String(e.worker || '').split('::')[0];
       cntBy[w] = (cntBy[w] || 0) + 1;
     });
-    return _finAwardsHtml(mv, team, _ov, _grAggregates(), cntBy);
+    const inner = _finAwardsHtml(mv, team, _ov, _grAggregates(), cntBy);
+    if(!inner) return '';
+    if(!isAdmin) return inner;
+    const viewingPast = mv !== curMv;
+    const nav = `<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end;margin-bottom:6px;">
+      ${viewingPast ? `<span style="font-size:11.5px;font-weight:700;color:#d97706;background:#fff7ed;padding:3px 10px;border-radius:99px;margin-right:auto;">📅 ${mv} 지난 달 보기</span>` : `<span style="font-size:11px;color:var(--text3);margin-right:auto;">관리자: 지난 달 수상자도 조회 가능</span>`}
+      <button class="btn btn-sm" onclick="_awardsNav(-1)">◀ 전월</button>
+      ${viewingPast ? `<button class="btn btn-sm" onclick="_awardsNav(1)">다음 달 ▶</button><button class="btn btn-sm btn-primary" onclick="_awardsNav(0)">이번 달로</button>` : ''}
+    </div>`;
+    return nav + inner;
   } catch(e) { return ''; }
 }
 async function renderMyDash() {
