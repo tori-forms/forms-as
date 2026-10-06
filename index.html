@@ -15654,6 +15654,10 @@ async function fetchNotices(dates) {
     if(r && r.byDate) Object.entries(r.byDate).forEach(([d, list]) => {
       const n = (list || []).find(x => String(x.name) === NOTICE_NAME);
       if(n && n.reason) window._noticeByDate[d] = String(n.reason);
+      // ⭐ v2.96b: 개인별 미달 사유 메모도 캐시 — 미달 정리 카드에서 '사유 기록됨' 표시용
+      const mb = (window._missReasonBy = window._missReasonBy || {});
+      mb[d] = mb[d] || {};
+      (list || []).forEach(x => { if(String(x.name) !== NOTICE_NAME && x.reason) mb[d][String(x.name)] = String(x.reason); });
     });
   } catch(e) { console.warn('[공지 조회]', e); }
 }
@@ -18382,21 +18386,30 @@ async function toggleVacationDay(name, dayStr, type) {
   const past = day < todayStr();
   if(on && !confirm(`${name} — ${day} ${label}로 기록할까요?${past ? '\n(지난 날짜 소급 등록 — 그 날 미달로 잡혔던 것도 정리됩니다)' : ''}\n${half ? '이 날 수리 목표가 절반으로 줄어 미달로 잡히지 않습니다.' : quarter ? '이 날 수리 목표가 3/4로 줄어듭니다.' : '이 날은 수리 목표가 면제되어 미달로 잡히지 않습니다.'}\n(이달의 엔지니어 점수에는 보정 없음)`)) return;
   if(!on && !confirm(`${name} — ${day} ${existing.endsWith('H') ? '반차' : existing.endsWith('Q') ? '반반차' : '휴가'} 기록을 해제할까요?\n(해제하면 이 날 수리 목표가 다시 적용됩니다)`)) return;
+  // ⭐ v2.96b: 연타 방지 + 낙관 반영 (DOA와 같은 원칙) — 서버가 느려도 화면은 즉시 바뀌어
+  //   "먹통인 줄 알고 여러 번 등록"하는 사고를 차단. 처리 중 재클릭은 잠금으로 거절.
+  if(window._vacBusy) { notify('이전 휴가 처리가 서버에 저장되는 중입니다 — 잠시 후 다시 시도해주세요. (이미 화면에 반영됐다면 다시 누르지 마세요)', 'error'); return; }
+  window._vacBusy = true;
   const old = cur.slice();
   if(on) cur.push(entry); else cur.splice(cur.indexOf(existing), 1);
   if(cur.length) vacationDaysMap[name] = cur.sort(); else delete vacationDaysMap[name];
-  try {
-    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
-    notify(on ? `🏖 ${name} — ${day} ${label} 기록${half ? ' (목표 절반)' : quarter ? ' (목표 3/4)' : ' (수리 목표 면제)'} — 미달로 잡히지 않습니다` : `${name} — ${day} 휴가 해제`);
-    window._grAggMemo = null;   // 성장분석 분모 변경 → 메모 무효화
+  window._grAggMemo = null;   // 성장분석 분모 변경 → 메모 무효화
+  notify(on ? `🏖 ${name} — ${day} ${label} 기록됨${half ? ' (목표 절반)' : quarter ? ' (목표 3/4)' : ' (수리 목표 면제)'} · 서버 저장 중...` : `${name} — ${day} 휴가 해제됨 · 서버 저장 중...`);
+  const _rerender = () => {
     try { renderWorkers(); } catch(e) {}
     try { renderSummary(); } catch(e) {}
     try { if(document.getElementById('mydash-body') && document.getElementById('tab-mydash')?.classList.contains('active')) renderMyDash(); } catch(e) {}
+  };
+  _rerender();   // 화면 즉시 반영
+  try {
+    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
+    notify(on ? `✅ ${day} ${label} 서버 저장 완료 — 미달로 잡히지 않습니다` : `✅ ${day} 휴가 해제 저장 완료`);
   } catch {
     if(old.length) vacationDaysMap[name] = old; else delete vacationDaysMap[name];
-    notify('휴가 기록 저장 실패.', 'error');
-    try { renderWorkers(); } catch(e) {}
-  }
+    window._grAggMemo = null;
+    notify(`⚠ ${day} ${label} 서버 저장 실패 — 방금 등록이 취소됐어요. 네트워크 확인 후 한 번만 다시 시도해주세요.`, 'error');
+    _rerender();
+  } finally { window._vacBusy = false; }
 }
 /* ⭐ v2.95a: 내 대시보드 셀프 휴가 등록 (T5 제외 전원) — 관리자가 일일이 등록하지 않아도 되게 */
 function _myVacCardHtml() {
@@ -18486,19 +18499,48 @@ function _myMissFixCardHtml() {
     const btn = (label, bg, fg, onclick, title) => `<button class="btn btn-sm" onclick="${onclick}" title="${title}" style="height:26px;padding:0 9px;font-size:11px;font-weight:700;background:${bg};color:${fg};border:none;">${label}</button>`;
     return `<div id="missfix-wrap"><div class="card" style="margin-bottom:20px;border:1px solid #f59e0b55;">
       <div class="card-title" style="margin-bottom:6px;">⚠️ 목표 부족했던 날 정리 <span style="font-size:10px;color:var(--text3);font-weight:400;text-transform:none;">· 최근 30일 · ${rows.length}일</span></div>
-      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;line-height:1.6;">아래 날짜는 수리 건수가 일일 목표에 못 미친 날이에요. <b>쉬었거나 대행 업무였던 날이면 사유를 눌러 직접 정리하세요</b> — 등록하면 그 날은 미달에서 빠집니다. 실제로 일한 날인데 부족했던 거라면 그대로 두면 돼요.</div>
-      ${rows.map(r => `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 0;border-top:1px solid var(--border);">
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;line-height:1.6;">아래 날짜는 수리 건수가 일일 목표에 못 미친 날이에요. <b>쉬었거나 대행 업무였던 날이면 사유를 눌러 직접 정리하세요</b> — 등록하면 그 날은 미달에서 빠집니다. 일한 날인데 부족했던 거라면 <b>📝 메모</b>로 사유를 남겨주세요 (예: 특이건 분해 오래 걸림, 부품 결품 대기).</div>
+      ${rows.map(r => {
+        const memo = ((window._missReasonBy || {})[r.ds] || {})[currentUser] || '';
+        return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 0;border-top:1px solid var(--border);${memo ? 'opacity:.75;' : ''}">
         <span style="font-size:12.5px;font-weight:800;min-width:86px;">${r.ds.slice(5).replace('-', '/')} (${DOW[r.dow]})</span>
         <span style="font-size:11.5px;color:#dc2626;font-weight:700;">목표 ${r.target}건 중 ${r.done}건 · 부족 ${r.short}건</span>
+        ${memo ? `<span onclick="_missFixMemo('${escapeJs(currentUser)}','${r.ds}',${r.target},${r.done},${r.short})" title="클릭하면 메모 수정" style="font-size:11.5px;color:#0369a1;background:#e0f2fe;padding:2px 9px;border-radius:99px;font-weight:700;cursor:pointer;max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">✍ ${escapeHtml(memo)}</span>` : ''}
         <span style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap;">
           ${btn('🏖 연차', '#e0f2fe', '#0369a1', `toggleVacationDay('${escapeJs(currentUser)}','${r.ds}','full')`, '이 날을 연차로 등록 — 목표 면제')}
           ${btn('🌗 반차', '#fef9c3', '#a16207', `toggleVacationDay('${escapeJs(currentUser)}','${r.ds}','half')`, '이 날을 반차로 등록 — 목표 절반')}
           ${btn('🌘 반반차', '#fce7f3', '#9d174d', `toggleVacationDay('${escapeJs(currentUser)}','${r.ds}','quarter')`, '이 날을 반반차로 등록 — 목표 3/4')}
           ${(typeof canBeActing === 'function' && canBeActing(currentUser)) ? btn('👑 대행', '#fff7ed', '#d97706', `toggleActingDay('${escapeJs(currentUser)}','${r.ds}')`, '이 날 파트장 대행이었음 — 목표 면제') : ''}
+          ${memo ? '' : btn('📝 메모', 'var(--surface2)', 'var(--text2)', `_missFixMemo('${escapeJs(currentUser)}','${r.ds}',${r.target},${r.done},${r.short})`, '쉰 게 아니라면 부족 사유를 메모로 — 미달 기록에 사유가 함께 남습니다')}
         </span>
-      </div>`).join('')}
+      </div>`; }).join('')}
     </div></div>`;
   } catch(e) { return ''; }
+}
+/* ⭐ v2.96b: 미달 사유 메모 — 휴가가 아닌 부족(특이건·결품 등)은 사유를 기록으로. 기존 미달 사유
+   채널(saveMissReason — 로그인 때 묻던 것과 같은 시트)에 저장돼 관리자 미달 기록에서도 보임.
+   연타 방지: 잠금 + 낙관 반영(캐시 먼저, 서버는 뒤에서). */
+async function _missFixMemo(name, ds, target, done, short) {
+  if(name !== currentUser && !canManageWorker(name)) { notify('본인 또는 관리자만 메모를 남길 수 있습니다.', 'error'); return; }
+  if(window._memoBusy) { notify('이전 메모가 서버에 저장되는 중입니다 — 잠시 후 다시 시도해주세요.', 'error'); return; }
+  const prevMemo = ((window._missReasonBy || {})[ds] || {})[name] || '';
+  const input = prompt(`${ds} 목표 부족 사유 메모\n(예: 특이건 분해 3시간 소요 / 부품 결품 대기 / 검수 지원 등)`, prevMemo);
+  if(input === null) return;
+  const reason = String(input).trim();
+  if(reason.length < 2) { notify('사유를 2자 이상 입력해주세요.', 'error'); return; }
+  window._memoBusy = true;
+  // 낙관 반영 — 화면 먼저
+  ((window._missReasonBy = window._missReasonBy || {})[ds] = window._missReasonBy[ds] || {})[name] = reason;
+  notify(`📝 ${ds} 사유 메모 기록됨 · 서버 저장 중...`);
+  try { const el = document.getElementById('missfix-wrap'); if(el) el.outerHTML = _myMissFixCardHtml(); } catch(e) {}
+  try {
+    await gasCall({ action: 'saveMissReason', date: ds, name, target: target || 0, done: done || 0, short: short || 0, reason, submittedAt: new Date().toISOString() });
+    notify(`✅ ${ds} 사유 메모 서버 저장 완료`);
+  } catch(e) {
+    if(prevMemo) window._missReasonBy[ds][name] = prevMemo; else delete window._missReasonBy[ds][name];
+    notify(`⚠ ${ds} 메모 서버 저장 실패 — 방금 메모가 취소됐어요. 네트워크 확인 후 한 번만 다시 시도해주세요.`, 'error');
+    try { const el = document.getElementById('missfix-wrap'); if(el) el.outerHTML = _myMissFixCardHtml(); } catch(e2) {}
+  } finally { window._memoBusy = false; }
 }
 async function toggleActingDay(name, dayStr) {
   const day = String(dayStr || todayStr()).slice(0,10);
@@ -18512,20 +18554,27 @@ async function toggleActingDay(name, dayStr) {
   const past = day < todayStr();   // ⭐ 소급 등록 (사전에 못 남긴 날)
   if(on && !confirm(`${name} — ${day} 파트장 대행으로 기록할까요?${past ? '\n(지난 날짜 소급 등록 — 그 날 미달로 잡혔던 것도 대행으로 정리됩니다)' : ''}\n이 날은 수리 목표가 면제되고, 대행일이 기록에 남습니다.`)) return;
   if(!on && !confirm(`${name} — ${day} 파트장 대행 기록을 해제할까요?\n(해제하면 이 날 수리 목표가 다시 적용됩니다)`)) return;
+  // ⭐ v2.96b: 연타 방지 + 낙관 반영 (휴가와 동일)
+  if(window._vacBusy) { notify('이전 처리가 서버에 저장되는 중입니다 — 잠시 후 다시 시도해주세요.', 'error'); return; }
+  window._vacBusy = true;
   const old = cur.slice();
   if(on) cur.push(day); else cur.splice(cur.indexOf(day), 1);
   if(cur.length) actingDaysMap[name] = cur.sort(); else delete actingDaysMap[name];
-  try {
-    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
-    notify(on ? `👑 ${name} — ${day} 파트장 대행 기록 (수리 목표 면제)` : `${name} — ${day} 대행 해제`);
+  notify(on ? `👑 ${name} — ${day} 파트장 대행 기록됨 (수리 목표 면제) · 서버 저장 중...` : `${name} — ${day} 대행 해제됨 · 서버 저장 중...`);
+  const _rerenderA = () => {
     try { renderWorkers(); } catch(e) {}
     try { renderSummary(); } catch(e) {}
     try { if(document.getElementById('tab-mydash')?.classList.contains('active')) renderMyDash(); } catch(e) {}   // ⭐ v2.96: 미달 정리 카드 갱신
+  };
+  _rerenderA();
+  try {
+    const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
+    notify(on ? `✅ ${day} 대행 서버 저장 완료` : `✅ ${day} 대행 해제 저장 완료`);
   } catch {
     if(old.length) actingDaysMap[name] = old; else delete actingDaysMap[name];
-    notify('대행 기록 저장 실패.', 'error');
-    try { renderWorkers(); } catch(e) {}
-  }
+    notify(`⚠ ${day} 대행 서버 저장 실패 — 방금 등록이 취소됐어요. 네트워크 확인 후 한 번만 다시 시도해주세요.`, 'error');
+    _rerenderA();
+  } finally { window._vacBusy = false; }
 }
 
 /* CSV */
