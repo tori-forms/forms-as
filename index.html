@@ -18433,17 +18433,24 @@ function _myVacCardHtml() {
 /* ⭐ v2.96: 목표 부족일 셀프 정리 — 시스템이 '수리건이 부족했던 날'을 찾아 보여주고,
    엔지니어가 그 자리에서 사유(연차·반차·반반차·대행)를 찍어 정리한다. 등록하면 미달에서 빠짐.
    주말·공휴일·회사휴무·공지일(참작)은 애초에 목록에 안 뜸. */
+const MISSFIX_START = '2026-10-01';   // ⭐ v2.96a: 미달 정리 운영 시작일 — 이전 날짜는 소급 정리 대상 아님 (마스터 지시)
 function _myMissFixDays() {
   const out = [];
   const name = currentUser;
   const start = new Date(); start.setDate(start.getDate() - 30); start.setHours(0, 0, 0, 0);
   const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(0, 0, 0, 0);   // 어제부터 과거로
+  let pendingHol = false;
   while(d >= start && out.length < 10) {
     const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if(ds < MISSFIX_START) break;   // ⭐ v2.96a: 10월 1일 이전은 스캔 안 함
     const dow = d.getDay();
     if(dow !== 0 && dow !== 6) {
       const key = ds.slice(0, 7);
-      const pubHol = (typeof holidayCache === 'object' && Array.isArray(holidayCache[key]) && holidayCache[key].includes(ds)) || (window.COMPANY_HOLIDAYS || []).includes(ds);
+      // ⭐ v2.96a: 그 달 공휴일(대체공휴일 포함)이 아직 로드 전(undefined)이면 그 날을 '미달'로 단정하지 않음 —
+      //   10/5 대체공휴일이 로드 전에 미달로 떠 보이던 문제. 로드 후 카드가 자동 재렌더된다.
+      const holLoaded = (typeof holidayCache === 'object' && Array.isArray(holidayCache[key]));
+      if(!holLoaded) { pendingHol = true; d.setDate(d.getDate() - 1); continue; }
+      const pubHol = holidayCache[key].includes(ds) || (window.COMPANY_HOLIDAYS || []).includes(ds);
       const noticed = !!((window._noticeByDate || {})[ds]);   // 특이사항 공지일 → 참작, 목록 제외
       if(!pubHol && !noticed) {
         try { const m = calcMissForDay(name, ds); if(m) out.push({ ds, dow, target: m.target, done: m.done, short: m.short }); } catch(e) {}
@@ -18451,12 +18458,21 @@ function _myMissFixDays() {
     }
     d.setDate(d.getDate() - 1);
   }
+  out._pendingHol = pendingHol;
   return out;
 }
 function _myMissFixCardHtml() {
   try {
     if(!currentUser || currentUser === MASTER_NAME) return '';
     const rows = _myMissFixDays();
+    // ⭐ v2.96a: 공휴일(대체공휴일 포함) 미로드 달이 있으면 로드를 걸고, 도착하면 카드만 조용히 재렌더
+    try {
+      if(rows._pendingHol && !window._missFixHolKicked && typeof ensureHolidaysLoaded === 'function') {
+        window._missFixHolKicked = true;
+        const s0 = Date.now() - 31 * 86400000;
+        ensureHolidaysLoaded(s0, Date.now(), null).then(() => { const el = document.getElementById('missfix-wrap'); if(el) el.outerHTML = _myMissFixCardHtml(); }).catch(() => {});
+      }
+    } catch(e) {}
     // 공지(참작)일 정보는 서버에서 비동기 로드 — 도착하면 카드만 조용히 갱신 (공지일이 목록에서 빠짐)
     try {
       const need = rows.map(r => r.ds).filter(ds => !((window._noticeByDate || {})[ds] !== undefined));
