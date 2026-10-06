@@ -3640,7 +3640,7 @@ document.getElementById('modal-ok').onclick = ()=>{ closeModal(); if(mcb) mcb();
 document.getElementById('modal-alt').onclick = ()=>{ closeModal(); if(macb) macb(); };
 
 // 앱 디자인 입력 모달 (prompt 대체). cb(value) 호출, 취소 시 cb 미호출
-function openPromptModal(title, msg, placeholder, cb, okText='확인') {
+function openPromptModal(title, msg, placeholder, cb, okText='확인', initVal='', onCancel) {
   const old = document.getElementById('prompt-modal'); if(old) old.remove();
   const html = `
   <div id="prompt-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px;">
@@ -3648,7 +3648,7 @@ function openPromptModal(title, msg, placeholder, cb, okText='확인') {
       <div style="padding:16px 20px 4px;font-size:16px;font-weight:700;">${escapeHtml(title)}</div>
       <div style="padding:0 20px 14px;font-size:13px;color:var(--text2);line-height:1.6;white-space:pre-line;">${escapeHtml(msg)}</div>
       <div style="padding:0 20px 16px;">
-        <input id="prompt-modal-input" type="text" placeholder="${escapeHtml(placeholder||'')}" style="width:100%;height:40px;padding:0 12px;border:1px solid var(--border2,#d1d5db);border-radius:8px;font-size:14px;background:var(--surface,#fff);color:var(--text,#000);" />
+        <input id="prompt-modal-input" type="text" placeholder="${escapeHtml(placeholder||'')}" value="${escapeHtml(initVal||'')}" style="width:100%;height:40px;padding:0 12px;border:1px solid var(--border2,#d1d5db);border-radius:8px;font-size:14px;background:var(--surface,#fff);color:var(--text,#000);" />
       </div>
       <div style="padding:12px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--surface2,#f3f4f6);">
         <button id="prompt-modal-cancel" style="padding:0 18px;height:38px;border:1px solid var(--border2,#d1d5db);background:var(--surface,#fff);color:var(--text,#000);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
@@ -3659,12 +3659,44 @@ function openPromptModal(title, msg, placeholder, cb, okText='확인') {
   document.body.insertAdjacentHTML('beforeend', html);
   const wrap = document.getElementById('prompt-modal');
   const input = document.getElementById('prompt-modal-input');
-  const done = (val) => { wrap.remove(); if(val !== null && cb) cb(val); };
+  const done = (val) => { wrap.remove(); if(val !== null) { if(cb) cb(val); } else { if(onCancel) onCancel(); } };
   document.getElementById('prompt-modal-ok').onclick = () => done(input.value);
   document.getElementById('prompt-modal-cancel').onclick = () => done(null);
   wrap.addEventListener('click', e => { if(e.target === wrap) done(null); });
   input.addEventListener('keydown', e => { if(e.key==='Enter') done(input.value); if(e.key==='Escape') done(null); });
   setTimeout(()=>input.focus(), 50);
+}
+
+// ⭐ v2.98: 앱 디자인 확인 모달 (브라우저 confirm 대체) — Promise<boolean> 반환.
+//   msg는 내부에서 만든 HTML을 받는다 (사용자 입력은 호출부에서 escapeHtml 필수).
+function uiConfirm({ title='확인', msg='', okText='확인', cancelText='취소', tone='primary' } = {}) {
+  return new Promise(resolve => {
+    const old = document.getElementById('confirm-modal'); if(old) old.remove();
+    const okStyle = tone === 'danger' ? 'background:#dc2626;border-color:#dc2626;color:#fff;' : '';
+    const html = `
+    <div id="confirm-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div style="background:var(--surface,#fff);color:var(--text,#000);max-width:420px;width:100%;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
+        <div style="padding:18px 20px 8px;font-size:15.5px;font-weight:800;">${title}</div>
+        <div style="padding:0 20px 16px;font-size:13px;color:var(--text2,#4b5563);line-height:1.75;">${msg}</div>
+        <div style="padding:12px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--surface2,#f3f4f6);">
+          <button id="confirm-modal-cancel" style="padding:0 18px;height:38px;border:1px solid var(--border2,#d1d5db);background:var(--surface,#fff);color:var(--text,#000);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">${escapeHtml(cancelText)}</button>
+          <button id="confirm-modal-ok" class="btn btn-primary" style="padding:0 18px;height:38px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;${okStyle}">${escapeHtml(okText)}</button>
+        </div>
+      </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    const wrap = document.getElementById('confirm-modal');
+    const done = (v) => { try { wrap.remove(); } catch(e) {} document.removeEventListener('keydown', onKey); resolve(v); };
+    const onKey = (e) => { if(e.key === 'Escape') done(false); if(e.key === 'Enter') done(true); };
+    document.getElementById('confirm-modal-ok').onclick = () => done(true);
+    document.getElementById('confirm-modal-cancel').onclick = () => done(false);
+    wrap.addEventListener('click', e => { if(e.target === wrap) done(false); });
+    document.addEventListener('keydown', onKey);
+  });
+}
+// uiConfirm msg용 보조 — 이름·날짜 칩
+function _confChip(text) {
+  return `<div style="display:inline-block;padding:4px 12px;border-radius:99px;background:var(--surface2,#f3f4f6);border:1px solid var(--border,#e5e7eb);font-weight:800;font-size:12.5px;color:var(--text,#000);margin-bottom:8px;">${text}</div>`;
 }
 
 // 기종 자동 감지
@@ -15466,6 +15498,30 @@ function _mergeCompanyHolidays() {
     if(!holidayCache[key].includes(ds)) holidayCache[key].push(ds);
   });
 }
+// ⭐ v2.98: 공휴일 API 실패 안전망 — 하드코딩 폴백 (대체공휴일 포함).
+//   기존엔 API 타임아웃/오류 시 빈 배열([])이 영구 캐시돼 '공휴일 없는 달'로 오판 →
+//   10/5(개천절 대체공휴일)가 미달 정리 카드에 "부족 12건"으로 뜨던 원인.
+//   실패 시 이 목록으로 대신 채워 공휴일이 평일 취급되는 일을 막는다. (성공 시엔 API 응답 우선)
+const KR_HOLIDAYS_FALLBACK = [
+  '2026-01-01',                               // 신정
+  '2026-02-16','2026-02-17','2026-02-18',     // 설날 연휴
+  '2026-03-01','2026-03-02',                  // 삼일절(일) + 대체공휴일
+  '2026-05-05',                               // 어린이날
+  '2026-05-24','2026-05-25',                  // 부처님오신날(일) + 대체공휴일
+  '2026-06-06',                               // 현충일(토)
+  '2026-08-15','2026-08-17',                  // 광복절(토) + 대체공휴일
+  '2026-09-24','2026-09-25','2026-09-26',     // 추석 연휴
+  '2026-10-03','2026-10-05',                  // 개천절(토) + 대체공휴일
+  '2026-10-09',                               // 한글날
+  '2026-12-25',                               // 성탄절
+];
+function _holFallbackFor(key){ return KR_HOLIDAYS_FALLBACK.filter(d => d.slice(0,7) === key); }
+function _holFail(key){
+  holidayCache[key] = _holFallbackFor(key);
+  (window._holFromFallback = window._holFromFallback || {})[key] = true;   // 디버깅용 표식
+  _mergeCompanyHolidays();
+  return holidayCache[key];
+}
 async function fetchHolidays(year, month) {
   const key = `${year}-${String(month).padStart(2,'0')}`;
   if(holidayCache[key] !== undefined) return holidayCache[key];
@@ -15473,7 +15529,7 @@ async function fetchHolidays(year, month) {
     const cb = '__holi_' + Date.now();
     const url = `https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getHoliDeInfo?serviceKey=${HOLIDAY_KEY}&solYear=${year}&solMonth=${String(month).padStart(2,'0')}&_type=json&numOfRows=50&callback=${cb}`;
     const s = document.createElement('script');
-    const timer = setTimeout(()=>{ cleanup(true); holidayCache[key]=[]; _mergeCompanyHolidays(); resolve([]); }, 5000);
+    const timer = setTimeout(()=>{ cleanup(true); resolve(_holFail(key)); }, 5000);
     window[cb] = (json) => {
       cleanup();
       try {
@@ -15486,12 +15542,14 @@ async function fetchHolidays(year, month) {
             return `${s2.slice(0,4)}-${s2.slice(4,6)}-${s2.slice(6,8)}`;
           });
         }
-        holidayCache[key] = dates;
+        // ⭐ v2.98: API 응답에 폴백 목록을 합집합 — 응답이 비정상(일부 누락)이어도 대체공휴일이 빠지지 않게
+        _holFallbackFor(key).forEach(fd => { if(!dates.includes(fd)) dates.push(fd); });
+        holidayCache[key] = dates.sort();
         _mergeCompanyHolidays();
-        resolve(dates);
-      } catch { holidayCache[key]=[]; _mergeCompanyHolidays(); resolve([]); }
+        resolve(holidayCache[key]);
+      } catch { resolve(_holFail(key)); }
     };
-    s.onerror = ()=>{ cleanup(); holidayCache[key]=[]; _mergeCompanyHolidays(); resolve([]); };
+    s.onerror = ()=>{ cleanup(); resolve(_holFail(key)); };
     s.src = url;
     document.head.appendChild(s);
     // ⭐ v2.71d: 늦은 응답 ReferenceError 방지 — 타임아웃 시 no-op 스텁 잔류
@@ -18390,8 +18448,40 @@ async function toggleVacationDay(name, dayStr, type) {
   const existing = cur.find(x => x === day || x === day + 'H' || x === day + 'Q');   // 같은 날 기존 등록 (종류 무관)
   const on = !existing;
   const past = day < todayStr();
-  if(on && !confirm(`${name} — ${day} ${label}로 기록할까요?${past ? '\n(지난 날짜 소급 등록 — 그 날 미달로 잡혔던 것도 정리됩니다)' : ''}\n${half ? '이 날 수리 목표가 절반으로 줄어 미달로 잡히지 않습니다.' : quarter ? '이 날 수리 목표가 3/4로 줄어듭니다.' : '이 날은 수리 목표가 면제되어 미달로 잡히지 않습니다.'}\n(이달의 엔지니어 점수에는 보정 없음)`)) return;
-  if(!on && !confirm(`${name} — ${day} ${existing.endsWith('H') ? '반차' : existing.endsWith('Q') ? '반반차' : '휴가'} 기록을 해제할까요?\n(해제하면 이 날 수리 목표가 다시 적용됩니다)`)) return;
+  // ⭐ v2.98: 주말·공휴일은 원래 수리 목표가 없는 날 — 휴가 등록이 불필요하므로 막아준다 (10/5 대체공휴일 반반차 등록 같은 일 방지)
+  if(on) {
+    const _dw = new Date(day + 'T09:00:00').getDay();
+    const _hc = holidayCache[day.slice(0, 7)];
+    const _isHol = (Array.isArray(_hc) && _hc.includes(day)) || (window.COMPANY_HOLIDAYS || []).includes(day) || (typeof KR_HOLIDAYS_FALLBACK !== 'undefined' && KR_HOLIDAYS_FALLBACK.includes(day));
+    if(_dw === 0 || _dw === 6 || _isHol) {
+      notify(`${day}은(는) ${_dw === 0 || _dw === 6 ? '주말' : '공휴일'}이라 수리 목표가 없는 날이에요 — 휴가 등록이 필요 없습니다.`, 'error');
+      return;
+    }
+  }
+  // ⭐ v2.98: 브라우저 confirm → 앱 디자인 모달
+  if(on) {
+    const icon = half ? '🌗' : quarter ? '🌘' : '🏖';
+    const effect = half ? '이 날 수리 목표가 <b>절반</b>으로 줄어 미달로 잡히지 않아요.' : quarter ? '이 날 수리 목표가 <b>3/4</b>로 줄어들어요.' : '이 날은 수리 목표가 <b>면제</b>되어 미달로 잡히지 않아요.';
+    const okd = await uiConfirm({
+      title: `${icon} ${label} 등록`,
+      msg: `${_confChip(`${escapeHtml(name)} · ${day}`)}
+        <div>${effect}</div>
+        ${past ? '<div style="margin-top:6px;color:#d97706;font-size:12px;">↩ 지난 날짜 소급 등록 — 그 날 미달로 잡혔던 것도 함께 정리됩니다.</div>' : ''}
+        <div style="margin-top:6px;color:var(--text3,#9ca3af);font-size:11.5px;">이달의 엔지니어 점수에는 보정이 없어요.</div>`,
+      okText: `${label} 등록`,
+    });
+    if(!okd) return;
+  } else {
+    const exLabel = existing.endsWith('H') ? '반차' : existing.endsWith('Q') ? '반반차' : '휴가';
+    const okd = await uiConfirm({
+      title: `${exLabel} 기록 해제`,
+      msg: `${_confChip(`${escapeHtml(name)} · ${day}`)}
+        <div>이 날의 ${exLabel} 기록을 해제할까요?</div>
+        <div style="margin-top:6px;color:var(--text3,#9ca3af);font-size:11.5px;">해제하면 이 날 수리 목표가 다시 적용됩니다.</div>`,
+      okText: '해제', tone: 'danger',
+    });
+    if(!okd) return;
+  }
   // ⭐ v2.96b: 연타 방지 + 낙관 반영 (DOA와 같은 원칙) — 서버가 느려도 화면은 즉시 바뀌어
   //   "먹통인 줄 알고 여러 번 등록"하는 사고를 차단. 처리 중 재클릭은 잠금으로 거절.
   if(window._vacBusy) { notify('이전 휴가 처리가 서버에 저장되는 중입니다 — 잠시 후 다시 시도해주세요. (이미 화면에 반영됐다면 다시 누르지 마세요)', 'error'); return; }
@@ -18530,10 +18620,18 @@ async function _missFixMemo(name, ds, target, done, short) {
   if(name !== currentUser && !canManageWorker(name)) { notify('본인 또는 관리자만 메모를 남길 수 있습니다.', 'error'); return; }
   if(window._memoBusy) { notify('이전 메모가 서버에 저장되는 중입니다 — 잠시 후 다시 시도해주세요.', 'error'); return; }
   const prevMemo = ((window._missReasonBy || {})[ds] || {})[name] || '';
-  const input = prompt(`${ds} 목표 부족 사유 메모\n(예: 특이건 분해 3시간 소요 / 부품 결품 대기 / 검수 지원 등)`, prevMemo);
+  // ⭐ v2.98: 브라우저 prompt → 앱 디자인 입력 모달
+  const input = await new Promise(res => openPromptModal(
+    `📝 ${ds} 부족 사유 메모`,
+    '쉰 게 아니라 일하다 부족했던 날이라면, 사유를 남겨두면 미달 기록에 함께 보여요.\n예: 특이건 분해 3시간 소요 / 부품 결품 대기 / 검수 지원',
+    '부족 사유 입력 (2자 이상)',
+    v => res(v), '메모 저장', prevMemo, () => res(null)
+  ));
   if(input === null) return;
   const reason = String(input).trim();
   if(reason.length < 2) { notify('사유를 2자 이상 입력해주세요.', 'error'); return; }
+  // 모달이 떠 있는 동안 다른 저장이 시작됐을 수 있음 — 저장 직전 재확인 (연타 방지)
+  if(window._memoBusy) { notify('이전 메모가 서버에 저장되는 중입니다 — 잠시 후 다시 시도해주세요.', 'error'); return; }
   window._memoBusy = true;
   // 낙관 반영 — 화면 먼저
   ((window._missReasonBy = window._missReasonBy || {})[ds] = window._missReasonBy[ds] || {})[name] = reason;
@@ -18558,8 +18656,26 @@ async function toggleActingDay(name, dayStr) {
   const cur = Array.isArray(actingDaysMap[name]) ? actingDaysMap[name].slice() : [];
   const on = !cur.includes(day);
   const past = day < todayStr();   // ⭐ 소급 등록 (사전에 못 남긴 날)
-  if(on && !confirm(`${name} — ${day} 파트장 대행으로 기록할까요?${past ? '\n(지난 날짜 소급 등록 — 그 날 미달로 잡혔던 것도 대행으로 정리됩니다)' : ''}\n이 날은 수리 목표가 면제되고, 대행일이 기록에 남습니다.`)) return;
-  if(!on && !confirm(`${name} — ${day} 파트장 대행 기록을 해제할까요?\n(해제하면 이 날 수리 목표가 다시 적용됩니다)`)) return;
+  // ⭐ v2.98: 브라우저 confirm → 앱 디자인 모달
+  if(on) {
+    const okd = await uiConfirm({
+      title: '👑 파트장 대행 기록',
+      msg: `${_confChip(`${escapeHtml(name)} · ${day}`)}
+        <div>이 날은 수리 목표가 <b>면제</b>되고, 대행일이 기록에 남아요.</div>
+        ${past ? '<div style="margin-top:6px;color:#d97706;font-size:12px;">↩ 지난 날짜 소급 등록 — 그 날 미달로 잡혔던 것도 대행으로 정리됩니다.</div>' : ''}`,
+      okText: '대행 기록',
+    });
+    if(!okd) return;
+  } else {
+    const okd = await uiConfirm({
+      title: '대행 기록 해제',
+      msg: `${_confChip(`${escapeHtml(name)} · ${day}`)}
+        <div>이 날의 파트장 대행 기록을 해제할까요?</div>
+        <div style="margin-top:6px;color:var(--text3,#9ca3af);font-size:11.5px;">해제하면 이 날 수리 목표가 다시 적용됩니다.</div>`,
+      okText: '해제', tone: 'danger',
+    });
+    if(!okd) return;
+  }
   // ⭐ v2.96b: 연타 방지 + 낙관 반영 (휴가와 동일)
   if(window._vacBusy) { notify('이전 처리가 서버에 저장되는 중입니다 — 잠시 후 다시 시도해주세요.', 'error'); return; }
   window._vacBusy = true;
