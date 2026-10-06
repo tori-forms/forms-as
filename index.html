@@ -18736,15 +18736,13 @@ function renderDoa() {
     }).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:18px;">DOA 기록이 없습니다.</td></tr>'}</tbody>
     </table></div></div>`;
 
-  // 상세 목록 — ⭐ v2.92a: 되돌려진(취소된) 건은 기본 숨김 (요청: 원복된 건 목록에서도 제거).
-  //   실수 추적용으로 '되돌려진 건 보기' 토글만 남김.
-  const _showUndone = !!window._doaShowUndone;
-  const listLogs = _showUndone ? logs : logs.filter(l => !_doaUndone(l));
-  h += `<div class="card" style="padding:0;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">DOA 상세 목록 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 ${Math.min(listLogs.length,100)}건${_showUndone ? '' : ' · 되돌려진 건 제외'}</span>
-    <label style="margin-left:auto;font-size:11px;color:var(--text3);font-weight:500;display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none;"><input type="checkbox" ${_showUndone ? 'checked' : ''} onchange="window._doaShowUndone=this.checked;renderDoa()" style="accent-color:var(--accent);">↩ 되돌려진 건 보기</label></div>
+  // 상세 목록 — ⭐ v2.92a/b: 되돌려진(취소된) 건은 목록에서 완전히 제외 (요청).
+  //   되돌린 내역은 재고 이력 탭의 'DOA 등록 취소' 로그로 추적 가능.
+  const listLogs = logs.filter(l => !_doaUndone(l));
+  h += `<div class="card" style="padding:0;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">DOA 상세 목록 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 ${Math.min(listLogs.length,100)}건 · 되돌려진 건 제외 (내역은 재고 이력에)</span></div>
     <div class="table-wrap"><table>
     <thead><tr><th>일시</th><th>부품</th><th>입고분</th><th style="text-align:right">수량</th><th>증상</th><th>등록자</th><th></th></tr></thead>
-    <tbody>${listLogs.length ? listLogs.slice(0,100).map(l => `<tr style="${_doaUndone(l) ? 'opacity:.5;' : ''}">
+    <tbody>${listLogs.length ? listLogs.slice(0,100).map(l => `<tr>
       <td style="white-space:nowrap;color:var(--text2);">${_d(l.date)}${l._pending ? ' <span title="서버 반영 중 — 자동으로 전송됩니다" style="font-size:10px;">⏳</span>' : ''}</td>
       <td style="font-weight:600;">${escapeHtml(l.partName||'')}</td>
       <td style="white-space:nowrap;">${(() => { const lr = _lotResolved(l); return lr.date ? (lr.est ? `${lr.date} <span title="입고분 미기재 — 같은 부품의 직전 기록을 따라 추정" style="font-size:10px;color:#d97706;">(추정)</span>` : lr.date) : '<span style="color:var(--text3);">-</span>'; })()}</td>
