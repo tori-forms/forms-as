@@ -2420,7 +2420,7 @@ let mentoringMap = {}; // { 이름: true } - 교육 중(신입 멘토) → 목�
 let mentoringEndMap = {}; // ⭐ v2.63: { 이름: 'YYYY-MM-DD' } — 교육 해제일. 이전 날짜는 미달 집계 제외 (해제 시 과거 교육기간이 소급 미달로 잡히는 문제 방지)
 let actingDaysMap = {};   // ⭐ v2.79q: { 이름: ['YYYY-MM-DD',...] } — 파트장 대행일 (파트장 휴무 시 시니어가 대행). 그 날은 수리 목표 면제 + 기록에 남음
 let vacationDaysMap = {}; // ⭐ v2.95: { 이름: ['YYYY-MM-DD',...] } — 개인 휴가. 연차는 'YYYY-MM-DD', 반차는 'YYYY-MM-DDH' (⭐ v2.95a)
-// ⭐ v2.95a: 그 날의 휴가 종류 — '' | 'full'(연차) | 'half'(반차)
+// ⭐ v2.95a: 그 날의 휴가 종류 — '' | 'full'(연차) | 'half'(반차) | 'quarter'(반반차, v2.96)
 function vacationDayType(name, dayStr) {
   try {
     const day = String(dayStr).slice(0, 10);
@@ -2428,16 +2428,18 @@ function vacationDayType(name, dayStr) {
     if(!Array.isArray(arr)) return '';
     if(arr.includes(day)) return 'full';
     if(arr.includes(day + 'H')) return 'half';
+    if(arr.includes(day + 'Q')) return 'quarter';
     return '';
   } catch(e) { return ''; }
 }
 function isVacationDay(name, dayStr) { return vacationDayType(name, dayStr) === 'full'; }
-// ⭐ v2.95a: 기간 내 휴가 가중일수 (연차 1 · 반차 0.5) — 성장분석/이달의엔지니어 분모 차감용
+// ⭐ v2.95a: 기간 내 휴가 가중일수 (연차 1 · 반차 0.5 · 반반차 0.25) — 성장분석 분모 차감용
 function _vacWeightInRange(name, fromK, toK) {
   try {
     return (vacationDaysMap[name] || []).reduce((s, x) => {
       const d = String(x).slice(0, 10);
-      return (d >= fromK && d <= toK) ? s + (String(x).endsWith('H') ? 0.5 : 1) : s;
+      if(d < fromK || d > toK) return s;
+      return s + (String(x).endsWith('H') ? 0.5 : String(x).endsWith('Q') ? 0.25 : 1);
     }, 0);
   } catch(e) { return 0; }
 }
@@ -2668,10 +2670,10 @@ function getPersonalDailyTarget(name, asOf) {
   const refStr = `${ref.getFullYear()}-${String(ref.getMonth()+1).padStart(2,'0')}-${String(ref.getDate()).padStart(2,'0')}`;
   // ⭐ v2.79q: 파트장 대행일 → 그 날은 수리 목표 면제 (사람 관리 업무 — 기록은 대행일 목록에 남음)
   if(isActingDay(name, refStr)) return 0;
-  // ⭐ v2.95: 개인 휴가일 → 연차는 목표 면제, 반차(v2.95a)는 목표 절반 (미달·일일 현황 합계 자동 반영)
+  // ⭐ v2.95: 개인 휴가일 → 연차 면제 · 반차 절반 · 반반차(v2.96) 3/4 (미달·일일 현황 합계 자동 반영)
   const _vt = vacationDayType(name, refStr);
   if(_vt === 'full') return 0;
-  const _vh = _vt === 'half' ? 0.5 : 1;
+  const _vh = _vt === 'half' ? 0.5 : _vt === 'quarter' ? 0.75 : 1;
   // 개별 입력값 우선 (양수일 때)
   const manual = workerDailyTargets[name];
   if(manual !== undefined && manual !== null && manual > 0) return Math.ceil(manual * _vh);
@@ -2985,7 +2987,7 @@ function __applyRawWorkers(rawWorkers) {
     // ⭐ v2.79q: 10번째 필드 = 파트장 대행일 목록 (쉼표 구분 YYYY-MM-DD)
     if(parts[9]) actingDaysMap[name] = String(parts[9]).split(',').map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s));
     // ⭐ v2.95: 11번째 필드 = 개인 휴가일 목록 (쉼표 구분 — 연차 YYYY-MM-DD · 반차 YYYY-MM-DDH)
-    if(parts[10]) vacationDaysMap[name] = String(parts[10]).split(',').map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}H?$/.test(s));
+    if(parts[10]) vacationDaysMap[name] = String(parts[10]).split(',').map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}[HQ]?$/.test(s));
   });
 }
 
@@ -14200,7 +14202,7 @@ function _partOveruseCard(days = 30) {
 
 /* ⭐ v2.86a: 엔지니어별 품질 약점 — 검수 불합격의 '상세 사유(defectReason)'를 사람별로 통계 (T5·파트장 대시보드)
    유형(외관/기능)보다 구체적인 사유 문구를 그대로 집계해 "이 사람은 어떤 품질이 약한지"를 보여준다 */
-function _qualityWeakCard(days = 90) {
+function _qualityWeakCard(days = 30) {   // ⭐ v2.96: 90일 → 30일 (마스터 지시 — 90일은 너무 예전 데이터)
   try {
     const cut = Date.now() - days * 86400000;
     const byEng = {};   // {worker: {fail, reasons:{사유:건수}, types:{유형:건수}}}
@@ -14317,7 +14319,8 @@ async function renderMyDash() {
   if(titleEl) titleEl.textContent = `✨ ${currentUser}님의 대시보드`;
 
   // ⭐ T4(대표/팀장): 운영 통계 + 추세 + 미달 사유 요약 + 접이식 관제판
-  if(isFullAdmin()) {
+  // ⭐ v2.96: 미리보기 중(window._dashPreviewAs)이면 관리자 화면 대신 아래 엔지니어 화면을 그 사람 시점으로 렌더
+  if(isFullAdmin() && !window._dashPreviewAs) {
     if(titleEl) titleEl.textContent = `🛰️ ${currentUser}님 — 운영 현황`;
     // ⭐ v2.57z: 이미 이 사용자용으로 그려져 있으면 전체 재빌드 스킵 (300초 동기화/탭 재진입 깜빡임 방지)
     //   데이터 갱신이 필요하면 월 변경·새로고침으로 반영됨.
@@ -14335,6 +14338,12 @@ async function renderMyDash() {
         <button class="btn btn-sm" onclick="t4ReportShift(-1)" style="height:28px;padding:0 10px;">‹ 전월</button>
         <input type="month" id="t4-report-month" value="${t4ReportMonth}" onchange="renderReportInto('t4-report-slot', this.value)" style="height:28px;font-size:12px;border:1px solid var(--border2);border-radius:8px;background:var(--surface);color:var(--text);padding:0 8px;">
         <button class="btn btn-sm" onclick="t4ReportShift(1)" style="height:28px;padding:0 10px;">다음 달 ›</button>
+        <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);">👁 엔지니어 화면 보기
+          <select onchange="if(this.value){window._dashPreviewAs=this.value; const el2=document.getElementById('mydash-body'); if(el2) delete el2.dataset.t4RenderedFor; renderMyDash();}" style="height:28px;font-size:12px;padding:0 6px;border:1px solid var(--border2);border-radius:8px;background:var(--surface);color:var(--text);">
+            <option value="">선택…</option>
+            ${(workers || []).filter(w2 => w2 !== MASTER_NAME).map(w2 => `<option value="${escapeHtml(w2)}">${escapeHtml(w2)}</option>`).join('')}
+          </select>
+        </span>
       </div>` +
       `<div id="t4-report-slot"><div style="color:var(--text3);font-size:13px;padding:10px 2px;">실적 리포트 불러오는 중…</div></div>` +
       `<div id="t4-triple-slot"></div>` +   // ⭐ v2.70d: 3중 작업 현황 카드 자리
@@ -14379,6 +14388,14 @@ async function renderMyDash() {
 
     return;
   }
+
+  // ⭐ v2.96: 관리자 미리보기 — 선택한 엔지니어의 시점으로 아래 엔지니어 대시보드를 렌더하고,
+  //   렌더가 끝나면 원래 사용자로 복원 + 상단에 미리보기 배너를 붙인다. (화면 구성 점검용)
+  const _pvAs = (isFullAdmin() && window._dashPreviewAs && (workers || []).includes(window._dashPreviewAs) && window._dashPreviewAs !== MASTER_NAME) ? window._dashPreviewAs : null;
+  if(window._dashPreviewAs && !_pvAs) window._dashPreviewAs = null;   // 유효하지 않은 대상은 해제
+  const _pvReal = _pvAs ? currentUser : null;
+  if(_pvAs) currentUser = _pvAs;
+  try {
 
   const now = new Date();
   const pad = n => String(n).padStart(2,'0');
@@ -14592,6 +14609,8 @@ async function renderMyDash() {
       </div>
     </div>
 
+    ${_myMissFixCardHtml()}
+
     ${_myVacCardHtml()}
 
     ${_myQualitySection(currentUser)}
@@ -14649,6 +14668,25 @@ async function renderMyDash() {
     }
 
     renderNoticeSlot().catch(e => console.warn('[공지카드]', e));   // ⭐ v2.70q: 특이사항 공지 카드 (파트장)
+  }
+
+  } finally {
+    // ⭐ v2.96: 미리보기 복원 + 배너 (버튼들은 렌더 시점 이름이 박혀 있어 미리보기 대상에게 동작)
+    if(_pvReal) {
+      currentUser = _pvReal;
+      try {
+        if(titleEl) titleEl.textContent = `👁 ${_pvAs}님의 대시보드 (미리보기)`;
+        el.insertAdjacentHTML('afterbegin', `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;margin-bottom:14px;border-radius:12px;background:#fff7ed;border:1.5px solid #f59e0b;">
+          <span style="font-size:13px;font-weight:800;color:#d97706;">👁 ${escapeHtml(_pvAs)}님의 엔지니어 화면 미리보기</span>
+          <span style="font-size:11.5px;color:#a16207;">그 사람이 보는 그대로예요 — 휴가·미달 정리 버튼을 누르면 ${escapeHtml(_pvAs)}님에게 적용됩니다</span>
+          <select onchange="if(this.value){window._dashPreviewAs=this.value; renderMyDash();}" style="margin-left:auto;height:28px;font-size:12px;padding:0 6px;border:1px solid #f59e0b;border-radius:8px;background:var(--surface);color:var(--text);">
+            <option value="">다른 엔지니어…</option>
+            ${(workers || []).filter(w2 => w2 !== MASTER_NAME && w2 !== _pvAs).map(w2 => `<option value="${escapeHtml(w2)}">${escapeHtml(w2)}</option>`).join('')}
+          </select>
+          <button class="btn btn-sm btn-primary" onclick="window._dashPreviewAs=null; const el2=document.getElementById('mydash-body'); if(el2) delete el2.dataset.t4RenderedFor; renderMyDash();">내 화면으로</button>
+        </div>`);
+      } catch(e) {}
+    }
   }
 }
 
@@ -18334,21 +18372,22 @@ async function toggleVacationDay(name, dayStr, type) {
     return;
   }
   if(name === MASTER_NAME) { notify('마스터는 휴가 집계 대상이 아닙니다.', 'error'); return; }
-  const half = type === 'half';   // ⭐ v2.95a: 반차 — 그 날 목표 절반 · 분모 0.5일 차감
-  const label = half ? '반차' : '휴가(연차)';
-  const entry = half ? day + 'H' : day;
+  const half = type === 'half';       // ⭐ v2.95a: 반차 — 그 날 목표 절반
+  const quarter = type === 'quarter'; // ⭐ v2.96: 반반차 — 그 날 목표 3/4
+  const label = half ? '반차' : quarter ? '반반차' : '휴가(연차)';
+  const entry = half ? day + 'H' : quarter ? day + 'Q' : day;
   const cur = Array.isArray(vacationDaysMap[name]) ? vacationDaysMap[name].slice() : [];
-  const existing = cur.find(x => x === day || x === day + 'H');   // 같은 날 기존 등록 (종류 무관)
+  const existing = cur.find(x => x === day || x === day + 'H' || x === day + 'Q');   // 같은 날 기존 등록 (종류 무관)
   const on = !existing;
   const past = day < todayStr();
-  if(on && !confirm(`${name} — ${day} ${label}로 기록할까요?${past ? '\n(지난 날짜 소급 등록 — 그 날 미달로 잡혔던 것도 정리됩니다)' : ''}\n${half ? '이 날 수리 목표가 절반으로 줄어 미달로 잡히지 않습니다.' : '이 날은 수리 목표가 면제되어 미달로 잡히지 않습니다.'}\n(이달의 엔지니어·성장분석 실적 집계에는 보정 없음)`)) return;
-  if(!on && !confirm(`${name} — ${day} ${existing.endsWith('H') ? '반차' : '휴가'} 기록을 해제할까요?\n(해제하면 이 날 수리 목표가 다시 적용됩니다)`)) return;
+  if(on && !confirm(`${name} — ${day} ${label}로 기록할까요?${past ? '\n(지난 날짜 소급 등록 — 그 날 미달로 잡혔던 것도 정리됩니다)' : ''}\n${half ? '이 날 수리 목표가 절반으로 줄어 미달로 잡히지 않습니다.' : quarter ? '이 날 수리 목표가 3/4로 줄어듭니다.' : '이 날은 수리 목표가 면제되어 미달로 잡히지 않습니다.'}\n(이달의 엔지니어 점수에는 보정 없음)`)) return;
+  if(!on && !confirm(`${name} — ${day} ${existing.endsWith('H') ? '반차' : existing.endsWith('Q') ? '반반차' : '휴가'} 기록을 해제할까요?\n(해제하면 이 날 수리 목표가 다시 적용됩니다)`)) return;
   const old = cur.slice();
   if(on) cur.push(entry); else cur.splice(cur.indexOf(existing), 1);
   if(cur.length) vacationDaysMap[name] = cur.sort(); else delete vacationDaysMap[name];
   try {
     const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
-    notify(on ? `🏖 ${name} — ${day} ${label} 기록${half ? ' (목표 절반 · 미달 미집계)' : ' (수리 목표 면제 · 미달 미집계)'}` : `${name} — ${day} 휴가 해제`);
+    notify(on ? `🏖 ${name} — ${day} ${label} 기록${half ? ' (목표 절반)' : quarter ? ' (목표 3/4)' : ' (수리 목표 면제)'} — 미달로 잡히지 않습니다` : `${name} — ${day} 휴가 해제`);
     window._grAggMemo = null;   // 성장분석 분모 변경 → 메모 무효화
     try { renderWorkers(); } catch(e) {}
     try { renderSummary(); } catch(e) {}
@@ -18368,10 +18407,10 @@ function _myVacCardHtml() {
     const mine = (vacationDaysMap[currentUser] || []).slice().sort().filter(x => String(x).slice(0, 10) >= cut);
     const chips = mine.map(x => {
       const d = String(x).slice(0, 10);
-      const half = String(x).endsWith('H');
+      const half = String(x).endsWith('H'), quarter = String(x).endsWith('Q');
       const future = d >= today;
-      return `<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:700;background:${half ? '#fef9c3' : '#e0f2fe'};color:${half ? '#a16207' : '#0369a1'};${future ? '' : 'opacity:.6;'}">
-        ${d.slice(5).replace('-', '/')} ${half ? '반차' : '연차'}
+      return `<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:700;background:${half ? '#fef9c3' : quarter ? '#fce7f3' : '#e0f2fe'};color:${half ? '#a16207' : quarter ? '#9d174d' : '#0369a1'};${future ? '' : 'opacity:.6;'}">
+        ${d.slice(5).replace('-', '/')} ${half ? '반차' : quarter ? '반반차' : '연차'}
         <a href="#" onclick="event.preventDefault();toggleVacationDay('${escapeJs(currentUser)}','${d}')" title="이 휴가 기록 해제" style="color:inherit;text-decoration:none;font-weight:900;">✕</a>
       </span>`;
     }).join(' ');
@@ -18380,14 +18419,69 @@ function _myVacCardHtml() {
       <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;line-height:1.6;">휴가 가는 날을 직접 등록하세요 — <b>연차</b>는 그 날 수리 목표 면제, <b>반차</b>는 목표 절반이라 <b>미달로 잡히지 않습니다</b>. 단, 이달의 엔지니어·성장분석 실적 집계에는 보정이 없어요 (쉰 만큼 실적이 적게 잡히는 건 그대로). 지난 날짜 소급 등록도 돼요.</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <input type="date" id="my-vac-date" value="${today}" onclick="try{this.showPicker()}catch(e){}" style="height:36px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);">
-        <select id="my-vac-type" style="height:36px;width:90px;">
+        <select id="my-vac-type" style="height:36px;width:96px;">
           <option value="full">연차</option>
           <option value="half">반차</option>
+          <option value="quarter">반반차</option>
         </select>
-        <button class="btn btn-primary" style="height:36px;" onclick="toggleVacationDay(currentUser, document.getElementById('my-vac-date')?.value, document.getElementById('my-vac-type')?.value)">등록</button>
+        <button class="btn btn-primary" style="height:36px;" onclick="toggleVacationDay('${escapeJs(currentUser)}', document.getElementById('my-vac-date')?.value, document.getElementById('my-vac-type')?.value)">등록</button>
       </div>
       ${mine.length ? `<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><span style="font-size:11px;color:var(--text3);">등록된 휴가:</span> ${chips}</div>` : ''}
     </div>`;
+  } catch(e) { return ''; }
+}
+/* ⭐ v2.96: 목표 부족일 셀프 정리 — 시스템이 '수리건이 부족했던 날'을 찾아 보여주고,
+   엔지니어가 그 자리에서 사유(연차·반차·반반차·대행)를 찍어 정리한다. 등록하면 미달에서 빠짐.
+   주말·공휴일·회사휴무·공지일(참작)은 애초에 목록에 안 뜸. */
+function _myMissFixDays() {
+  const out = [];
+  const name = currentUser;
+  const start = new Date(); start.setDate(start.getDate() - 30); start.setHours(0, 0, 0, 0);
+  const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(0, 0, 0, 0);   // 어제부터 과거로
+  while(d >= start && out.length < 10) {
+    const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const dow = d.getDay();
+    if(dow !== 0 && dow !== 6) {
+      const key = ds.slice(0, 7);
+      const pubHol = (typeof holidayCache === 'object' && Array.isArray(holidayCache[key]) && holidayCache[key].includes(ds)) || (window.COMPANY_HOLIDAYS || []).includes(ds);
+      const noticed = !!((window._noticeByDate || {})[ds]);   // 특이사항 공지일 → 참작, 목록 제외
+      if(!pubHol && !noticed) {
+        try { const m = calcMissForDay(name, ds); if(m) out.push({ ds, dow, target: m.target, done: m.done, short: m.short }); } catch(e) {}
+      }
+    }
+    d.setDate(d.getDate() - 1);
+  }
+  return out;
+}
+function _myMissFixCardHtml() {
+  try {
+    if(!currentUser || currentUser === MASTER_NAME) return '';
+    const rows = _myMissFixDays();
+    // 공지(참작)일 정보는 서버에서 비동기 로드 — 도착하면 카드만 조용히 갱신 (공지일이 목록에서 빠짐)
+    try {
+      const need = rows.map(r => r.ds).filter(ds => !((window._noticeByDate || {})[ds] !== undefined));
+      if(need.length && typeof fetchNotices === 'function' && !window._missFixNoticeKicked) {
+        window._missFixNoticeKicked = true;
+        fetchNotices(need).then(() => { const el = document.getElementById('missfix-wrap'); if(el) el.outerHTML = _myMissFixCardHtml(); }).catch(() => {});
+      }
+    } catch(e) {}
+    if(!rows.length) return '<div id="missfix-wrap"></div>';
+    const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+    const btn = (label, bg, fg, onclick, title) => `<button class="btn btn-sm" onclick="${onclick}" title="${title}" style="height:26px;padding:0 9px;font-size:11px;font-weight:700;background:${bg};color:${fg};border:none;">${label}</button>`;
+    return `<div id="missfix-wrap"><div class="card" style="margin-bottom:20px;border:1px solid #f59e0b55;">
+      <div class="card-title" style="margin-bottom:6px;">⚠️ 목표 부족했던 날 정리 <span style="font-size:10px;color:var(--text3);font-weight:400;text-transform:none;">· 최근 30일 · ${rows.length}일</span></div>
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;line-height:1.6;">아래 날짜는 수리 건수가 일일 목표에 못 미친 날이에요. <b>쉬었거나 대행 업무였던 날이면 사유를 눌러 직접 정리하세요</b> — 등록하면 그 날은 미달에서 빠집니다. 실제로 일한 날인데 부족했던 거라면 그대로 두면 돼요.</div>
+      ${rows.map(r => `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 0;border-top:1px solid var(--border);">
+        <span style="font-size:12.5px;font-weight:800;min-width:86px;">${r.ds.slice(5).replace('-', '/')} (${DOW[r.dow]})</span>
+        <span style="font-size:11.5px;color:#dc2626;font-weight:700;">목표 ${r.target}건 중 ${r.done}건 · 부족 ${r.short}건</span>
+        <span style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap;">
+          ${btn('🏖 연차', '#e0f2fe', '#0369a1', `toggleVacationDay('${escapeJs(currentUser)}','${r.ds}','full')`, '이 날을 연차로 등록 — 목표 면제')}
+          ${btn('🌗 반차', '#fef9c3', '#a16207', `toggleVacationDay('${escapeJs(currentUser)}','${r.ds}','half')`, '이 날을 반차로 등록 — 목표 절반')}
+          ${btn('🌘 반반차', '#fce7f3', '#9d174d', `toggleVacationDay('${escapeJs(currentUser)}','${r.ds}','quarter')`, '이 날을 반반차로 등록 — 목표 3/4')}
+          ${(typeof canBeActing === 'function' && canBeActing(currentUser)) ? btn('👑 대행', '#fff7ed', '#d97706', `toggleActingDay('${escapeJs(currentUser)}','${r.ds}')`, '이 날 파트장 대행이었음 — 목표 면제') : ''}
+        </span>
+      </div>`).join('')}
+    </div></div>`;
   } catch(e) { return ''; }
 }
 async function toggleActingDay(name, dayStr) {
@@ -18410,6 +18504,7 @@ async function toggleActingDay(name, dayStr) {
     notify(on ? `👑 ${name} — ${day} 파트장 대행 기록 (수리 목표 면제)` : `${name} — ${day} 대행 해제`);
     try { renderWorkers(); } catch(e) {}
     try { renderSummary(); } catch(e) {}
+    try { if(document.getElementById('tab-mydash')?.classList.contains('active')) renderMyDash(); } catch(e) {}   // ⭐ v2.96: 미달 정리 카드 갱신
   } catch {
     if(old.length) actingDaysMap[name] = old; else delete actingDaysMap[name];
     notify('대행 기록 저장 실패.', 'error');
