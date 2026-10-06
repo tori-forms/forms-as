@@ -2419,9 +2419,27 @@ let hireDateMap = {}; // { 이름: 'YYYY-MM-DD' } - 입사일 (주차별 KPI 램
 let mentoringMap = {}; // { 이름: true } - 교육 중(신입 멘토) → 목표 면제
 let mentoringEndMap = {}; // ⭐ v2.63: { 이름: 'YYYY-MM-DD' } — 교육 해제일. 이전 날짜는 미달 집계 제외 (해제 시 과거 교육기간이 소급 미달로 잡히는 문제 방지)
 let actingDaysMap = {};   // ⭐ v2.79q: { 이름: ['YYYY-MM-DD',...] } — 파트장 대행일 (파트장 휴무 시 시니어가 대행). 그 날은 수리 목표 면제 + 기록에 남음
-let vacationDaysMap = {}; // ⭐ v2.95: { 이름: ['YYYY-MM-DD',...] } — 개인 휴가(연차). 그 날은 수리 목표 면제 · 미달 미집계 · 성장분석/이달의엔지니어 분모에서 제외
-function isVacationDay(name, dayStr) {
-  try { return Array.isArray(vacationDaysMap[name]) && vacationDaysMap[name].includes(String(dayStr).slice(0, 10)); } catch(e) { return false; }
+let vacationDaysMap = {}; // ⭐ v2.95: { 이름: ['YYYY-MM-DD',...] } — 개인 휴가. 연차는 'YYYY-MM-DD', 반차는 'YYYY-MM-DDH' (⭐ v2.95a)
+// ⭐ v2.95a: 그 날의 휴가 종류 — '' | 'full'(연차) | 'half'(반차)
+function vacationDayType(name, dayStr) {
+  try {
+    const day = String(dayStr).slice(0, 10);
+    const arr = vacationDaysMap[name];
+    if(!Array.isArray(arr)) return '';
+    if(arr.includes(day)) return 'full';
+    if(arr.includes(day + 'H')) return 'half';
+    return '';
+  } catch(e) { return ''; }
+}
+function isVacationDay(name, dayStr) { return vacationDayType(name, dayStr) === 'full'; }
+// ⭐ v2.95a: 기간 내 휴가 가중일수 (연차 1 · 반차 0.5) — 성장분석/이달의엔지니어 분모 차감용
+function _vacWeightInRange(name, fromK, toK) {
+  try {
+    return (vacationDaysMap[name] || []).reduce((s, x) => {
+      const d = String(x).slice(0, 10);
+      return (d >= fromK && d <= toK) ? s + (String(x).endsWith('H') ? 0.5 : 1) : s;
+    }, 0);
+  } catch(e) { return 0; }
 }
 function isActingDay(name, dayStr) {
   try { return Array.isArray(actingDaysMap[name]) && actingDaysMap[name].includes(String(dayStr).slice(0,10)); } catch(e) { return false; }
@@ -2650,18 +2668,20 @@ function getPersonalDailyTarget(name, asOf) {
   const refStr = `${ref.getFullYear()}-${String(ref.getMonth()+1).padStart(2,'0')}-${String(ref.getDate()).padStart(2,'0')}`;
   // ⭐ v2.79q: 파트장 대행일 → 그 날은 수리 목표 면제 (사람 관리 업무 — 기록은 대행일 목록에 남음)
   if(isActingDay(name, refStr)) return 0;
-  // ⭐ v2.95: 개인 휴가(연차)일 → 목표 면제 · 미달 미집계 (일일 현황 팀 목표 합계에서도 자동 제외)
-  if(isVacationDay(name, refStr)) return 0;
+  // ⭐ v2.95: 개인 휴가일 → 연차는 목표 면제, 반차(v2.95a)는 목표 절반 (미달·일일 현황 합계 자동 반영)
+  const _vt = vacationDayType(name, refStr);
+  if(_vt === 'full') return 0;
+  const _vh = _vt === 'half' ? 0.5 : 1;
   // 개별 입력값 우선 (양수일 때)
   const manual = workerDailyTargets[name];
-  if(manual !== undefined && manual !== null && manual > 0) return manual;
+  if(manual !== undefined && manual !== null && manual > 0) return Math.ceil(manual * _vh);
   // 수리 엔지니어가 아니면(QC 전담·T4 등) 목표 없음
   if(!isRepairEngineer(name)) return 0;
   // ⭐ v2.79q: T3(파트장)는 2026-09-10부터 수리 목표 제외 — 사람 관리 전담으로 전환
   //   (이전 날짜는 기존 정책 유지: v2.70s 관리·교육 병행 일 6건 — 과거 미달 기록이 소급 변동하지 않게)
-  if(tierMap[name] === LEAD_TIER()) return refStr >= T3_MANAGE_START ? 0 : T3_STD_DAILY;   // ⭐ v2.82: 파트장(구 T3/신 T4) 관리 전담
+  if(tierMap[name] === LEAD_TIER()) return refStr >= T3_MANAGE_START ? 0 : Math.ceil(T3_STD_DAILY * _vh);   // ⭐ v2.82: 파트장(구 T3/신 T4) 관리 전담
   // 입사일 기준 그 시점 일 목표 (입사일 없으면 정착 기준)
-  return tenureDailyTarget(name, ref) || KPI_STD_DAILY;
+  return Math.ceil((tenureDailyTarget(name, ref) || KPI_STD_DAILY) * _vh);
 }
 
 // 파트 정의 (UI 표시용)
@@ -2964,8 +2984,8 @@ function __applyRawWorkers(rawWorkers) {
     if(parts[8]) mentoringEndMap[name] = String(parts[8]);   // ⭐ v2.63: 교육 해제일
     // ⭐ v2.79q: 10번째 필드 = 파트장 대행일 목록 (쉼표 구분 YYYY-MM-DD)
     if(parts[9]) actingDaysMap[name] = String(parts[9]).split(',').map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s));
-    // ⭐ v2.95: 11번째 필드 = 개인 휴가(연차)일 목록 (쉼표 구분 YYYY-MM-DD)
-    if(parts[10]) vacationDaysMap[name] = String(parts[10]).split(',').map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s));
+    // ⭐ v2.95: 11번째 필드 = 개인 휴가일 목록 (쉼표 구분 — 연차 YYYY-MM-DD · 반차 YYYY-MM-DDH)
+    if(parts[10]) vacationDaysMap[name] = String(parts[10]).split(',').map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}H?$/.test(s));
   });
 }
 
@@ -10670,15 +10690,15 @@ function _grWeeklySeries(n, maxWeeks = 260) {
     const toX = new Date(to); toX.setDate(toX.getDate() + 1);
     const cnt = mine.filter(e => { const t = new Date(e.date); return t >= from && t < toX; }).length;
     // ⭐ v2.81b: 파트장 대행일은 수리를 안 하는 게 정상 → 분모(영업일)에서 제외 + 그래프에 👑 표기
-    // ⭐ v2.95: 개인 휴가(연차)일도 분모에서 제외 — 휴가 낀 주의 일평균이 꺾여 보이던 왜곡 수정
+    // ⭐ v2.95a 마스터 방침: 성장분석 그래프는 휴가를 '참작' — 휴가일(연차 1 · 반차 0.5)을 분모에서
+    //   빼서 휴가 낀 주의 일평균이 꺾여 보이지 않게 한다. (이달의 엔지니어 점수는 반대로 무보정)
     let act = 0, vac = 0;
     try {
       const fromK = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`;
       const toK = `${to.getFullYear()}-${String(to.getMonth() + 1).padStart(2, '0')}-${String(to.getDate()).padStart(2, '0')}`;
       const ad = (typeof actingDaysMap !== 'undefined' && actingDaysMap[n]) || [];
       act = ad.filter(d => d >= fromK && d <= toK).length;
-      const vd = (typeof vacationDaysMap !== 'undefined' && vacationDaysMap[n]) || [];
-      vac = vd.filter(d => d >= fromK && d <= toK).length;
+      vac = _vacWeightInRange(n, fromK, toK);
     } catch(e) {}
     const eff = Math.max(0, biz - act - vac);
     let target = null;
@@ -10972,8 +10992,8 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
     let biz = 0;
     try { biz = (typeof _grBizDays === 'function') ? _grBizDays(from, _mE0) : 0; } catch(e) {}
     r.actCnt = (actingDaysMap[r.n] || []).filter(d => d >= _dk(from) && d <= _dk(_mE0)).length;
-    r.vacCnt = ((typeof vacationDaysMap !== 'undefined' && vacationDaysMap[r.n]) || []).filter(d => d >= _dk(from) && d <= _dk(_mE0)).length;   // ⭐ v2.95: 휴가일도 가용일에서 제외
-    r.effDays = Math.max(1, biz - r.actCnt - r.vacCnt);
+    r.vacCnt = _vacWeightInRange(r.n, _dk(from), _dk(_mE0));   // ⭐ v2.95a: 표기용 — 수상 점수에는 보정 없음 (마스터 방침: 휴가는 감안 안 함)
+    r.effDays = Math.max(1, biz - r.actCnt);
     r.regRate = r.reg / r.effDays;
     r.shipRate = r.ship / r.effDays;
   });
@@ -11012,8 +11032,22 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
   const bestCombo = rows.slice().sort((a, b) => (b.reg + b.ship) - (a.reg + a.ship))[0];
   const qRows = rows.filter(r => r.rate !== null);
   const bestQ = qRows.length ? qRows.slice().sort((a, b) => a.rate - b.rate)[0] : null;
-  const impRows = rows.filter(r => r.improve !== null && r.improve > 0);
-  const bestImp = impRows.length ? impRows.slice().sort((a, b) => b.improve - a.improve)[0] : null;
+  // ⭐ v2.95b: 도약왕 — 전월 대비 '가용일 일평균(등록+출고)' 상승 폭 최대 (품질 도약왕 대체, 마스터 지시)
+  //   전월 실적이 전혀 없는 사람(신규 입사 등)은 비교 불가라 제외.
+  const _pS2 = new Date(ay, am - 2, 1), _pE2 = new Date(ay, am - 1, 0);
+  rows.forEach(r => {
+    let pBiz = 0;
+    try { pBiz = (typeof _grBizDays === 'function') ? _grBizDays(_pS2, _pE2) : 0; } catch(e) {}
+    const pAct = (actingDaysMap[r.n] || []).filter(d => d >= _dk(_pS2) && d <= _dk(_pE2)).length;
+    const pEff = Math.max(1, pBiz - pAct);
+    const pReg = (entries || []).filter(e => String(e.worker || '').split('::')[0] === r.n && String(e.date).startsWith(pmv)).length;
+    const pShip = agg.ship(r.n, pmv) || 0;
+    r.prevComboRate = (pReg + pShip) / pEff;
+    r.comboRate = r.regRate + r.shipRate;
+    r.jump = (pReg + pShip) >= 1 ? (r.comboRate - r.prevComboRate) : null;
+  });
+  const jumpRows = rows.filter(r => r.jump !== null && r.jump > 0);
+  const bestJump = jumpRows.length ? jumpRows.slice().sort((a, b) => b.jump - a.jump)[0] : null;
   const aw = (icon, title, who, detail) => `<div style="flex:1;min-width:160px;background:var(--surface2,rgba(148,163,184,.07));border-radius:10px;padding:10px 14px;">
     <div style="font-size:11px;color:var(--text3);font-weight:700;">${icon} ${title}</div>
     <div style="font-size:15px;font-weight:800;margin-top:2px;">${who ? escapeHtml(who.n) : '<span style="font-size:12px;color:var(--text3);font-weight:400;">해당자 없음</span>'}</div>
@@ -11023,18 +11057,18 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
     <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🏆 이 달의 엔지니어 <span style="font-size:11px;color:var(--text3);font-weight:400;">· ${mv} · 포상 참고용 — 공식·원자료 전부 공개 기준</span></div>
     <div style="padding:9px 16px;background:rgba(250,204,21,.08);border-bottom:1px solid var(--border);font-size:12.5px;">
       <b>종합점 = 실제 출고 40% + 수리 등록 25% + 품질점 35% <span style="color:#d97706;">+ 초과 가산</span></b>
-      <span style="font-size:11px;color:var(--text3);"> · 등록·출고는 <b>가용일 일평균</b>(영업일 − 파트장 대행일) 팀 최고 대비 % · 품질점 = 100 − 불합격률×5 · <b style="color:#d97706;">초과 가산 = 본인 일일 목표를 넘긴 일평균 1건당 +6점 (최대 +20) — 불합격률 5% 이하만 적용</b> · KPI 기여도와는 다른 기준</span>
+      <span style="font-size:11px;color:var(--text3);"> · 등록·출고는 <b>가용일 일평균</b>(영업일 − 파트장 대행일) 팀 최고 대비 % · 품질점 = 100 − 불합격률×5 · <b style="color:#d97706;">초과 가산 = 본인 일일 목표를 넘긴 일평균 1건당 +6점 (최대 +20) — 불합격률 5% 이하만 적용</b> · 휴가는 미달만 면제, 점수 보정 없음</span>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;padding:12px 16px;">
       ${aw('🔧🚚', '수리·출고왕 (수리+출고 합산)', bestCombo && (bestCombo.reg + bestCombo.ship) > 0 ? bestCombo : null, bestCombo ? `수리 등록 ${fmt(bestCombo.reg)} + 실제 출고 ${fmt(bestCombo.ship)} = 합산 ${fmt(bestCombo.reg + bestCombo.ship)}건` : '')}
       ${aw('💎', '품질왕 (불합격률 최저)', bestQ, bestQ ? `불합격률 ${bestQ.rate.toFixed(1)}% (검수 ${fmt(bestQ.q.ins)}건)` : '')}
-      ${aw('📈', '품질 도약왕 (전월 대비 개선)', bestImp, bestImp ? `${bestImp.ratePrev.toFixed(1)}% → ${bestImp.rate.toFixed(1)}% (${bestImp.improve.toFixed(1)}%p 개선)` : '')}
+      ${aw('🚀', '도약왕 (전월 대비 점프업)', bestJump, bestJump ? `가용일 일평균(등록+출고) ${bestJump.prevComboRate.toFixed(1)} → ${bestJump.comboRate.toFixed(1)}건 (+${bestJump.jump.toFixed(1)})` : '')}
     </div>
     <div class="table-wrap"><table>
       <thead><tr><th>순위</th><th>엔지니어</th><th style="text-align:right">수리 등록</th><th style="text-align:right">실제 출고</th><th style="text-align:right">교품 처리</th><th style="text-align:right">검수 불합격률</th><th style="text-align:right">품질점</th><th style="text-align:right">초과 가산</th><th style="text-align:right">종합점</th></tr></thead>
       <tbody>${ranked.map((r, i) => `<tr style="${i === 0 ? 'background:rgba(250,204,21,.08);' : ''}">
         <td style="font-weight:800;font-size:${i < 3 ? '15px' : '12px'};">${medal(i)}</td>
-        <td style="font-weight:700;">${escapeHtml(r.n)} ${tierBadge(tierMap[r.n] || '')}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;">🎓</span>' : ''}${r.actCnt ? ` <span style="font-size:10px;font-weight:700;color:#d97706;background:#fff7ed;padding:1px 6px;border-radius:99px;" title="파트장 대행 ${r.actCnt}일 — 등록·출고 점수는 대행일을 뺀 가용일 일평균으로 계산돼 불이익 없음">👑 대행 ${r.actCnt}일</span>` : ''}${r.vacCnt ? ` <span style="font-size:10px;font-weight:700;color:#0369a1;background:#e0f2fe;padding:1px 6px;border-radius:99px;" title="휴가 ${r.vacCnt}일 — 등록·출고 점수는 휴가일을 뺀 가용일 일평균으로 계산돼 불이익 없음">🏖 휴가 ${r.vacCnt}일</span>` : ''}</td>
+        <td style="font-weight:700;">${escapeHtml(r.n)} ${tierBadge(tierMap[r.n] || '')}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;">🎓</span>' : ''}${r.actCnt ? ` <span style="font-size:10px;font-weight:700;color:#d97706;background:#fff7ed;padding:1px 6px;border-radius:99px;" title="파트장 대행 ${r.actCnt}일 — 등록·출고 점수는 대행일을 뺀 가용일 일평균으로 계산돼 불이익 없음">👑 대행 ${r.actCnt}일</span>` : ''}${r.vacCnt ? ` <span style="font-size:10px;font-weight:700;color:#0369a1;background:#e0f2fe;padding:1px 6px;border-radius:99px;" title="이 달 휴가 ${r.vacCnt}일 — 참고 표기만, 점수 보정은 없음 (휴가로 실적이 적은 것도 평가에 그대로 반영)">🏖 휴가 ${r.vacCnt}일</span>` : ''}</td>
         <td style="text-align:right;">${fmt(r.reg)}건 <span style="font-size:10px;color:var(--text3);">일 ${r.regRate.toFixed(1)}</span></td>
         <td style="text-align:right;">${fmt(r.ship)}대 <span style="font-size:10px;color:var(--text3);">일 ${r.shipRate.toFixed(1)}</span></td>
         <td style="text-align:right;color:var(--text2);">${fmt(r.exc)}건</td>
@@ -11089,7 +11123,7 @@ function _finGrowthHtml(team, _ovOf) {
       <div style="display:flex;gap:14px;font-size:10.5px;color:var(--text3);margin-bottom:8px;">
         <span><span style="display:inline-block;width:14px;height:3px;background:var(--accent,#6366f1);border-radius:2px;vertical-align:middle;"></span> 주별 일평균 수리 등록(건/영업일)</span>
         <span><span style="display:inline-block;width:14px;border-top:2px dashed #94a3b8;vertical-align:middle;"></span> 주차별 목표</span>
-        <span>👑 대행 · 🏖 휴가일 있는 주 — 해당 일은 집계(분모)에서 제외</span>
+        <span>👑 대행일 있는 주 — 대행일만 집계(분모)에서 제외 · 🏖 휴가일 있는 주 — 표기만 (집계 보정 없음)</span>
         <span>◌ 진행 중인 주 — 어제까지만 집계 · 영업일은 주말·공휴일·회사휴무 제외</span>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px;margin-bottom:10px;">
@@ -14558,6 +14592,8 @@ async function renderMyDash() {
       </div>
     </div>
 
+    ${_myVacCardHtml()}
+
     ${_myQualitySection(currentUser)}
 
     ${_awardsCardForMyDash()}
@@ -16066,7 +16102,7 @@ async function renderSummary() {
           <span style="font-size:13px;color:var(--text2);">${acting ? `${cnt}건 · 목표 면제` : `${cnt} / ${target||'?'}건`}</span>
           <span class="badge ${bc}">${bt}</span>
           ${(canBeActing(w) && (isMe || isAdmin)) ? `<button class="btn btn-sm" onclick="event.stopPropagation();toggleActingDay('${escapeJs(w)}','${sel}')" title="${acting ? '이 날 파트장 대행 해제' : '파트장 휴무 — 이 날 파트장 대행 (수리 목표 면제 · 기록에 남음)'}" style="height:26px;padding:0 9px;font-size:11px;font-weight:700;${acting ? 'border-color:#d97706;color:#d97706;background:#fff7ed;' : ''}">👑 대행${acting ? ' 해제' : ''}</button>` : ''}
-          ${(isMe || isAdmin) ? (() => { const _vacOn = isVacationDay(w, sel); return `<button class="btn btn-sm" onclick="event.stopPropagation();toggleVacationDay('${escapeJs(w)}','${sel}')" title="${_vacOn ? '이 날 휴가 기록 해제' : '이 날을 휴가(연차)로 기록 — 수리 목표 면제 · 미달 미집계 · 집계 분모 제외'}" style="height:26px;padding:0 9px;font-size:11px;font-weight:700;${_vacOn ? 'border-color:#0ea5e9;color:#0369a1;background:#e0f2fe;' : ''}">🏖 휴가${_vacOn ? ' 해제' : ''}</button>`; })() : ''}
+          ${(isMe || isAdmin) ? (() => { const _vacOn = isVacationDay(w, sel); return `<button class="btn btn-sm" onclick="event.stopPropagation();toggleVacationDay('${escapeJs(w)}','${sel}')" title="${_vacOn ? '이 날 휴가 기록 해제' : '이 날을 휴가(연차)로 기록 — 수리 목표 면제 · 미달 미집계 (실적 집계 보정 없음)'}" style="height:26px;padding:0 9px;font-size:11px;font-weight:700;${_vacOn ? 'border-color:#0ea5e9;color:#0369a1;background:#e0f2fe;' : ''}">🏖 휴가${_vacOn ? ' 해제' : ''}</button>`; })() : ''}
           <span class="worker-block-revenue">${fmt(wrev)}원</span>
           <span id="arrow-${blockId}" style="font-size:16px;color:var(--text3);transition:transform .2s;display:inline-block;">${_isWbOpen(blockId, isMe)?'▲':'▼'}</span>
         </div>
@@ -17231,8 +17267,9 @@ async function renderReport() {
   const maxShare = rows.length ? Math.max(...rows.map(r => r.share)) : 0;
   const medals = ['🥇', '🥈', '🥉'];
 
-  // ⭐ v2.86: T5 대시보드(t4-report-slot 임베드)에서는 KPI 기여도 표 생략 — 이달의엔지니어와 기준이 달라 혼선 (관리자 월간 리포트에는 유지)
-  if(window._reportEmbedTarget !== 't4-report-slot') {
+  // ⭐ v2.95b: 엔지니어별 KPI 기여도 표 전면 제거 (마스터 지시 — 평가는 '이달의 엔지니어'로 일원화,
+  //   기준이 두 개라 혼선). rows 계산은 유지 (대행 이력 등 아래 섹션 재료). 되살리려면 조건만 복원.
+  if(false) {
   h += `<div class="card" style="padding:0;">
     <div style="padding:14px 18px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">엔지니어별 KPI 기여도 <span style="font-size:11px;color:var(--text3);font-weight:400;">· (출고 완료 + 교품 8:1 환산) ÷ ${monthKPI>0?`월 KPI ${fmt(monthKPI)}건`:'전체 출고'} 기준 · 교품 환산은 7/21~9/30 기간만 (10월부터 중단)</span></div>
     <div class="table-wrap"><table>
@@ -17287,9 +17324,10 @@ async function renderReport() {
     }
     // ⭐ v2.95: 이 달 휴가(연차)일 표시 — 휴가일은 목표 면제 · 미달 미집계
     if(r.vacDays && r.vacDays.length) {
-      const _vds = r.vacDays.map(d => d.slice(5).replace('-','/'));
-      const _vShown = _vds.slice(0,4).join('·') + (_vds.length > 4 ? ` 외 ${_vds.length-4}일` : '');
-      stage += `<br><span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#e0f2fe;color:#0369a1;" title="휴가일 (수리 목표 면제 · 미달 미집계): ${r.vacDays.join(', ')}">🏖 휴가 ${r.vacDays.length}일 (${_vShown})</span>`;
+      const _vds = r.vacDays.map(d => d.slice(5, 10).replace('-','/') + (String(d).endsWith('H') ? '(반)' : ''));
+      const _vShown = _vds.slice(0,4).join('·') + (_vds.length > 4 ? ` 외 ${_vds.length-4}건` : '');
+      const _vW = r.vacDays.reduce((s, d) => s + (String(d).endsWith('H') ? 0.5 : 1), 0);
+      stage += `<br><span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#e0f2fe;color:#0369a1;" title="휴가일 (연차 목표 면제 · 반차 목표 절반 · 미달 미집계 — 실적 집계 보정 없음): ${r.vacDays.join(', ')}">🏖 휴가 ${_vW}일 (${_vShown})</span>`;
     }
     h += `<tr${(r.cnt>0&&rank===1)?' style="background:var(--accent-bg,rgba(45,212,191,.06));"':''}>
       <td style="text-align:center;">${rankCell}</td>
@@ -18021,7 +18059,7 @@ function renderWorkers() {
         <button onclick="toggleActingDay('${escapeJs(w)}', document.getElementById('act-d-${_wi}')?.value)" title="파트장 대행 (파트장 휴무일 — 왼쪽 날짜의 대행 기록을 등록/해제. 기본 오늘, 지난 날짜 소급 등록 가능)" style="height:30px;padding:0 10px;font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;border:1px solid ${_act?'#d97706':'var(--border2)'};background:${_act?'#fff7ed':'transparent'};color:${_act?'#d97706':'var(--text2)'};">👑 대행${_act?' (오늘 중)':''}</button>`; })() : ''}
         ${(() => { const _vac = isVacationDay(w, todayStr()); return `
         <input type="date" id="vac-d-${_wi}" value="${todayStr()}" title="휴가일 — 날짜를 골라 연차·휴가를 등록/해제 (지난 날짜 소급 가능)" style="height:30px;padding:0 6px;font-size:11px;border:1px solid ${_vac?'#0ea5e9':'var(--border2)'};border-radius:var(--radius-sm);color:var(--text2);" />
-        <button onclick="toggleVacationDay('${escapeJs(w)}', document.getElementById('vac-d-${_wi}')?.value)" title="개인 휴가(연차) — 왼쪽 날짜를 휴가로 등록/해제. 휴가일은 수리 목표 면제 · 미달 미집계 · 성장분석/이달의엔지니어 분모 제외" style="height:30px;padding:0 10px;font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;border:1px solid ${_vac?'#0ea5e9':'var(--border2)'};background:${_vac?'#e0f2fe':'transparent'};color:${_vac?'#0369a1':'var(--text2)'};">🏖 휴가${_vac?' (오늘 중)':''}</button>`; })()}
+        <button onclick="toggleVacationDay('${escapeJs(w)}', document.getElementById('vac-d-${_wi}')?.value)" title="개인 휴가(연차) — 왼쪽 날짜를 휴가로 등록/해제. 휴가일은 수리 목표 면제 · 미달 미집계 (실적 집계 보정은 없음)" style="height:30px;padding:0 10px;font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;border:1px solid ${_vac?'#0ea5e9':'var(--border2)'};background:${_vac?'#e0f2fe':'transparent'};color:${_vac?'#0369a1':'var(--text2)'};">🏖 휴가${_vac?' (오늘 중)':''}</button>`; })()}
 <input type="number" min="0" step="1" placeholder="자동" value="${dtVal!==undefined&&dtVal!==null?dtVal:''}" onchange="saveWorkerDailyTarget('${w}',this.value)" title="일일 목표 직접 지정 (비우면 입사일 기준 자동)" style="width:64px;height:30px;padding:0 6px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);text-align:right;" />
         <span style="font-size:11px;color:var(--text3);">건/일</span>
         ${isFullAdmin() ? `<button class="btn btn-sm" onclick="resetWorkerPassword('${escapeJs(w)}')" title="비밀번호 초기화 — 다음 로그인 때 본인이 새 비밀번호를 설정" style="color:#d97706;border-color:#d97706;">🔑 비번 초기화</button>` : ''}
@@ -18288,32 +18326,69 @@ async function saveMentoring(name, on) {
    본인(T2 스스로) 또는 관리자(T3·T4·마스터)가 켜고 끌 수 있음. */
 /* ⭐ v2.95: 개인 휴가(연차) 등록/해제 — 대행일과 같은 저장 구조(작업자 11번째 필드).
    휴가일은 수리 목표 면제 · 미달 미집계 · 성장분석 그래프와 이달의 엔지니어의 가용일(분모)에서 제외. */
-async function toggleVacationDay(name, dayStr) {
+async function toggleVacationDay(name, dayStr, type) {
   const day = String(dayStr || todayStr()).slice(0, 10);
   if(!/^\d{4}-\d{2}-\d{2}$/.test(day)) { notify('휴가 날짜를 선택해주세요.', 'error'); return; }
   if(name !== currentUser && !canManageWorker(name)) {
     notify('본인 또는 관리자만 휴가를 등록할 수 있습니다.', 'error');
     return;
   }
+  if(name === MASTER_NAME) { notify('마스터는 휴가 집계 대상이 아닙니다.', 'error'); return; }
+  const half = type === 'half';   // ⭐ v2.95a: 반차 — 그 날 목표 절반 · 분모 0.5일 차감
+  const label = half ? '반차' : '휴가(연차)';
+  const entry = half ? day + 'H' : day;
   const cur = Array.isArray(vacationDaysMap[name]) ? vacationDaysMap[name].slice() : [];
-  const on = !cur.includes(day);
+  const existing = cur.find(x => x === day || x === day + 'H');   // 같은 날 기존 등록 (종류 무관)
+  const on = !existing;
   const past = day < todayStr();
-  if(on && !confirm(`${name} — ${day} 휴가(연차)로 기록할까요?${past ? '\n(지난 날짜 소급 등록 — 그 날 미달로 잡혔던 것도 휴가로 정리됩니다)' : ''}\n이 날은 수리 목표가 면제되고, 성장분석·이달의 엔지니어 집계에서도 근무일에서 빠집니다.`)) return;
-  if(!on && !confirm(`${name} — ${day} 휴가 기록을 해제할까요?\n(해제하면 이 날 수리 목표가 다시 적용됩니다)`)) return;
+  if(on && !confirm(`${name} — ${day} ${label}로 기록할까요?${past ? '\n(지난 날짜 소급 등록 — 그 날 미달로 잡혔던 것도 정리됩니다)' : ''}\n${half ? '이 날 수리 목표가 절반으로 줄어 미달로 잡히지 않습니다.' : '이 날은 수리 목표가 면제되어 미달로 잡히지 않습니다.'}\n(이달의 엔지니어·성장분석 실적 집계에는 보정 없음)`)) return;
+  if(!on && !confirm(`${name} — ${day} ${existing.endsWith('H') ? '반차' : '휴가'} 기록을 해제할까요?\n(해제하면 이 날 수리 목표가 다시 적용됩니다)`)) return;
   const old = cur.slice();
-  if(on) cur.push(day); else cur.splice(cur.indexOf(day), 1);
+  if(on) cur.push(entry); else cur.splice(cur.indexOf(existing), 1);
   if(cur.length) vacationDaysMap[name] = cur.sort(); else delete vacationDaysMap[name];
   try {
     const _swRaw = serializeWorkers(); await gasCall({action:'saveWorkers', workers: _swRaw}); _rememberWorkers(_swRaw);
-    notify(on ? `🏖 ${name} — ${day} 휴가 기록 (수리 목표 면제 · 집계 분모 제외)` : `${name} — ${day} 휴가 해제`);
+    notify(on ? `🏖 ${name} — ${day} ${label} 기록${half ? ' (목표 절반 · 미달 미집계)' : ' (수리 목표 면제 · 미달 미집계)'}` : `${name} — ${day} 휴가 해제`);
     window._grAggMemo = null;   // 성장분석 분모 변경 → 메모 무효화
     try { renderWorkers(); } catch(e) {}
     try { renderSummary(); } catch(e) {}
+    try { if(document.getElementById('mydash-body') && document.getElementById('tab-mydash')?.classList.contains('active')) renderMyDash(); } catch(e) {}
   } catch {
     if(old.length) vacationDaysMap[name] = old; else delete vacationDaysMap[name];
     notify('휴가 기록 저장 실패.', 'error');
     try { renderWorkers(); } catch(e) {}
   }
+}
+/* ⭐ v2.95a: 내 대시보드 셀프 휴가 등록 (T5 제외 전원) — 관리자가 일일이 등록하지 않아도 되게 */
+function _myVacCardHtml() {
+  try {
+    if(!currentUser || currentUser === MASTER_NAME) return '';
+    const today = todayStr();
+    const cut = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+    const mine = (vacationDaysMap[currentUser] || []).slice().sort().filter(x => String(x).slice(0, 10) >= cut);
+    const chips = mine.map(x => {
+      const d = String(x).slice(0, 10);
+      const half = String(x).endsWith('H');
+      const future = d >= today;
+      return `<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:700;background:${half ? '#fef9c3' : '#e0f2fe'};color:${half ? '#a16207' : '#0369a1'};${future ? '' : 'opacity:.6;'}">
+        ${d.slice(5).replace('-', '/')} ${half ? '반차' : '연차'}
+        <a href="#" onclick="event.preventDefault();toggleVacationDay('${escapeJs(currentUser)}','${d}')" title="이 휴가 기록 해제" style="color:inherit;text-decoration:none;font-weight:900;">✕</a>
+      </span>`;
+    }).join(' ');
+    return `<div class="card" style="margin-bottom:20px;">
+      <div class="card-title" style="margin-bottom:6px;">🏖 내 휴가 등록</div>
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;line-height:1.6;">휴가 가는 날을 직접 등록하세요 — <b>연차</b>는 그 날 수리 목표 면제, <b>반차</b>는 목표 절반이라 <b>미달로 잡히지 않습니다</b>. 단, 이달의 엔지니어·성장분석 실적 집계에는 보정이 없어요 (쉰 만큼 실적이 적게 잡히는 건 그대로). 지난 날짜 소급 등록도 돼요.</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input type="date" id="my-vac-date" value="${today}" onclick="try{this.showPicker()}catch(e){}" style="height:36px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);">
+        <select id="my-vac-type" style="height:36px;width:90px;">
+          <option value="full">연차</option>
+          <option value="half">반차</option>
+        </select>
+        <button class="btn btn-primary" style="height:36px;" onclick="toggleVacationDay(currentUser, document.getElementById('my-vac-date')?.value, document.getElementById('my-vac-type')?.value)">등록</button>
+      </div>
+      ${mine.length ? `<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><span style="font-size:11px;color:var(--text3);">등록된 휴가:</span> ${chips}</div>` : ''}
+    </div>`;
+  } catch(e) { return ''; }
 }
 async function toggleActingDay(name, dayStr) {
   const day = String(dayStr || todayStr()).slice(0,10);
