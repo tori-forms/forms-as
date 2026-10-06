@@ -14189,6 +14189,18 @@ function _qualityWeakCard(days = 90) {
 /* ⭐ v2.83: 이 달의 엔지니어를 내 대시보드(전 직급)에서 공개 — 연봉 등 민감정보 없이 실적·품질만 쓰므로 안전 */
 /* ⭐ v2.93: 관리자(T5·T4)는 ◀ 전월 버튼으로 지난 달 수상자도 조회 가능 (포상 소급 확인용).
    일반 엔지니어는 종전처럼 이번 달만. */
+/* ⭐ v2.93a: 월 변경 시 전체 대시보드 재렌더 대신 수상 카드만 즉시 교체 — ◀ 버튼이 반응 없어 보이던 문제 해결 */
+function _awardsRefresh() {
+  const wrap = document.getElementById('awards-wrap');
+  if(wrap) { wrap.outerHTML = _awardsCardForMyDash(); return; }
+  try { renderMyDash(); } catch(e) {}
+}
+function _awardsSetMv(v) {
+  const now = new Date();
+  const curMv = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  window._awardsMv = (/^\d{4}-\d{2}$/.test(String(v)) && String(v) < curMv) ? String(v) : null;
+  _awardsRefresh();
+}
 function _awardsNav(d) {
   try {
     const now = new Date();
@@ -14203,7 +14215,7 @@ function _awardsNav(d) {
       window._awardsMv = mv;
     }
   } catch(e) {}
-  try { renderMyDash(); } catch(e) {}
+  _awardsRefresh();
 }
 function _awardsCardForMyDash() {
   try {
@@ -14221,14 +14233,16 @@ function _awardsCardForMyDash() {
     });
     const inner = _finAwardsHtml(mv, team, _ov, _grAggregates(), cntBy);
     if(!inner) return '';
-    if(!isAdmin) return inner;
+    if(!isAdmin) return `<div id="awards-wrap">${inner}</div>`;
     const viewingPast = mv !== curMv;
-    const nav = `<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end;margin-bottom:6px;">
-      ${viewingPast ? `<span style="font-size:11.5px;font-weight:700;color:#d97706;background:#fff7ed;padding:3px 10px;border-radius:99px;margin-right:auto;">📅 ${mv} 지난 달 보기</span>` : `<span style="font-size:11px;color:var(--text3);margin-right:auto;">관리자: 지난 달 수상자도 조회 가능</span>`}
-      <button class="btn btn-sm" onclick="_awardsNav(-1)">◀ 전월</button>
-      ${viewingPast ? `<button class="btn btn-sm" onclick="_awardsNav(1)">다음 달 ▶</button><button class="btn btn-sm btn-primary" onclick="_awardsNav(0)">이번 달로</button>` : ''}
+    // ⭐ v2.93a: 년·월 직접 선택(달력) + ◀ ▶ — 카드만 즉시 갱신
+    const nav = `<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end;margin-bottom:6px;flex-wrap:wrap;">
+      ${viewingPast ? `<span style="font-size:11.5px;font-weight:700;color:#d97706;background:#fff7ed;padding:3px 10px;border-radius:99px;margin-right:auto;">📅 ${mv} 지난 달 보기</span>` : `<span style="font-size:11px;color:var(--text3);margin-right:auto;">관리자: 아래 달력으로 지난 달 수상자 조회</span>`}
+      <button class="btn btn-sm" onclick="_awardsNav(-1)">◀</button>
+      <input type="month" value="${mv}" max="${curMv}" onchange="_awardsSetMv(this.value)" onclick="try{this.showPicker()}catch(e){}" style="height:30px;padding:0 8px;font-size:12px;border:1px solid var(--border2);border-radius:8px;background:var(--surface);color:var(--text);">
+      ${viewingPast ? `<button class="btn btn-sm" onclick="_awardsNav(1)">▶</button><button class="btn btn-sm btn-primary" onclick="_awardsNav(0)">이번 달로</button>` : ''}
     </div>`;
-    return nav + inner;
+    return `<div id="awards-wrap">${nav}${inner}</div>`;
   } catch(e) { return ''; }
 }
 async function renderMyDash() {
@@ -17352,6 +17366,16 @@ async function renderReport() {
       </div>
     </div>
   </div>`;
+
+  // ⭐ v2.93a: 이달의 엔지니어 — 실적 리포트의 조회 월에 연동 (T5 요청: 과거 달 수상자 확인)
+  try {
+    const _awTeam = (workers || []).filter(n => n !== MASTER_NAME && isActiveWorker(n));
+    const _awOv = n => (tierMap[n] === LEAD_TIER() || (roleMap[n] || 'engineer') === 'inspector') ? 'indirect' : 'direct';
+    const _awCnt = {};
+    monthEntries.forEach(e => { const w2 = String(e.worker || '').split('::')[0]; if(w2) _awCnt[w2] = (_awCnt[w2] || 0) + 1; });
+    const _awHtml = _finAwardsHtml(monthVal, _awTeam, _awOv, _grAggregates(), _awCnt);
+    if(_awHtml) h += `<div style="margin-top:14px;">${_awHtml}</div>`;
+  } catch(e) {}
 
   el.innerHTML = h;
 }
