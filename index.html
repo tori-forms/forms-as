@@ -10969,6 +10969,19 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
   // 품질점: 불합격률 1%당 −5점 (0~100). 표본 부족(검수<10건)은 팀 평균 품질점으로 중립 처리.
   const rated = rows.filter(r => r.rate !== null);
   const teamQAvg = rated.length ? rated.reduce((sm, r) => sm + Math.max(0, 100 - r.rate * 5), 0) / rated.length : 80;
+  // ⭐ v2.94: 초과 가산 — "12건만 치고 멈추는" 안주 방지. 본인 일일 목표를 넘긴 일평균 초과분
+  //   1건당 +6점(최대 +20)을 종합점에 얹는다. 단 품질 게이트(그 달 불합격률 5% 이하) 통과자만 —
+  //   속도만 올리고 품질이 무너지는 변질 차단. 표본 부족(검수<10건)은 품질점과 같은 중립 처리로 통과.
+  const EXTRA_PER = 6, EXTRA_CAP = 20, Q_GATE = 5;
+  const _midD2 = new Date(ay2, am2 - 1, 15);
+  rows.forEach(r => {
+    let tgt = 0;
+    try { tgt = (typeof getPersonalDailyTarget === 'function') ? (getPersonalDailyTarget(r.n, _midD2) || 0) : 0; } catch(e) {}
+    r.dailyTarget = tgt;
+    r.overRaw = tgt > 0 ? Math.max(0, r.regRate - tgt) : 0;
+    r.qGatePass = (r.rate === null) || r.rate <= Q_GATE;
+    r.overBonus = (r.qGatePass && r.overRaw > 0) ? Math.min(EXTRA_CAP, r.overRaw * EXTRA_PER) : 0;
+  });
   rows.forEach(r => {
     r.qScore = r.rate !== null ? Math.max(0, 100 - r.rate * 5) : teamQAvg;
     r.qNeutral = r.rate === null;
@@ -10976,9 +10989,9 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
     r.shipScore = maxShipRate > 0 ? r.shipRate / maxShipRate * 100 : 0;
     // ⭐ v2.82d: 종합 = 실제 출고 40% + 수리 등록 25% + 품질 35% — 출고가 곧 매출이라 최대 가중
     //   (출고 데이터 없는 달은 등록 65% + 품질 35% 폴백)
-    r.total = maxShip > 0
+    r.total = (maxShip > 0
       ? r.shipScore * 0.40 + r.regScore * 0.25 + r.qScore * 0.35
-      : r.regScore * 0.65 + r.qScore * 0.35;
+      : r.regScore * 0.65 + r.qScore * 0.35) + r.overBonus;          // ⭐ v2.94: 초과 가산 합산
   });
   const ranked = rows.slice().sort((a, b) => b.total - a.total);
   const medal = i => ['🥇', '🥈', '🥉'][i] || `${i + 1}위`;
@@ -10996,8 +11009,8 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
   return `<div class="card" style="padding:0;margin-bottom:14px;">
     <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🏆 이 달의 엔지니어 <span style="font-size:11px;color:var(--text3);font-weight:400;">· ${mv} · 포상 참고용 — 공식·원자료 전부 공개 기준</span></div>
     <div style="padding:9px 16px;background:rgba(250,204,21,.08);border-bottom:1px solid var(--border);font-size:12.5px;">
-      <b>종합점 = 실제 출고 40% + 수리 등록 25% + 품질점 35%</b>
-      <span style="font-size:11px;color:var(--text3);"> · 등록·출고는 <b>가용일 일평균</b>(영업일 − 파트장 대행일) 팀 최고 대비 % — 회사 지시로 빠진 대행일만 참작 · 품질점 = 100 − 불합격률×5 · KPI 기여도와는 다른 기준</span>
+      <b>종합점 = 실제 출고 40% + 수리 등록 25% + 품질점 35% <span style="color:#d97706;">+ 초과 가산</span></b>
+      <span style="font-size:11px;color:var(--text3);"> · 등록·출고는 <b>가용일 일평균</b>(영업일 − 파트장 대행일) 팀 최고 대비 % · 품질점 = 100 − 불합격률×5 · <b style="color:#d97706;">초과 가산 = 본인 일일 목표를 넘긴 일평균 1건당 +6점 (최대 +20) — 불합격률 5% 이하만 적용</b> · KPI 기여도와는 다른 기준</span>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;padding:12px 16px;">
       ${aw('🔧🚚', '수리·출고왕 (수리+출고 합산)', bestCombo && (bestCombo.reg + bestCombo.ship) > 0 ? bestCombo : null, bestCombo ? `수리 등록 ${fmt(bestCombo.reg)} + 실제 출고 ${fmt(bestCombo.ship)} = 합산 ${fmt(bestCombo.reg + bestCombo.ship)}건` : '')}
@@ -11005,7 +11018,7 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
       ${aw('📈', '품질 도약왕 (전월 대비 개선)', bestImp, bestImp ? `${bestImp.ratePrev.toFixed(1)}% → ${bestImp.rate.toFixed(1)}% (${bestImp.improve.toFixed(1)}%p 개선)` : '')}
     </div>
     <div class="table-wrap"><table>
-      <thead><tr><th>순위</th><th>엔지니어</th><th style="text-align:right">수리 등록</th><th style="text-align:right">실제 출고</th><th style="text-align:right">교품 처리</th><th style="text-align:right">검수 불합격률</th><th style="text-align:right">품질점</th><th style="text-align:right">종합점</th></tr></thead>
+      <thead><tr><th>순위</th><th>엔지니어</th><th style="text-align:right">수리 등록</th><th style="text-align:right">실제 출고</th><th style="text-align:right">교품 처리</th><th style="text-align:right">검수 불합격률</th><th style="text-align:right">품질점</th><th style="text-align:right">초과 가산</th><th style="text-align:right">종합점</th></tr></thead>
       <tbody>${ranked.map((r, i) => `<tr style="${i === 0 ? 'background:rgba(250,204,21,.08);' : ''}">
         <td style="font-weight:800;font-size:${i < 3 ? '15px' : '12px'};">${medal(i)}</td>
         <td style="font-weight:700;">${escapeHtml(r.n)} ${tierBadge(tierMap[r.n] || '')}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;">🎓</span>' : ''}${r.actCnt ? ` <span style="font-size:10px;font-weight:700;color:#d97706;background:#fff7ed;padding:1px 6px;border-radius:99px;" title="파트장 대행 ${r.actCnt}일 — 등록·출고 점수는 대행일을 뺀 가용일 일평균으로 계산돼 불이익 없음">👑 대행 ${r.actCnt}일</span>` : ''}</td>
@@ -11014,9 +11027,14 @@ function _finAwardsHtml(mv, team, _ovOf, agg, cntBy) {
         <td style="text-align:right;color:var(--text2);">${fmt(r.exc)}건</td>
         <td style="text-align:right;">${r.rate !== null ? `${r.rate.toFixed(1)}% <span style="font-size:10px;color:var(--text3);">(${fmt(r.q.ins)}건)</span>` : '<span style="color:var(--text3);font-size:11px;" title="이 달 검수 10건 미만 — 품질점은 팀 평균으로 중립 처리">표본 부족</span>'}</td>
         <td style="text-align:right;">${r.qScore.toFixed(0)}${r.qNeutral ? '<span style="font-size:10px;color:var(--text3);">*</span>' : ''}</td>
+        <td style="text-align:right;">${r.overBonus > 0
+          ? `<span style="font-weight:800;color:#d97706;">+${r.overBonus.toFixed(1)}</span> <span style="font-size:10px;color:var(--text3);" title="본인 목표 일 ${r.dailyTarget}건 대비 일평균 +${r.overRaw.toFixed(1)}건 초과">(일 +${r.overRaw.toFixed(1)})</span>`
+          : (r.overRaw > 0 && !r.qGatePass
+            ? `<span style="font-size:11px;color:#dc2626;" title="일평균 +${r.overRaw.toFixed(1)}건 초과했지만 불합격률 ${r.rate !== null ? r.rate.toFixed(1) : '?'}%로 품질 게이트(5% 이하) 미통과 — 가산 없음">🚧 게이트</span>`
+            : '<span style="color:var(--text3);">—</span>')}</td>
         <td style="text-align:right;font-weight:800;color:${i === 0 ? '#d97706' : 'var(--text)'};">${r.total.toFixed(1)}</td>
       </tr>`).join('')}</tbody></table></div>
-    <div style="padding:10px 16px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">종합점 = 실제 출고 40%(매출 기준) + 수리 등록 25% + 품질 35%${maxShip > 0 ? '' : (typeof _shipHistoryLoaded !== 'undefined' && !_shipHistoryLoaded ? ' (⏳ 출고 이력을 아직 못 불러왔어요 — 불러오면 자동 반영, 임시로 등록 65% + 품질 35%)' : ' (이 달 출고 데이터 없음 → 등록 65% + 품질 35%)')} · 등록·출고는 가용 영업일(파트장 대행일만 제외 — 입사 시기는 참작 없음) 일평균의 팀 최고 대비 %, 품질점 = 100 − 불합격률×5 · *표본 부족(검수 10건 미만)은 팀 평균 품질점으로 중립 처리 · 교품 처리는 참고 표기(점수 미반영)</div>
+    <div style="padding:10px 16px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);line-height:1.6;">종합점 = 실제 출고 40%(매출 기준) + 수리 등록 25% + 품질 35%${maxShip > 0 ? '' : (typeof _shipHistoryLoaded !== 'undefined' && !_shipHistoryLoaded ? ' (⏳ 출고 이력을 아직 못 불러왔어요 — 불러오면 자동 반영, 임시로 등록 65% + 품질 35%)' : ' (이 달 출고 데이터 없음 → 등록 65% + 품질 35%)')} · 등록·출고는 가용 영업일(파트장 대행일만 제외 — 입사 시기는 참작 없음) 일평균의 팀 최고 대비 %, 품질점 = 100 − 불합격률×5 · *표본 부족(검수 10건 미만)은 팀 평균 품질점으로 중립 처리 · <b>초과 가산</b> = 본인 일일 목표(신입은 적응 스케줄 목표)를 넘긴 일평균 1건당 +6점, 최대 +20점 — 불합격률 5% 이하(표본 부족은 중립 통과)만 적용: 목표만 채우면 0점, 더 치는 만큼 순위가 올라갑니다 · 교품 처리는 참고 표기(점수 미반영)</div>
   </div>`;
 }
 
