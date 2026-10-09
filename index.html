@@ -11548,14 +11548,19 @@ function _finOverBonusData() {
     if(!agg[ds.slice(0, 7)]) return;
     (byDay[n + '|' + ds] = byDay[n + '|' + ds] || { n, ds, c: 0 }).c++;
   });
+  const byWorker = {};   // ⭐ v3.00a: {'YYYY-MM': {이름: 초과건수}} — 엔지니어별 정산 표용
   Object.values(byDay).forEach(r => {
     let tgt = 0;
     try { tgt = getPersonalDailyTarget(r.n, new Date(r.ds + 'T09:00:00')) || 0; } catch(e) {}
     if(tgt <= 0) return;   // 목표 면제일(연차 등)은 초과 집계에서 제외
     const over = Math.max(0, r.c - tgt);
-    if(over > 0) agg[r.ds.slice(0, 7)].over += over;
+    if(over > 0) {
+      const mk = r.ds.slice(0, 7);
+      agg[mk].over += over;
+      (byWorker[mk] = byWorker[mk] || {})[r.n] = (byWorker[mk][r.n] || 0) + over;
+    }
   });
-  return { months, agg };
+  return { months, agg, byWorker };
 }
 function _fobAmt() {
   let v = 3000;
@@ -11568,9 +11573,56 @@ function _fobSet(v) {
   const el = document.getElementById('fob-wrap');
   if(el) el.outerHTML = _finOverBonusHtml();
 }
+function _fobMonSet(v) {
+  window._fobMon = v;
+  const el = document.getElementById('fob-wrap');
+  if(el) el.outerHTML = _finOverBonusHtml();
+}
+/* ⭐ v3.00a: 선택 월의 엔지니어별 초과 건수 정산 표 — 누가 몇 건 초과했고,
+   품질 게이트(불합격률 5% 이하)를 통과해 실제로 얼마를 받는지까지. */
+function _fobPayoutHtml(byWorker, months, amt) {
+  const avail = months.filter(m => byWorker[m] && Object.keys(byWorker[m]).length);
+  if(!avail.length) return `<div style="font-size:12px;color:var(--text3);padding:8px 0;">아직 목표를 초과한 기록이 없습니다 — 초과가 생기면 여기에 엔지니어별 정산 표가 떠요.</div>`;
+  let mon = window._fobMon;
+  if(!mon || !months.includes(mon)) mon = avail[avail.length - 1];   // 기본: 초과가 있는 가장 최근 달
+  let ga = null;
+  try { ga = _grAggregates(); } catch(e) {}
+  const Q_GATE = 5;
+  const names = Object.keys(byWorker[mon] || {}).sort((a, b) => (byWorker[mon][b] || 0) - (byWorker[mon][a] || 0));
+  let tot = 0, totOver = 0;
+  const rows = names.map(n => {
+    const over = byWorker[mon][n] || 0;
+    let rate = null, ins = 0;
+    try { if(ga) { const q = ga.qMonth(n, mon); ins = q.ins; rate = q.ins >= 10 ? q.fail / q.ins * 100 : null; } } catch(e) {}
+    const pass = (rate === null) || rate <= Q_GATE;
+    const pay = pass ? over * amt : 0;
+    tot += pay; totOver += over;
+    return `<tr>
+      <td style="font-weight:700;">${escapeHtml(n)}</td>
+      <td style="text-align:right;font-weight:800;">${fmt(over)}건</td>
+      <td style="text-align:right;">${rate === null ? `<span style="color:var(--text3);" title="검수 ${ins}건 — 10건 미만은 중립(통과) 처리">표본 부족</span>` : rate.toFixed(1) + '%'}</td>
+      <td style="text-align:center;">${pass ? '<span style="color:var(--green,#16a34a);font-weight:800;">✓ 통과</span>' : `<span style="color:#dc2626;font-weight:800;" title="불합격률 ${rate.toFixed(1)}% — 5% 초과로 게이트 미통과, 지급 제외">🚧 미통과</span>`}</td>
+      <td style="text-align:right;font-weight:800;${pass ? '' : 'color:var(--text3);text-decoration:line-through;'}">${fmt(over * amt)}원</td>
+    </tr>`;
+  }).join('');
+  const sel = months.map(m => `<option value="${m}" ${m === mon ? 'selected' : ''}>${m.slice(0, 4)}.${m.slice(5)}${byWorker[m] ? '' : ' (초과 없음)'}</option>`).join('');
+  return `<div style="margin-top:14px;">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+      <span style="font-size:12.5px;font-weight:800;">👤 엔지니어별 정산</span>
+      <select onchange="_fobMonSet(this.value)" style="height:28px;font-size:12px;">${sel}</select>
+      <span style="font-size:11px;color:var(--text3);">그 날 본인 목표(휴가·대행 반영)를 넘긴 건수의 합 · 품질 게이트는 그 달 불합격률 5% 이하</span>
+    </div>
+    <div class="table-wrap"><table style="font-size:12px;">
+      <thead><tr><th>엔지니어</th><th style="text-align:right">초과 건수</th><th style="text-align:right">불합격률</th><th style="text-align:center">게이트</th><th style="text-align:right">지급액 (건당 ${fmt(amt)}원)</th></tr></thead>
+      <tbody>${rows}
+        <tr style="border-top:2px solid var(--border);"><td style="font-weight:800;">합계</td><td style="text-align:right;font-weight:800;">${fmt(totOver)}건</td><td></td><td></td><td style="text-align:right;font-weight:900;color:var(--accent);">${fmt(tot)}원</td></tr>
+      </tbody>
+    </table></div>
+  </div>`;
+}
 function _finOverBonusHtml() {
   const _w = v => fmt(Math.round(v)) + '원';
-  const { months, agg } = _finOverBonusData();
+  const { months, agg, byWorker } = _finOverBonusData();
   const valid = months.filter(m => agg[m].cnt >= 10);   // 출고 10건 미만 달은 평균이 불안정 — 제외
   if(!valid.length) return '<div id="fob-wrap"></div>';
   const avgOf = m => Math.round(agg[m].sum / agg[m].cnt);
@@ -11616,6 +11668,7 @@ function _finOverBonusHtml() {
         <thead><tr><th>월</th><th style="text-align:right">유상 출고</th><th style="text-align:right">건당 평균 공임</th><th style="text-align:right">초과 건수</th><th style="text-align:right">수당/공임 비율</th><th style="text-align:right">지급액(실적 기준)</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
+      ${_fobPayoutHtml(byWorker, months, amt)}
       <div style="font-size:11px;color:var(--text3);margin-top:8px;">%(비율) 연동이 아니라 <b>고정가</b>를 권하는 이유: 공임 평균이 달마다 바뀌면 수당도 매달 달라져 엔지니어 입장에서 예측이 안 되고 정산 분쟁의 소지가 생겨요. 바닥 달 기준으로 안전한 고정가면 좋은 달엔 부담률이 더 내려갈 뿐입니다.</div>
     </div>
   </div></div>`;
