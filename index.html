@@ -19353,10 +19353,10 @@ function calcPartsUsage(allEntries, fromDate, toDate) {
     }
 
     if(entryParts && typeof entryParts === 'object' && Object.keys(entryParts).length > 0) {
-      // 실제 입력 수량 합산
+      // 실제 입력 수량 합산 (⚑품질 특이 키는 부품 아님 — v2.99 제외)
       Object.entries(entryParts).forEach(([name, qty]) => {
         const n = Number(qty) || 0;
-        if(n > 0 && name) usage[name] = (usage[name] || 0) + n;
+        if(n > 0 && name && !isQualityFlagKey(name)) usage[name] = (usage[name] || 0) + n;
       });
     } else {
       // 폴백: 현재 매핑 기본 수량 (기종 필터)
@@ -19371,6 +19371,103 @@ function calcPartsUsage(allEntries, fromDate, toDate) {
   return usage;
 }
 
+/* ⭐ v2.99: 일별 사용량 — 수기 불출 장부 대조용.
+   장부(가져간 날·사람·부품·수량)와 나란히 놓고 맞춰볼 수 있게, 하루치 부품 사용을
+   부품별 × 엔지니어별로 집계하고 펼치면 수리건(시리얼)·DOA 상세까지 보여준다.
+   기준: 수리 등록일(entry.date) + 그 날 등록된 DOA(되돌려진 건 제외). */
+function _ledgerDayData(ds) {
+  const parts = {};   // name → { repair, doa, byWorker:{}, rows:[] }
+  const slot = n => parts[n] || (parts[n] = { repair: 0, doa: 0, byWorker: {}, rows: [] });
+  (entries || []).forEach(e => {
+    if(toLocalDay(e.date) !== ds) return;
+    let ep = e.parts;
+    if(typeof ep === 'string') { try { ep = JSON.parse(ep); } catch { ep = null; } }
+    if(!ep || typeof ep !== 'object') return;
+    Object.entries(ep).forEach(([name, qty]) => {
+      const n = Number(qty) || 0;
+      if(n <= 0 || !name || isQualityFlagKey(name)) return;
+      const s = slot(name);
+      s.repair += n;
+      s.byWorker[e.worker] = (s.byWorker[e.worker] || 0) + n;
+      s.rows.push({ t: String(e.date).slice(11, 16), worker: e.worker, label: `수리 ${e.serial || ''}${e.model ? ' · ' + e.model : ''}`, qty: n });
+    });
+  });
+  (stockLog || []).forEach(l => {
+    if(l.type !== 'out' || String(l.date).slice(0, 10) !== ds) return;
+    if(!/^DOA 불량/.test(String(l.note || ''))) return;
+    if(typeof _doaUndone === 'function' && _doaUndone(l)) return;   // 되돌려진 DOA 제외
+    const name = l.partName || '';
+    if(!name) return;
+    const q = Number(l.qty) || 0;
+    const w = String(l.worker || '').split('::')[0];
+    const s = slot(name);
+    s.doa += q;
+    if(w) s.byWorker[w] = (s.byWorker[w] || 0) + q;
+    const sym = (String(l.note).match(/\[([^\]]+)\]/) || [])[1] || '';
+    s.rows.push({ t: String(l.date).slice(11, 16), worker: w, label: `DOA${sym ? ' · ' + sym : ''}`, qty: q, doa: true });
+  });
+  return parts;
+}
+function _ledgerSet(v) {
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(v || ''))) return;
+  window._ledgerDay = v;
+  const el = document.getElementById('ledger-wrap');
+  if(el) el.outerHTML = _ledgerCardHtml();
+}
+function _ledgerNav(d) {
+  const cur = new Date((window._ledgerDay || todayStr()) + 'T12:00:00');
+  cur.setDate(cur.getDate() + d);
+  _ledgerSet(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`);
+}
+function _ledgerCardHtml() {
+  try {
+    const ds = window._ledgerDay || todayStr();
+    const data = _ledgerDayData(ds);
+    const names = Object.keys(data).sort((a, b) => (data[b].repair + data[b].doa) - (data[a].repair + data[a].doa));
+    const tot = names.reduce((s, n) => s + data[n].repair + data[n].doa, 0);
+    const totDoa = names.reduce((s, n) => s + data[n].doa, 0);
+    const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+    const dow = DOW[new Date(ds + 'T12:00:00').getDay()];
+    const navBtn = (lbl, fn, title) => `<button class="btn btn-sm" onclick="${fn}" title="${title}" style="height:30px;padding:0 10px;font-weight:800;">${lbl}</button>`;
+    let body;
+    if(!names.length) {
+      body = `<div style="padding:18px 4px;color:var(--text3);font-size:13px;">이 날 수리 등록·DOA로 기록된 부품 사용이 없습니다.</div>`;
+    } else {
+      body = names.map(n => {
+        const d = data[n];
+        const chips = Object.entries(d.byWorker).sort((a, b) => b[1] - a[1])
+          .map(([w, q]) => `<span style="display:inline-block;padding:2px 8px;border-radius:99px;background:var(--surface2);font-size:11px;font-weight:700;color:var(--text2);">${escapeHtml(w)} ${q}</span>`).join(' ');
+        const detail = d.rows.sort((a, b) => a.t.localeCompare(b.t))
+          .map(r => `<div style="display:flex;gap:10px;font-size:11.5px;color:var(--text3);padding:2px 0;">
+            <span style="min-width:34px;">${r.t}</span><span style="min-width:56px;font-weight:700;color:var(--text2);">${escapeHtml(r.worker || '')}</span>
+            <span style="flex:1;${r.doa ? 'color:#dc2626;' : ''}">${escapeHtml(r.label)}</span><span style="font-weight:800;">${r.qty}개</span>
+          </div>`).join('');
+        return `<details style="border-top:1px solid var(--border);">
+          <summary style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 2px;cursor:pointer;list-style:none;">
+            <span style="font-size:12.5px;font-weight:800;flex:1;min-width:140px;">${escapeHtml(n)}</span>
+            ${chips}
+            ${d.doa ? `<span style="font-size:11px;font-weight:800;color:#dc2626;">DOA ${d.doa}</span>` : ''}
+            <span style="font-size:14px;font-weight:900;min-width:44px;text-align:right;">${d.repair + d.doa}개</span>
+          </summary>
+          <div style="padding:2px 2px 8px 10px;border-left:2px solid var(--border);margin:0 0 8px 4px;">${detail}</div>
+        </details>`;
+      }).join('');
+    }
+    return `<div id="ledger-wrap"><div class="card" style="margin-bottom:20px;border:1px solid var(--accent);">
+      <div class="card-title" style="margin-bottom:6px;">📒 일별 사용량 — 불출 장부 대조</div>
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;line-height:1.6;">수기 장부와 날짜를 맞춰 부품별로 대조하세요. 전산은 <b>수리 등록일 기준</b>이라 가져간 날과 1~2일 어긋날 수 있어요 (◀ ▶로 이웃 날짜 확인). <b>장부에는 있는데 여기 없는 수량</b> = 수리에 안 태운 소모(파손·테스트·반납 안 된 것) — 월말 실사에서 보정되고, 반복되면 해당 부품·사람을 확인해보세요.</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+        ${navBtn('◀', '_ledgerNav(-1)', '전날')}
+        <input type="date" value="${ds}" max="${todayStr()}" onchange="_ledgerSet(this.value)" onclick="try{this.showPicker()}catch(e){}" style="height:30px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-weight:700;">
+        <span style="font-size:12px;color:var(--text2);font-weight:700;">(${dow})</span>
+        ${navBtn('▶', '_ledgerNav(1)', '다음날')}
+        ${ds !== todayStr() ? navBtn('오늘', `_ledgerSet('${todayStr()}')`, '오늘로') : ''}
+        <span style="margin-left:auto;font-size:12px;color:var(--text2);">합계 <b style="font-size:15px;color:var(--text);">${tot}</b>개${totDoa ? ` · DOA ${totDoa}개` : ''}</span>
+      </div>
+      ${body}
+    </div></div>`;
+  } catch(e) { return '<div id="ledger-wrap"></div>'; }
+}
 function renderPartsUsage() {
   const el = document.getElementById('usage-content');
   if(!el) return;
@@ -19422,6 +19519,9 @@ function renderPartsUsage() {
     💡 <strong>수리 등록 데이터 기반 자동 집계</strong><br>
     <span style="color:var(--text2);font-size:12px;">각 작업의 부품 사용량을 합산한 결과입니다. 재고 시트의 실제 차감과는 별개로, 운영 패턴 분석용으로 사용하세요.</span>
   </div>`;
+
+  // ⭐ v2.99: 일별 사용량 — 수기 불출 장부 대조
+  h += _ledgerCardHtml();
 
   // 기간 필터 + 새로고침
   h += `<div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
