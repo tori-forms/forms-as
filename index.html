@@ -1492,6 +1492,10 @@ window.addEventListener('DOMContentLoaded', function(){
       <button id="stocktab-order" onclick="switchStockTab('order')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
         🚨 발주 알림<span id="order-tab-badge"></span>
       </button>
+      <!-- ⭐ v2.99a: 사용량 서브탭 버튼 복원 — 패널(usage-content)은 있는데 진입 버튼이 빠져 있었음 -->
+      <button id="stocktab-usage" onclick="switchStockTab('usage')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
+        📊 부품 사용량
+      </button>
       <button id="stocktab-audit" onclick="switchStockTab('audit')" style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text2);">
         🧮 재고 대사(실사)
       </button>
@@ -3415,7 +3419,7 @@ function renderAll() {
                         : 'inventory';
     if(activeStockTab === 'inventory') renderStock();
     else if(activeStockTab === 'order') { try { renderOrderList(); } catch {} }
-    else if(activeStockTab === 'usage') { try { renderPartsUsage(); } catch {} }
+    else if(activeStockTab === 'usage') { try { renderPartsUsageTrend(); } catch {} }   // ⭐ v2.99a: 탭 뷰(추세+일별 대조)와 일치
     else if(activeStockTab === 'history') { try { renderStockHistory(); } catch {} }  // ⭐ 데이터 도착/동기화 시 이력도 갱신
   }
   // ⭐ v2.91: 부품 DOA 메인 탭 — 데이터 도착/동기화 시 갱신
@@ -20264,14 +20268,16 @@ function renderPartsUsageTrend() {
     return { name, counts, total: counts.reduce((a,b)=>a+b,0) };
   }).filter(p=>p.total>0).sort((a,b)=>b.total-a.total);
 
+  // ⭐ v2.99a: 일별 사용량(불출 장부 대조) 카드 — 탭 맨 위
+  const ledger = (typeof _ledgerCardHtml === 'function') ? _ledgerCardHtml() : '';
   if(!parts.length) {
-    el.innerHTML = `<div class="empty"><div class="empty-icon">📊</div>소모 이력이 없습니다.<br><span style="font-size:12px;color:var(--text3);">수리 시 부품이 차감되면 여기에 추세가 쌓여요.</span></div>`;
+    el.innerHTML = ledger + `<div class="empty"><div class="empty-icon">📊</div>소모 이력이 없습니다.<br><span style="font-size:12px;color:var(--text3);">수리 시 부품이 차감되면 여기에 추세가 쌓여요.</span></div>`;
     return;
   }
 
   // 부품별 막대 추세 (월별)
   const colors = ['#2563eb','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16'];
-  let h = `<div style="font-size:13px;color:var(--text2);margin-bottom:14px;">최근 6개월 부품별 소모량 · 발주 계획 참고용</div>`;
+  let h = ledger + `<div style="font-size:13px;color:var(--text2);margin-bottom:14px;">최근 6개월 부품별 소모량 · 발주 계획 참고용</div>`;
   parts.forEach((p,pi) => {
     const maxV = Math.max(1, ...p.counts);
     const c = colors[pi % colors.length];
