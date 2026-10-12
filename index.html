@@ -19564,61 +19564,98 @@ function _ledgerDayData(ds) {
   });
   return parts;
 }
+/* ⭐ v3.01: 주간(월~금) 보기로 전환 — 수기 장부가 주 단위로 넘어가므로 한 주를 한 표로 대조 (마스터 지시) */
+function _ledgerMonday(ds) {
+  const d = new Date(String(ds).slice(0, 10) + 'T12:00:00');
+  if(isNaN(d)) return _ledgerMonday(todayStr());
+  const dow = d.getDay();
+  d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));   // 일요일이면 지난주 월요일
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 function _ledgerSet(v) {
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(v || ''))) return;
-  window._ledgerDay = v;
+  window._ledgerWk = _ledgerMonday(v);
   const el = document.getElementById('ledger-wrap');
   if(el) el.outerHTML = _ledgerCardHtml();
 }
 function _ledgerNav(d) {
-  const cur = new Date((window._ledgerDay || todayStr()) + 'T12:00:00');
-  cur.setDate(cur.getDate() + d);
+  const cur = new Date((window._ledgerWk || _ledgerMonday(todayStr())) + 'T12:00:00');
+  cur.setDate(cur.getDate() + d * 7);
   _ledgerSet(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`);
 }
 function _ledgerCardHtml() {
   try {
-    const ds = window._ledgerDay || todayStr();
-    const data = _ledgerDayData(ds);
-    const names = Object.keys(data).sort((a, b) => (data[b].repair + data[b].doa) - (data[a].repair + data[a].doa));
-    const tot = names.reduce((s, n) => s + data[n].repair + data[n].doa, 0);
-    const totDoa = names.reduce((s, n) => s + data[n].doa, 0);
-    const DOW = ['일', '월', '화', '수', '목', '금', '토'];
-    const dow = DOW[new Date(ds + 'T12:00:00').getDay()];
+    const mon = window._ledgerWk || _ledgerMonday(todayStr());
+    const days = [];
+    for(let i = 0; i < 5; i++) { const d = new Date(mon + 'T12:00:00'); d.setDate(d.getDate() + i); days.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); }
+    const DOW = ['월', '화', '수', '목', '금'];
+    const today = todayStr();
+    const byDay = days.map(ds => _ledgerDayData(ds));
+    // 주간 부품 목록 (합계 내림차순)
+    const nameSet = {};
+    byDay.forEach(m => Object.keys(m).forEach(n => { nameSet[n] = (nameSet[n] || 0) + m[n].repair + m[n].doa; }));
+    const names = Object.keys(nameSet).sort((a, b) => nameSet[b] - nameSet[a]);
+    const tot = names.reduce((s, n) => s + nameSet[n], 0);
+    const totDoa = byDay.reduce((s, m) => s + Object.values(m).reduce((x, v) => x + v.doa, 0), 0);
     const navBtn = (lbl, fn, title) => `<button class="btn btn-sm" onclick="${fn}" title="${title}" style="height:30px;padding:0 10px;font-weight:800;">${lbl}</button>`;
+    const wkLabel = `${days[0].slice(5).replace('-', '/')} ~ ${days[4].slice(5).replace('-', '/')}`;
+    const isThisWeek = mon === _ledgerMonday(today);
     let body;
     if(!names.length) {
-      body = `<div style="padding:18px 4px;color:var(--text3);font-size:13px;">이 날 수리 등록·DOA로 기록된 부품 사용이 없습니다.</div>`;
+      body = `<div style="padding:18px 4px;color:var(--text3);font-size:13px;">이 주(${wkLabel})에 수리 등록·DOA로 기록된 부품 사용이 없습니다.</div>`;
     } else {
-      body = names.map(n => {
-        const d = data[n];
-        const chips = Object.entries(d.byWorker).sort((a, b) => b[1] - a[1])
-          .map(([w, q]) => `<span style="display:inline-block;padding:2px 8px;border-radius:99px;background:var(--surface2);font-size:11px;font-weight:700;color:var(--text2);">${escapeHtml(w)} ${q}</span>`).join(' ');
-        const detail = d.rows.sort((a, b) => a.t.localeCompare(b.t))
-          .map(r => `<div style="display:flex;gap:10px;font-size:11.5px;color:var(--text3);padding:2px 0;">
+      const rows = names.map(n => {
+        // 주간 엔지니어별 합계 칩
+        const wkWorker = {};
+        byDay.forEach(m => { const v = m[n]; if(v) Object.entries(v.byWorker).forEach(([w, q]) => wkWorker[w] = (wkWorker[w] || 0) + q); });
+        const chips = Object.entries(wkWorker).sort((a, b) => b[1] - a[1])
+          .map(([w, q]) => `<span style="display:inline-block;padding:1px 7px;border-radius:99px;background:var(--surface2);font-size:10.5px;font-weight:700;color:var(--text2);">${escapeHtml(w)} ${q}</span>`).join(' ');
+        const wkDoa = byDay.reduce((s, m) => s + (m[n] ? m[n].doa : 0), 0);
+        const cells = days.map((ds, i) => {
+          const v = byDay[i][n];
+          const q = v ? v.repair + v.doa : 0;
+          const future = ds > today;
+          return `<td style="text-align:right;${future ? 'color:var(--text3);' : ''}${v && v.doa ? 'color:#dc2626;font-weight:800;' : q ? 'font-weight:700;' : 'color:var(--text3);'}" title="${ds}${v && v.doa ? ` · DOA ${v.doa}개 포함` : ''}">${future ? '·' : (q || '·')}</td>`;
+        }).join('');
+        // 상세: 요일별 → 건별 (시간·엔지니어·시리얼/DOA·수량)
+        const detail = days.map((ds, i) => {
+          const v = byDay[i][n];
+          if(!v || !v.rows.length) return '';
+          const lines = v.rows.sort((a, b) => a.t.localeCompare(b.t)).map(r => `<div style="display:flex;gap:10px;font-size:11.5px;color:var(--text3);padding:1px 0;">
             <span style="min-width:34px;">${r.t}</span><span style="min-width:56px;font-weight:700;color:var(--text2);">${escapeHtml(r.worker || '')}</span>
             <span style="flex:1;${r.doa ? 'color:#dc2626;' : ''}">${escapeHtml(r.label)}</span><span style="font-weight:800;">${r.qty}개</span>
           </div>`).join('');
-        return `<details style="border-top:1px solid var(--border);">
-          <summary style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 2px;cursor:pointer;list-style:none;">
-            <span style="font-size:12.5px;font-weight:800;flex:1;min-width:140px;">${escapeHtml(n)}</span>
-            ${chips}
-            ${d.doa ? `<span style="font-size:11px;font-weight:800;color:#dc2626;">DOA ${d.doa}</span>` : ''}
-            <span style="font-size:14px;font-weight:900;min-width:44px;text-align:right;">${d.repair + d.doa}개</span>
-          </summary>
-          <div style="padding:2px 2px 8px 10px;border-left:2px solid var(--border);margin:0 0 8px 4px;">${detail}</div>
-        </details>`;
+          return `<div style="margin-bottom:6px;"><div style="font-size:11px;font-weight:800;color:var(--text2);">${ds.slice(5).replace('-', '/')} (${DOW[i]})</div>${lines}</div>`;
+        }).join('');
+        return `<tr onclick="var d=document.getElementById('lgd-${names.indexOf(n)}'); if(d) d.style.display = d.style.display==='none' ? '' : 'none';" style="cursor:pointer;" title="클릭하면 건별 상세(누가 어느 수리건에)">
+          <td><div style="font-weight:800;font-size:12px;">${escapeHtml(n)}</div><div style="display:flex;gap:3px;flex-wrap:wrap;margin-top:2px;">${chips}</div></td>
+          ${cells}
+          <td style="text-align:right;font-weight:900;">${nameSet[n]}${wkDoa ? `<div style="font-size:10px;color:#dc2626;font-weight:800;">DOA ${wkDoa}</div>` : ''}</td>
+        </tr>
+        <tr id="lgd-${names.indexOf(n)}" style="display:none;"><td colspan="7" style="padding:6px 10px;background:var(--surface2);">${detail || '<span style="font-size:11px;color:var(--text3);">상세 없음</span>'}</td></tr>`;
       }).join('');
+      // 요일별 합계 행
+      const dayTotals = days.map((ds, i) => {
+        const s = Object.values(byDay[i]).reduce((x, v) => x + v.repair + v.doa, 0);
+        return `<td style="text-align:right;font-weight:800;${ds > today ? 'color:var(--text3);' : ''}">${ds > today ? '·' : s}</td>`;
+      }).join('');
+      body = `<div class="table-wrap" style="overflow-x:auto;"><table style="font-size:12px;min-width:560px;">
+        <thead><tr><th style="min-width:150px;">부품명</th>${days.map((ds, i) => `<th style="text-align:right;">${ds.slice(8)}일<div style="font-size:9.5px;color:var(--text3);font-weight:400;">${DOW[i]}</div></th>`).join('')}<th style="text-align:right;">주 합계</th></tr></thead>
+        <tbody>${rows}
+          <tr style="border-top:2px solid var(--border);"><td style="font-weight:800;">일별 합계</td>${dayTotals}<td style="text-align:right;font-weight:900;color:var(--accent);">${tot}</td></tr>
+        </tbody>
+      </table></div>`;
     }
     return `<div id="ledger-wrap"><div class="card" style="margin-bottom:20px;border:1px solid var(--accent);">
-      <div class="card-title" style="margin-bottom:6px;">📒 일별 사용량 — 불출 장부 대조</div>
-      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;line-height:1.6;">수기 장부와 날짜를 맞춰 부품별로 대조하세요. 전산은 <b>수리 등록일 기준</b>이라 가져간 날과 1~2일 어긋날 수 있어요 (◀ ▶로 이웃 날짜 확인). <b>장부에는 있는데 여기 없는 수량</b> = 수리에 안 태운 소모(파손·테스트·반납 안 된 것) — 월말 실사에서 보정되고, 반복되면 해당 부품·사람을 확인해보세요.</div>
+      <div class="card-title" style="margin-bottom:6px;">📒 주간 사용량 — 불출 장부 대조 <span style="font-size:10px;color:var(--text3);font-weight:400;text-transform:none;">· 월~금</span></div>
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;line-height:1.6;"><b>수리 등록에 입력한 부품 + DOA 등록</b>(되돌린 건 제외)을 합친 숫자예요 — 장부처럼 "쓴 것"만 세고, 부품이 들어온 입고나 실사 수량 맞춤 같은 건 여기 안 섞여요. 부품 줄을 클릭하면 누가 어느 수리건에 썼는지 건별로 보여요. <b>장부에는 있는데 여기 없는 수량</b> = 수리에 안 태운 소모(파손·테스트 등) — 반복되면 그 부품·사람을 확인해보세요.</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
-        ${navBtn('◀', '_ledgerNav(-1)', '전날')}
-        <input type="date" value="${ds}" max="${todayStr()}" onchange="_ledgerSet(this.value)" onclick="try{this.showPicker()}catch(e){}" style="height:30px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-weight:700;">
-        <span style="font-size:12px;color:var(--text2);font-weight:700;">(${dow})</span>
-        ${navBtn('▶', '_ledgerNav(1)', '다음날')}
-        ${ds !== todayStr() ? navBtn('오늘', `_ledgerSet('${todayStr()}')`, '오늘로') : ''}
-        <span style="margin-left:auto;font-size:12px;color:var(--text2);">합계 <b style="font-size:15px;color:var(--text);">${tot}</b>개${totDoa ? ` · DOA ${totDoa}개` : ''}</span>
+        ${navBtn('◀ 전주', '_ledgerNav(-1)', '지난주')}
+        <input type="date" value="${mon}" max="${today}" onchange="_ledgerSet(this.value)" onclick="try{this.showPicker()}catch(e){}" title="아무 날짜나 고르면 그 주(월~금)로 이동" style="height:30px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-weight:700;">
+        <span style="font-size:12.5px;color:var(--text);font-weight:800;">${wkLabel}</span>
+        ${isThisWeek ? '<span style="font-size:10.5px;color:var(--accent);font-weight:800;">이번 주</span>' : navBtn('▶ 다음주', '_ledgerNav(1)', '다음주')}
+        ${isThisWeek ? '' : navBtn('이번 주', `_ledgerSet('${today}')`, '이번 주로')}
+        <span style="margin-left:auto;font-size:12px;color:var(--text2);">주 합계 <b style="font-size:15px;color:var(--text);">${tot}</b>개${totDoa ? ` · DOA ${totDoa}개` : ''}</span>
       </div>
       ${body}
     </div></div>`;
