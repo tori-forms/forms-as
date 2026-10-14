@@ -13904,9 +13904,22 @@ function pickDailyCheer() {
   return general[(dayOfYear - 1 + general.length) % general.length];
 }
 /* ===== 엔지니어 내 대시보드 ===== */
+// ⭐ v3.04: 파트장(T4) 화면 범위 — 파트장 대시보드의 관리 카드(품질 약점·관제판·초과 사용·성장 분석)는
+//   본인 파트 팀원(+공용 'all')만. 총괄(T5)·마스터는 전체. 파트 미지정 상태면 전체(기존 동작).
+function _t4CanSee(w) {
+  try {
+    if(!isPartMaster()) return true;
+    const my = currentUserPart();
+    if(!my || my === 'all') return true;
+    const n = String(w || '').split('::')[0];
+    if(n === currentUser) return true;
+    const p = partMap[n] || '';
+    return p === my || p === 'all';
+  } catch(e) { return true; }
+}
 // ⭐ T4 미처리 관제판 — 에이징 완료·미이관 / 출고 제외 / 재작업 대기(불량)를 엔지니어별로 추적
 function buildAdminControlBoard() {
-  const all = entries || [];
+  const all = (entries || []).filter(e => _t4CanSee(e.worker));   // ⭐ v3.04: 파트장은 본인 파트만
   // 1) 에이징 완료됐는데 검수대기로 안 넘긴 것 (status=aging인데 24h 경과)
   // 1) 에이징 완료됐는데 검수대기로 안 넘긴 것 — 2영업일 이상 방치만 (1영업일까진 정상, 주말·공휴일 제외)
   const agingStuck = all.filter(e => String(e.status||'') === STATUS_AGING && bizDaysElapsed(new Date(e.agingStart).getTime(), nowMs()) >= 2);
@@ -14465,6 +14478,7 @@ function _partOveruseCard(days = 30) {
       const exp = {};
       ws.forEach(k => { try { getWorkParts(k, e.model).forEach(pp => { exp[pp.name] = Math.max(exp[pp.name] ?? 0, Number(pp.qty) || 1); }); } catch(err) {} });
       const w = String(e.worker || '').split('::')[0];
+      if(!_t4CanSee(w)) return;   // ⭐ v3.04: 파트장은 본인 파트만
       Object.entries(p).forEach(([name, q]) => {
         if(String(name).startsWith('⚑')) return;   // 품질 특이 체크 키 제외
         const got = Number(q) || 0;
@@ -14508,6 +14522,7 @@ function _qualityWeakCard(days = 30) {   // ⭐ v2.96: 90일 → 30일 (마스�
       if(!(t >= cut)) return;
       const w = (typeof _qhEngOf === 'function') ? _qhEngOf(insp) : '미정';
       if(!w || w === '미정' || !(workers || []).includes(w)) return;
+      if(!_t4CanSee(w)) return;   // ⭐ v3.04: 파트장은 본인 파트만
       const b = (byEng[w] = byEng[w] || { fail: 0, reasons: {}, types: {} });
       b.fail++;
       // 상세 사유: defectReason 우선 (콤마로 여러 사유면 나눠 집계), 없으면 유형, 그것도 없으면 미기재
@@ -14936,6 +14951,15 @@ async function renderMyDash() {
       ${_partOveruseCard()}
       ${_qualityWeakCard()}
       ${_partAnomalyCard()}
+      ${(() => { try {   // ⭐ v3.04: 파트장 대시보드에 성장 분석 — 본인 파트 팀원만
+        const _gTeam = (workers || []).filter(n => n !== MASTER_NAME && tierMap[n] !== ADMIN_TIER() && isActiveWorker(n) && _t4CanSee(n));
+        const _gOv = n => (tierMap[n] === LEAD_TIER() || (roleMap[n] || 'engineer') === 'inspector') ? 'indirect' : 'direct';
+        const g = _finGrowthHtml(_gTeam, _gOv);
+        return g ? `<details style="margin-top:4px;">
+          <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;"><span style="font-size:12px;">▶</span> 📈 우리 파트 성장 분석 <span style="font-size:12px;color:var(--text3);font-weight:400;">(펼치기 · 본인 파트 팀원만)</span></summary>
+          <div style="margin-top:10px;">${g}</div>
+        </details>` : '';
+      } catch(e) { return ''; } })()}
       <details id="t3-board-details" style="margin-top:4px;"${window._board3Open?' open':''}>
         <summary style="cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 2px;list-style:none;display:flex;align-items:center;gap:6px;">
           <span style="font-size:12px;" class="t3-board-arrow">${window._board3Open?'▼':'▶'}</span>
