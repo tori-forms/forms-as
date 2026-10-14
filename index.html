@@ -14950,7 +14950,6 @@ async function renderMyDash() {
       <div id="t3-triple-slot"></div>
       ${_partOveruseCard()}
       ${_qualityWeakCard()}
-      ${_partAnomalyCard()}
       ${(() => { try {   // ⭐ v3.04: 파트장 대시보드에 성장 분석 — 본인 파트 팀원만
         const _gTeam = (workers || []).filter(n => n !== MASTER_NAME && tierMap[n] !== ADMIN_TIER() && isActiveWorker(n) && _t4CanSee(n));
         const _gOv = n => (tierMap[n] === LEAD_TIER() || (roleMap[n] || 'engineer') === 'inspector') ? 'indirect' : 'direct';
