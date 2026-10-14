@@ -13917,6 +13917,40 @@ function _t4CanSee(w) {
     return p === my || p === 'all';
   } catch(e) { return true; }
 }
+/* ⭐ v3.05: 엔지니어별 불량률 (입사 후 누적) — 파트장 대시보드용. 품질 대시보드의 기간별 칩과 달리
+   전체 커리어 누적이라 기간 불균형이 없고, 파트장은 본인 파트 팀원만 보인다. */
+function _engFailRateAllCard() {
+  try {
+    const agg = _grAggregates();
+    const list = (workers || []).filter(n =>
+      n !== MASTER_NAME && tierMap[n] !== ADMIN_TIER() &&
+      (roleMap[n] || 'engineer') !== 'inspector' &&
+      (typeof isActiveWorker !== 'function' || isActiveWorker(n)) && _t4CanSee(n));
+    const rows = list.map(n => {
+      const q = agg.quality(n) || { insAll: 0, failAll: 0 };
+      return { n, ins: q.insAll || 0, fail: q.failAll || 0, rate: q.insAll > 0 ? q.failAll / q.insAll * 100 : null };
+    }).filter(r => r.ins > 0).sort((a, b) => (b.rate || 0) - (a.rate || 0));
+    if(!rows.length) return '';
+    return `<div class="card" style="padding:0;margin-bottom:16px;">
+      <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">📉 엔지니어별 불량률 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 입사 후 누적 (검수 수리건 기준) · 🔴 10%↑ 🟡 5~10% 🟢 5%↓</span></div>
+      <div style="padding:12px 16px;display:flex;flex-direction:column;gap:7px;">
+        ${rows.map(r => {
+          const low = r.ins < 10;
+          const color = low ? 'var(--text3)' : r.rate >= 10 ? '#ef4444' : r.rate >= 5 ? '#f59e0b' : '#10b981';
+          const dot = low ? '⚪' : r.rate >= 10 ? '🔴' : r.rate >= 5 ? '🟡' : '🟢';
+          const bg = low ? 'transparent' : r.rate >= 10 ? 'rgba(239,68,68,.08)' : r.rate >= 5 ? 'rgba(245,158,11,.08)' : 'rgba(16,185,129,.06)';
+          return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:8px;background:${bg};border-left:3px solid ${color};">
+            <span style="font-weight:700;font-size:13px;">${dot} ${escapeHtml(r.n)}${(partMap[r.n] === 'p1' || partMap[r.n] === 'p2') ? ' ' + partBadge(partMap[r.n]) : ''}</span>
+            <span style="display:flex;align-items:baseline;gap:8px;">
+              <span style="color:${color};font-weight:800;font-size:16px;">${r.rate.toFixed(1)}%${low ? '<span style="font-size:10px;color:var(--text3);font-weight:400;"> (표본 적음)</span>' : ''}</span>
+              <span style="color:var(--text3);font-size:11px;">검수 ${fmt(r.ins)} · 불량 ${fmt(r.fail)}</span>
+            </span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  } catch(e) { return ''; }
+}
 // ⭐ T4 미처리 관제판 — 에이징 완료·미이관 / 출고 제외 / 재작업 대기(불량)를 엔지니어별로 추적
 function buildAdminControlBoard() {
   const all = (entries || []).filter(e => _t4CanSee(e.worker));   // ⭐ v3.04: 파트장은 본인 파트만
@@ -14396,6 +14430,7 @@ function _myQualitySection(name) {
         <div style="flex:1;min-width:220px;font-size:12.5px;line-height:1.8;color:var(--text2);">
           <div style="font-size:14px;font-weight:800;color:${g.c};">${g.t}</div>
           <div>검수 <b>${fmt(ins)}건</b> 중 불합격 <b>${fmt(fail)}건</b> (불합격률 ${rate.toFixed(1)}%) ${trend ? '· ' + trend : ''}</div>
+          ${use60 ? `<div style="font-size:11.5px;color:var(--text3);">입사 후 누적 불량률 <b style="color:var(--text2);">${(q.failAll / q.insAll * 100).toFixed(1)}%</b> (검수 ${fmt(q.insAll)}건 · 불합격 ${fmt(q.failAll)}건) — 기간 들쭉날쭉 없이 전체 커리어 기준</div>` : ''}
           ${weak ? `<div style="margin-top:2px;">${weak}</div>` : ''}
         </div>
       </div>
@@ -14950,6 +14985,7 @@ async function renderMyDash() {
       <div id="t3-triple-slot"></div>
       ${_partOveruseCard()}
       ${_qualityWeakCard()}
+      ${_engFailRateAllCard()}
       ${(() => { try {   // ⭐ v3.04: 파트장 대시보드에 성장 분석 — 본인 파트 팀원만
         const _gTeam = (workers || []).filter(n => n !== MASTER_NAME && tierMap[n] !== ADMIN_TIER() && isActiveWorker(n) && _t4CanSee(n));
         const _gOv = n => (tierMap[n] === LEAD_TIER() || (roleMap[n] || 'engineer') === 'inspector') ? 'indirect' : 'direct';
