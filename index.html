@@ -11376,11 +11376,24 @@ async function renderFinance() {
   const _allocOut = r => (r.dep && !r.sal) || r.preHire;
   const indRows = rows.filter(r => r.inc && r.kind === 'indirect' && !_allocOut(r));
   const dirRows = rows.filter(r => r.inc && r.kind === 'direct' && !_allocOut(r));
-  const netOverhead = indRows.reduce((s, r) => s + Math.max(0, r.cost - r.rev), 0);
-  const dirRevSum = dirRows.reduce((s, r) => s + r.rev, 0);
+  // ⭐ v3.08: 파트 스코프 배분 — 파트장(파트 지정된 간접)의 잔여 인건비는 "본인 파트 직접 인력"이 부담.
+  //   파트 없는 간접(QC 등)은 기존대로 전체 직접 인력에 배분. 파트에 직접 인력이 없으면 전체로 폴백. (마스터 지시:
+  //   파트장 몫은 본인 파트 안에서 해결했는지가 중요)
+  rows.forEach(r => { r._allocAcc = 0; });
+  let netOverhead = 0;
+  indRows.forEach(ir => {
+    const burden = Math.max(0, ir.cost - ir.rev);
+    ir._allocScope = (partMap[ir.n] === 'p1' || partMap[ir.n] === 'p2') ? partMap[ir.n] : 'all';
+    if(!burden) return;
+    netOverhead += burden;
+    let targets = ir._allocScope !== 'all' ? dirRows.filter(d => partMap[d.n] === ir._allocScope) : dirRows;
+    if(!targets.length) { targets = dirRows; ir._allocScope = 'all'; }
+    const revSum = targets.reduce((s, d) => s + d.rev, 0);
+    targets.forEach(d => { d._allocAcc += revSum > 0 ? burden * d.rev / revSum : burden / targets.length; });
+  });
   rows.forEach(r => {
     if(r.kind === 'direct' && r.inc && !_allocOut(r)) {
-      r.alloc = dirRevSum > 0 ? Math.round(netOverhead * r.rev / dirRevSum) : (dirRows.length ? Math.round(netOverhead / dirRows.length) : 0);
+      r.alloc = Math.round(r._allocAcc || 0);
       r.profit = r.rev - r.cost - r.alloc;
       r.bepCnt = avgUnit > 0 && (r.cost + r.alloc) > 0 ? Math.ceil((r.cost + r.alloc) / avgUnit) : 0;   // 배분 포함 월 BEP
     } else { r.alloc = 0; r.profit = r.rev - r.cost; r.bepCnt = 0; }
@@ -11428,7 +11441,7 @@ async function renderFinance() {
       <td><input type="checkbox" id="fin-inc-${r.i}" ${r.inc ? 'checked' : ''} onchange="saveFinance()"></td>
       <td><select id="fin-ov-${r.i}" onchange="saveFinance()" title="간접 = 수리가 기본 업무가 아님 (T3 관리·QC 등) — 인건비를 직접 인력에 배분" style="height:28px;padding:0 4px;font-size:11px;border:1px solid var(--border2);border-radius:var(--radius-sm);color:${isInd ? '#0369a1' : 'var(--text2)'};">
         <option value="direct" ${!isInd ? 'selected' : ''}>🔧 직접</option><option value="indirect" ${isInd ? 'selected' : ''}>👥 간접</option></select></td>
-      <td style="font-weight:700;">${escapeHtml(r.n)} ${r.dep ? '<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#f3f4f6;color:#6b7280;">🚪 퇴사</span>' : `${tierBadge(tierMap[r.n] || '')}${(() => { const _p = partMap[r.n]; const _isLead = tierMap[r.n] === LEAD_TIER(); if(_p === 'p1' || _p === 'p2') { const _c = PART_COLORS[_p]; return ` <span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:99px;background:${_c.bg};color:${_c.text};border:1px solid ${_c.border};">${PART_LABELS[_p]}${_isLead ? ' 파트장' : ''}</span>`; } return _isLead ? ' <span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:99px;background:#e0f2fe;color:#0369a1;">파트장</span>' : ''; })()}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;font-weight:700;">🎓</span>' : ''}`}${r.dep ? `<div style="margin-top:3px;display:flex;align-items:center;gap:5px;"><input type="date" id="fin-dep-${r.i}" value="${r.depDate}" onchange="saveFinance()" title="퇴사일 — 이 날짜까지 일할로 인건비에 포함" style="height:26px;font-size:11px;padding:0 4px;border:1.5px solid ${r.depDate ? 'var(--border2)' : '#f59e0b'};border-radius:var(--radius-sm);">${!r.depDate ? '<span style="font-size:10px;color:#d97706;font-weight:700;">퇴사일 입력</span>' : ''}</div>` : ''}</td>
+      <td style="font-weight:700;">${escapeHtml(r.n)} ${r.dep ? '<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#f3f4f6;color:#6b7280;">🚪 퇴사</span>' : `${tierBadge(tierMap[r.n] || '')}${(() => { const _p = partMap[r.n]; const _isLead = tierMap[r.n] === LEAD_TIER(); if(_p === 'p1' || _p === 'p2') { const _c = PART_COLORS[_p]; return ` <span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:99px;white-space:nowrap;display:inline-block;background:${_c.bg};color:${_c.text};border:1px solid ${_c.border};">${PART_LABELS[_p]}${_isLead ? ' 파트장' : ''}</span>`; } return _isLead ? ' <span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:99px;background:#e0f2fe;color:#0369a1;">파트장</span>' : ''; })()}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;font-weight:700;">🎓</span>' : ''}`}${r.dep ? `<div style="margin-top:3px;display:flex;align-items:center;gap:5px;"><input type="date" id="fin-dep-${r.i}" value="${r.depDate}" onchange="saveFinance()" title="퇴사일 — 이 날짜까지 일할로 인건비에 포함" style="height:26px;font-size:11px;padding:0 4px;border:1.5px solid ${r.depDate ? 'var(--border2)' : '#f59e0b'};border-radius:var(--radius-sm);">${!r.depDate ? '<span style="font-size:10px;color:#d97706;font-weight:700;">퇴사일 입력</span>' : ''}</div>` : ''}</td>
       <td style="text-align:right;"><input type="number" id="fin-sal-${r.i}" value="${r.sal || ''}" placeholder="미입력" min="0" style="width:84px;height:30px;text-align:right;padding:0 6px;border:1px solid var(--border2);border-radius:var(--radius-sm);"></td>
       <td style="text-align:right;color:var(--text2);">${!r.sal ? (r.dep ? '<span style="color:#d97706;font-size:10.5px;font-weight:700;" title="연봉과 퇴사일을 입력하고 저장하면 재직 기간만큼 일할로 인건비 상계에 포함됩니다">연봉 입력 시 포함</span>' : '<span style="color:var(--text3);">—</span>')
         : r.preHire ? `<span style="color:var(--text3);font-size:11px;" title="${r.dep ? '퇴사일이 조회 달 이전 — 인건비 0원. 이 달 매출이 보이는 건 퇴사 전에 수리해 둔 기기가 이 달 출고(청구)된 것으로, 매출만 팀 합계에 반영됩니다.' : ''}">${r.empNote || '제외'} · 인건비 제외${(r.dep && r.cnt) ? '<div style="font-size:10px;color:#d97706;">매출 = 퇴사 전 수리분의 이 달 출고</div>' : ''}</span>`
@@ -11436,13 +11449,13 @@ async function renderFinance() {
       <td style="text-align:right;font-weight:600;">${_w(r.rev)}</td>
       <td style="text-align:right;">${fmt(r.cnt)}</td>
       <td style="text-align:right;">${isInd
-        ? `<span style="font-size:11px;color:#0369a1;font-weight:700;" title="본인 매출 ${_w(r.rev)}로 상계 후 남는 ${_w(Math.max(0, r.cost - r.rev))}을 직접 인력에 배분">→ 배분</span>`
+        ? `<span style="font-size:11px;color:#0369a1;font-weight:700;" title="본인 매출 ${_w(r.rev)}로 상계 후 남는 ${_w(Math.max(0, r.cost - r.rev))}을 ${r._allocScope && r._allocScope !== 'all' ? PART_LABELS[r._allocScope] + ' 직접 인력' : '직접 인력 전체'}에 배분">→ ${r._allocScope && r._allocScope !== 'all' ? PART_LABELS[r._allocScope] + ' 배분' : '배분'}</span>`
         : (r.alloc ? `<span style="color:#0369a1;">+${_w(r.alloc)}</span>` : '<span style="color:var(--text3);">—</span>')}</td>
       <td style="text-align:right;">${isInd ? '<span style="color:var(--text3);" title="간접 인력은 본인 손익을 따지지 않음 — 남는 인건비가 직접 인력에 배분됨">—</span>' : r.preHire ? '<span style="color:var(--text3);">—</span>' : (r.sal || r.alloc ? _pc(r.profit) : '<span style="color:var(--text3);">—</span>')}</td>
       <td style="text-align:right;color:var(--text2);">${!isInd && r.bepCnt ? fmt(r.bepCnt) + '건' : '—'}</td>
       <td style="min-width:90px;">${!isInd && r.bepCnt ? `<div style="display:flex;align-items:center;gap:6px;"><div style="flex:1;height:7px;border-radius:99px;background:var(--surface2);overflow:hidden;"><div style="height:100%;width:${Math.min(100, pct)}%;background:${r.cnt >= r.bepCnt ? 'var(--green,#16a34a)' : '#f59e0b'};"></div></div><span style="font-size:11px;font-weight:700;color:${r.cnt >= r.bepCnt ? 'var(--green,#16a34a)' : '#d97706'};">${pct}%</span></div>` : ''}</td>
     </tr>`; }).join('')}
-    ${netOverhead > 0 ? `<tr><td colspan="11" style="padding:8px 16px;font-size:11.5px;color:#0369a1;background:rgba(3,105,161,.05);">👥 간접 인건비 순부담 <b>${_w(netOverhead)}</b> (간접 인력 인건비 − 본인 매출 상계) → 직접 ${dirRows.length}명에게 매출 비중대로 배분됨 — 각자의 "배분 부담"과 BEP에 반영</td></tr>` : ''}
+    ${netOverhead > 0 ? `<tr><td colspan="11" style="padding:8px 16px;font-size:11.5px;color:#0369a1;background:rgba(3,105,161,.05);">👥 간접 인건비 순부담 <b>${_w(netOverhead)}</b> (간접 인력 인건비 − 본인 매출 상계) → <b>파트장 몫은 본인 파트 직접 인력</b>에, 파트 없는 간접(QC 등)은 전체 직접 인력에 매출 비중대로 배분 — 각자의 "배분 부담"과 BEP에 반영</td></tr>` : ''}
     ${gone.map(n => `<tr style="opacity:.55;"><td></td><td></td><td>${escapeHtml(n)} <span style="font-size:10px;color:var(--text3);">퇴사·명단 외</span></td><td style="text-align:right;color:var(--text3);">—</td><td style="text-align:right;color:var(--text3);">—</td><td style="text-align:right;">${_w(revBy[n])}</td><td style="text-align:right;">${fmt(cntBy[n])}</td><td colspan="4" style="font-size:11px;color:var(--text3);">매출만 팀 합계에 포함</td></tr>`).join('')}
     </tbody></table></div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;padding:12px 16px;border-top:1px solid var(--border);">
