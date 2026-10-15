@@ -11546,7 +11546,14 @@ async function renderFinance() {
       </div>`;
     }
   } catch(e) {}
-  try { h += _finGrowthHtml(team, _ovOf); } catch(err) { console.warn('성장 분석 렌더 실패', err); }
+  // ⭐ v3.07a: 성장 분석은 접어두기 — 카드가 길어 경영분석 스크롤을 잡아먹던 것 (마스터 지시)
+  try {
+    const _gh = _finGrowthHtml(team, _ovOf);
+    if(_gh) h += `<details class="card" style="padding:0;margin-bottom:14px;">
+      <summary style="cursor:pointer;padding:12px 16px;font-size:13px;font-weight:700;list-style:none;display:flex;align-items:center;gap:8px;">📈 엔지니어 성장 분석 <span style="font-size:11px;color:var(--text3);font-weight:400;">(펼치기 — 엔지니어별 주간 추이·월별 실적·판정)</span></summary>
+      <div style="padding:0 16px 14px;">${_gh}</div>
+    </details>`;
+  } catch(err) { console.warn('성장 분석 렌더 실패', err); }
 
 
   // ── 달성률 시나리오 (엑셀 재현) — 팀 일 목표 기준
@@ -11555,23 +11562,44 @@ async function renderFinance() {
   // ⭐ v2.79v: 실질 가동일 — 달력상 영업일(20~22일)이 아니라 연차·휴무 감안한 실제 가동일 기준 (기본 17일, 조정·저장 가능)
   const opD = Math.max(1, Number(document.getElementById('fin-opdays')?.value) || f.opDays || 17);
   const baseRev = teamDaily * opD * avgUnit;
+  // ⭐ v3.07b: 실제 평균 일건수 — 이 달 등록 건수 ÷ 경과 영업일 (공휴일·주말 제외) — 고정 목표값과 나란히 표시 (마스터 지시)
+  let elapsedBiz = 0;
+  try {
+    const _t = new Date();
+    const endD = (fy === _t.getFullYear() && fm === _t.getMonth() + 1) ? _t.getDate() : new Date(fy, fm, 0).getDate();
+    const _hol = (holidayCache[mv] || []).concat(window.COMPANY_HOLIDAYS || []);
+    for(let d = 1; d <= endD; d++) {
+      const dw = new Date(fy, fm - 1, d).getDay();
+      const ds = `${mv}-${String(d).padStart(2, '0')}`;
+      if(dw !== 0 && dw !== 6 && !_hol.includes(ds)) elapsedBiz++;
+    }
+  } catch(e) {}
+  const actualDaily = elapsedBiz > 0 ? regCntMonth / elapsedBiz : 0;
+  const paceRate = teamDaily > 0 ? actualDaily / teamDaily : 0;
   const scen = [1, 0.9, 0.8, 0.6, 0.4, 0.2, 0].map(rate => {
     const rev = baseRev * rate, pf = rev - teamCost - fixed;
     return { rate, rev, pf, mg: rev > 0 ? pf / rev * 100 : null, daily: teamDaily * rate };
   });
+  // 📍 현재 페이스 행 — 실제 평균 일건수 기준 시나리오를 표에 끼워 넣기
+  if(actualDaily > 0 && teamDaily > 0) {
+    const rev = baseRev * paceRate, pf = rev - teamCost - fixed;
+    scen.push({ rate: paceRate, rev, pf, mg: rev > 0 ? pf / rev * 100 : null, daily: actualDaily, cur: true });
+    scen.sort((a, b) => b.rate - a.rate);
+  }
   h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">📐 달성률 시나리오 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 팀 일 목표 ${fmt(teamDaily)}건 × 가동</span>
     <input type="number" id="fin-opdays" value="${opD}" min="1" max="26" onchange="renderFinance()" title="실질 가동일 — 연차·휴무 감안 (저장 버튼으로 서버 저장)" style="width:56px;height:28px;text-align:center;padding:0 4px;border:1px solid var(--border2);border-radius:var(--radius-sm);">
-    <span style="font-size:11px;color:var(--text3);font-weight:400;">일 × 건당 ${_w(avgUnit)} 기준 <span style="color:var(--text3);">(달력 영업일 ${workdays}일과 별개 — 연차·휴무 반영)</span></span></div>
+    <span style="font-size:11px;color:var(--text3);font-weight:400;">일 × 건당 ${_w(avgUnit)} 기준</span>
+    ${actualDaily > 0 ? `<span style="font-size:11px;font-weight:800;padding:2px 10px;border-radius:99px;background:var(--accent-bg);color:var(--accent-text,var(--accent));">📍 이 달 실제 평균 일 ${actualDaily.toFixed(1)}건 (경과 ${elapsedBiz}영업일 · 목표 대비 ${Math.round(paceRate * 100)}%)</span>` : ''}</div>
     <div class="table-wrap"><table>
     <thead><tr><th>달성률</th><th style="text-align:right">일 건수</th><th style="text-align:right">월 매출</th><th style="text-align:right">영업이익</th><th style="text-align:right">이익률</th></tr></thead>
-    <tbody>${scen.map(s => `<tr style="${s.pf >= 0 ? 'background:rgba(45,212,191,.07);' : ''}">
-      <td style="font-weight:700;">${Math.round(s.rate * 100)}%</td>
-      <td style="text-align:right;">${s.daily.toFixed(1)}건</td>
+    <tbody>${scen.map(s => `<tr style="${s.cur ? 'background:rgba(99,102,241,.12);box-shadow:inset 3px 0 0 var(--accent);' : s.pf >= 0 ? 'background:rgba(45,212,191,.07);' : ''}">
+      <td style="font-weight:700;">${s.cur ? `📍 ${Math.round(s.rate * 100)}% <span style="font-size:10px;color:var(--accent);">현재 페이스</span>` : Math.round(s.rate * 100) + '%'}</td>
+      <td style="text-align:right;${s.cur ? 'font-weight:800;' : ''}">${s.daily.toFixed(1)}건</td>
       <td style="text-align:right;">${_w(s.rev)}</td>
       <td style="text-align:right;">${_pc(s.pf)}</td>
       <td style="text-align:right;color:${(s.mg ?? -1) >= 0 ? 'var(--green,#16a34a)' : '#dc2626'};font-weight:700;">${s.mg === null ? '—' : s.mg.toFixed(1) + '%'}</td>
     </tr>`).join('')}</tbody></table></div>
-    <div style="padding:10px 16px;font-size:11.5px;color:var(--text3);border-top:1px solid var(--border);">손익분기 달성률 ≈ <b>${baseRev > 0 ? Math.ceil((teamCost + fixed) / baseRev * 100) : '?'}%</b> — 이 아래로 내려가면 적자 구간입니다.</div></div>`;
+    <div style="padding:10px 16px;font-size:11.5px;color:var(--text3);border-top:1px solid var(--border);">손익분기 달성률 ≈ <b>${baseRev > 0 ? Math.ceil((teamCost + fixed) / baseRev * 100) : '?'}%</b> — 이 아래로 내려가면 적자 구간. 팀 일 목표(${fmt(teamDaily)}건)는 <b>활동중 인원의 개인 목표 합</b>, 인건비는 <b>연봉 설정</b>을 따라가므로 인원·연봉이 바뀌면 표 전체가 자동으로 다시 계산돼요.</div></div>`;
 
   // ── ⭐ v3.07: 월 추천 KPI (출고 기준) — 최근 3개 완료월 실제 출고 능력 × 성장 여유 vs 계획 상한
   try {
@@ -11584,9 +11612,21 @@ async function renderFinance() {
       const avg3 = _kValid.reduce((s, v) => s + v, 0) / _kValid.length;
       const planKpi = teamDaily * opD;                 // 계획 상한 = 팀 일 목표 × 실질 가동일
       const stretch = _r10(avg3 * 1.05);               // 실적 + 5% 스트레치
-      const rec = planKpi > 0 ? Math.min(stretch, _r10(planKpi)) : stretch;
       const curKpi = Number(kpiMap[mv]) || 0;
       const bepCntM = avgUnit > 0 ? Math.ceil((teamCost + fixed) / avgUnit) : 0;   // 손익분기 출고 대수
+      // ⭐ v3.07a: 손익분기는 무조건 넘기는 목표로 — BEP(10대 단위 올림)를 추천 하한으로 보장 (마스터 지시)
+      const bepFloor = bepCntM > 0 ? Math.ceil(bepCntM / 10) * 10 : 0;
+      let rec = planKpi > 0 ? Math.min(stretch, _r10(planKpi)) : stretch;
+      let bepNote = '';
+      if(bepFloor > 0 && rec < bepFloor) {
+        if(planKpi > 0 && bepFloor > _r10(planKpi)) {
+          rec = _r10(planKpi);
+          bepNote = `<div style="color:#dc2626;font-weight:700;">🔴 손익분기(${fmt(bepCntM)}대)가 계획 상한(${fmt(_r10(planKpi))}대)보다 높아요 — 현재 인원·단가 구조로는 KPI를 아무리 올려도 흑자가 안 됩니다. 건당 공임·고정비·인원 구성을 먼저 점검하세요.</div>`;
+        } else {
+          rec = bepFloor;
+          bepNote = `<div style="color:#d97706;font-weight:700;">⚠ 최근 실적 기준(${fmt(stretch)}대)이 손익분기 아래라, 추천 KPI를 <b>손익분기 하한(${fmt(bepFloor)}대)</b>으로 올렸어요 — 최소한 적자는 안 나는 목표여야 하니까요.</div>`;
+        }
+      }
       const vsCur = curKpi ? (rec > curKpi ? `현재 설정(${fmt(curKpi)}대)보다 <b style="color:#16a34a;">+${fmt(rec - curKpi)}대 상향</b> 여지` : rec < curKpi ? `현재 설정(${fmt(curKpi)}대)이 추천보다 <b style="color:#d97706;">${fmt(curKpi - rec)}대 높음</b> — 미달 부담 확인` : `현재 설정(${fmt(curKpi)}대)과 일치`) : 'KPI 미설정 — KPI 설정 탭에서 입력';
       h += `<div class="card" style="padding:0;margin-bottom:14px;">
         <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🎯 월 추천 KPI <span style="font-size:11px;color:var(--text3);font-weight:400;">· 출고 기준 — 최근 실적 능력과 계획 상한으로 산출</span></div>
@@ -11597,8 +11637,9 @@ async function renderFinance() {
           </div>
           <div style="flex:1;min-width:240px;font-size:12px;line-height:1.9;color:var(--text2);">
             <div>최근 3개월 실제 출고: ${_kMonths.map((m, i) => `${Number(m.slice(5))}월 <b>${fmt(_kShip[i])}</b>`).join(' · ')} → 평균 <b>${fmt(Math.round(avg3))}대</b></div>
-            <div>산식: 평균 × 1.05(성장 여유) = ${fmt(stretch)}대, 계획 상한(팀 일 목표 ${fmt(teamDaily)}건 × 가동 ${opD}일 = ${fmt(_r10(planKpi))}대) 중 <b>낮은 값</b></div>
-            <div>${vsCur} · 손익분기 출고 ≈ <b>${fmt(bepCntM)}대</b>${rec > bepCntM ? ` <span style="color:#16a34a;font-weight:700;">(추천 KPI 달성 시 흑자)</span>` : ` <span style="color:#dc2626;font-weight:700;">(추천 KPI로도 BEP 미달 — 단가·비용 점검)</span>`}</div>
+            <div>산식: 평균 × 1.05(성장 여유) = ${fmt(stretch)}대 vs 계획 상한(팀 일 목표 ${fmt(teamDaily)}건 × 가동 ${opD}일 = ${fmt(_r10(planKpi))}대) 중 낮은 값, 단 <b>손익분기(${fmt(bepCntM)}대)를 하한으로 보장</b></div>
+            <div>${vsCur} · 손익분기 출고 ≈ <b>${fmt(bepCntM)}대</b>${rec >= bepCntM ? ` <span style="color:#16a34a;font-weight:700;">(추천 KPI 달성 시 흑자)</span>` : ''}</div>
+            ${bepNote}
           </div>
         </div>
       </div>`;
