@@ -3527,6 +3527,7 @@ function getRangeEntries() {
     const ds = String(e.date).slice(0,10);
     if(from && ds < from) return false;
     if(to   && ds > to)   return false;
+    if(typeof _pfOn === 'function' && !_pfOn(e.worker)) return false;   // ⭐ v3.07: 파트 필터 (전체 기록)
     if(histFilter.worker && e.worker !== histFilter.worker) return false;
     if(histFilter.model  && e.model  !== histFilter.model)  return false;
     if(histFilter.serial && !String(e.serial).toUpperCase().includes(histFilter.serial)) return false;
@@ -11572,6 +11573,38 @@ async function renderFinance() {
     </tr>`).join('')}</tbody></table></div>
     <div style="padding:10px 16px;font-size:11.5px;color:var(--text3);border-top:1px solid var(--border);">손익분기 달성률 ≈ <b>${baseRev > 0 ? Math.ceil((teamCost + fixed) / baseRev * 100) : '?'}%</b> — 이 아래로 내려가면 적자 구간입니다.</div></div>`;
 
+  // ── ⭐ v3.07: 월 추천 KPI (출고 기준) — 최근 3개 완료월 실제 출고 능력 × 성장 여유 vs 계획 상한
+  try {
+    const _r10 = v => Math.round(v / 10) * 10;
+    const _kMonths = [];
+    for(let i = 1; i <= 3; i++) { const d = new Date(fy, fm - 1 - i, 1); _kMonths.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }
+    const _kShip = _kMonths.map(m => (shipHistory || []).filter(h2 => shipDateKey(h2.shipDate).startsWith(m)).length);
+    const _kValid = _kShip.filter(v => v > 0);
+    if(_kValid.length) {
+      const avg3 = _kValid.reduce((s, v) => s + v, 0) / _kValid.length;
+      const planKpi = teamDaily * opD;                 // 계획 상한 = 팀 일 목표 × 실질 가동일
+      const stretch = _r10(avg3 * 1.05);               // 실적 + 5% 스트레치
+      const rec = planKpi > 0 ? Math.min(stretch, _r10(planKpi)) : stretch;
+      const curKpi = Number(kpiMap[mv]) || 0;
+      const bepCntM = avgUnit > 0 ? Math.ceil((teamCost + fixed) / avgUnit) : 0;   // 손익분기 출고 대수
+      const vsCur = curKpi ? (rec > curKpi ? `현재 설정(${fmt(curKpi)}대)보다 <b style="color:#16a34a;">+${fmt(rec - curKpi)}대 상향</b> 여지` : rec < curKpi ? `현재 설정(${fmt(curKpi)}대)이 추천보다 <b style="color:#d97706;">${fmt(curKpi - rec)}대 높음</b> — 미달 부담 확인` : `현재 설정(${fmt(curKpi)}대)과 일치`) : 'KPI 미설정 — KPI 설정 탭에서 입력';
+      h += `<div class="card" style="padding:0;margin-bottom:14px;">
+        <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🎯 월 추천 KPI <span style="font-size:11px;color:var(--text3);font-weight:400;">· 출고 기준 — 최근 실적 능력과 계획 상한으로 산출</span></div>
+        <div style="padding:14px 16px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;">
+          <div style="text-align:center;padding:0 10px;">
+            <div style="font-size:30px;font-weight:900;color:var(--accent);">${fmt(rec)}<span style="font-size:14px;font-weight:700;color:var(--text2);">대</span></div>
+            <div style="font-size:10.5px;color:var(--text3);">추천 KPI (${mv.slice(5)}월)</div>
+          </div>
+          <div style="flex:1;min-width:240px;font-size:12px;line-height:1.9;color:var(--text2);">
+            <div>최근 3개월 실제 출고: ${_kMonths.map((m, i) => `${Number(m.slice(5))}월 <b>${fmt(_kShip[i])}</b>`).join(' · ')} → 평균 <b>${fmt(Math.round(avg3))}대</b></div>
+            <div>산식: 평균 × 1.05(성장 여유) = ${fmt(stretch)}대, 계획 상한(팀 일 목표 ${fmt(teamDaily)}건 × 가동 ${opD}일 = ${fmt(_r10(planKpi))}대) 중 <b>낮은 값</b></div>
+            <div>${vsCur} · 손익분기 출고 ≈ <b>${fmt(bepCntM)}대</b>${rec > bepCntM ? ` <span style="color:#16a34a;font-weight:700;">(추천 KPI 달성 시 흑자)</span>` : ` <span style="color:#dc2626;font-weight:700;">(추천 KPI로도 BEP 미달 — 단가·비용 점검)</span>`}</div>
+          </div>
+        </div>
+      </div>`;
+    }
+  } catch(e) {}
+
   // ── ⭐ v2.79s: 인력 충원 시뮬레이션 — "이 추이면 1명 더 뽑았을 때 얼마가 남나"
   //   미처리 수요(월 예상 수요 − 이 달 처리 페이스)를 새 인원이 흡수한다고 보고 증분 손익 계산.
   //   수요가 이미 소화되고 있으면 충원은 매출 없이 비용만 늘어난다는 것도 그대로 보여줌.
@@ -17362,6 +17395,13 @@ async function renderHistory() {
       <div style="font-size:18px;font-weight:700;">${fmt(totalRev)}<span style="font-size:12px;color:var(--text2);">원</span></div>
     </div>
   </div>`;
+  // ⭐ v3.07: 파트 필터 칩 — 일일 현황과 동일 (파트 배정 있을 때만 표시)
+  try {
+    const _hs = document.getElementById('history-stats');
+    let _pfw = document.getElementById('history-pf');
+    if(!_pfw && _hs) { _hs.insertAdjacentHTML('beforebegin', '<div id="history-pf"></div>'); _pfw = document.getElementById('history-pf'); }
+    if(_pfw) _pfw.innerHTML = _pfChipsHtml('renderHistory');
+  } catch(e) {}
   document.getElementById('history-stats').innerHTML = kpiHtml + subStats;
 
   const el = document.getElementById('history-content');
