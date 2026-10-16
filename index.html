@@ -19971,6 +19971,7 @@ function _ledgerDayData(ds) {
     const q = Number(l.qty) || 0;
     if(!name || !q) return;
     const note = String(l.note || '');
+    if(/실사|재고 수정/.test(note)) return;               // ⭐ v3.10b: 실사·수량 수정 기록은 in/out 타입이어도 사용 아님
     const w = String(l.worker || '').split('::')[0];
     const t = String(l.date).slice(11, 16);
     const isDoaOut = l.type === 'out' && /^DOA 불량/.test(note);
