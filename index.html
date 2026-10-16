@@ -14696,21 +14696,45 @@ function _partAnomalyCard(days = 30) {
 function _partOveruseCard(days = 30) {
   try {
     if(!window.WORK_PARTS_MAP) return '';
-    const cut = Date.now() - days * 86400000;
+    // ⭐ v3.10a: 서버가 출고 처리 때 entry.parts를 비워 출고된 건이 집계에서 빠지던 결함 →
+    //           재고 차감 기록(stockLog)의 시리얼 태그 기준으로 재작성 (출고와 무관하게 고정)
+    //           시리얼별 실사용 = 수리 자동 차감 + 수정 추가차감 − 수정/삭제 복구
+    const bySerial = {};   // serial → { 부품명 → 순사용량 }
+    let covMin = null;     // 재고 기록 보관 시작일 (서버가 오래된 로그를 지우므로 그 전 날짜는 비교 불가)
+    (stockLog || []).forEach(l => {
+      const d = toLocalDay(l.date);
+      if(d && (!covMin || d < covMin)) covMin = d;
+      const note = String(l.note || '');
+      if(!/수리/.test(note)) return;
+      const ser = (note.match(/\[([A-Z0-9_-]{6,})\]/) || [])[1];
+      if(!ser) return;
+      const q = Number(l.qty) || 0;
+      const name = l.partName || '';
+      if(!name || !q) return;
+      const m = (bySerial[ser] = bySerial[ser] || {});
+      m[name] = (m[name] || 0) + (l.type === 'out' ? q : -q);
+    });
+    const capped = (stockLog || []).length >= 3000;   // 서버가 최근 3000줄만 보관 → 가장 오래된 날은 중간에 잘림
+    const covCut = covMin ? new Date(covMin + 'T00:00:00').getTime() + (capped ? 86400000 : 0) : Date.now();
+    const cut = Math.max(Date.now() - days * 86400000, covCut);
+    const effDays = Math.max(1, Math.round((Date.now() - cut) / 86400000));
+    // 같은 시리얼이 기간 안에 2번 이상 등록되면(재수리) 로그를 건별로 못 나누므로 제외
+    const serCnt = {};
+    (entries || []).forEach(e => { if(new Date(e.date).getTime() >= cut) { const s = String(e.serial || '').trim(); if(s) serCnt[s] = (serCnt[s] || 0) + 1; } });
     const byEng = {};   // {worker: {parts:{이름:{excess,cnt}}, total}}
     (entries || []).forEach(e => {
       const t = new Date(e.date).getTime();
       if(!(t >= cut)) return;
-      const p = (e.parts && typeof e.parts === 'object') ? e.parts : null;
-      if(!p || !Object.keys(p).length) return;
+      const ser = String(e.serial || '').trim();
+      const used = bySerial[ser];
+      if(!used || serCnt[ser] > 1) return;   // 차감 기록 없음 = 부품 미사용 / 재수리 중복은 제외
       const ws = parseWorks(e.works);
       const exp = {};
       ws.forEach(k => { try { getWorkParts(k, e.model).forEach(pp => { exp[pp.name] = Math.max(exp[pp.name] ?? 0, Number(pp.qty) || 1); }); } catch(err) {} });
       const w = String(e.worker || '').split('::')[0];
       if(!_t4CanSee(w)) return;   // ⭐ v3.04: 파트장은 본인 파트만
-      Object.entries(p).forEach(([name, q]) => {
-        if(String(name).startsWith('⚑')) return;   // 품질 특이 체크 키 제외
-        const got = Number(q) || 0;
+      Object.entries(used).forEach(([name, got]) => {
+        if(got <= 0) return;
         const eq = exp[name];
         // ⭐ v2.86b: 표준 외 부품(와이파이 모듈 등 기타부품)도 1개까지는 정상 사용 — 2개부터 초과 (마스터 지시)
         const excess = (eq !== undefined) ? (got - eq) : (got - 1);
@@ -14723,7 +14747,7 @@ function _partOveruseCard(days = 30) {
     const engs = Object.entries(byEng).filter(([, v]) => v.total > 0).sort((a, b) => b[1].total - a[1].total);
     if(!engs.length) return '';
     return `<div class="card" style="padding:0;margin-bottom:14px;">
-      <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🧰 부품 초과 사용 TOP <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 ${days}일 · 표준 수량보다 추가로 쓴 부품 — 파손·부품 불량 등으로 소모가 많은 사람·부품 파악용</span></div>
+      <div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">🧰 부품 초과 사용 TOP <span style="font-size:11px;color:var(--text3);font-weight:400;">· 최근 ${effDays}일 · 표준 수량보다 추가로 쓴 부품 — 파손·부품 불량 등으로 소모가 많은 사람·부품 파악용</span></div>
       <div style="padding:10px 16px 12px;display:flex;flex-direction:column;gap:8px;">
         ${engs.map(([w, v]) => {
           const tops = Object.entries(v.parts).sort((a, b) => b[1].excess - a[1].excess).slice(0, 4);
@@ -14734,7 +14758,7 @@ function _partOveruseCard(days = 30) {
           </div>`;
         }).join('')}
       </div>
-      <div style="padding:8px 16px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text3);line-height:1.6;">기준: 표준 수량(매핑 없는 부품은 1개)을 넘는 추가분만 집계 · DOA(개봉 불량)는 재고 관리에서 따로 차감되므로 이 집계에 포함되지 않음 — 수리 등록 수량을 +1하지 말고 DOA로 등록해야 정확 · 부품 기록이 없는 출고건은 제외</div>
+      <div style="padding:8px 16px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text3);line-height:1.6;">기준: <b>재고 차감 기록</b>으로 집계 — 출고를 해도 숫자가 안 바뀜 · 표준 수량(매핑 없는 부품은 1개)을 넘는 추가분만 세요 · DOA(개봉 불량)는 따로 차감되므로 여기 포함 안 됨 — 수리 등록 수량을 +1하지 말고 DOA로 등록해야 정확</div>
     </div>`;
   } catch(e) { return ''; }
 }
@@ -19934,37 +19958,51 @@ function calcPartsUsage(allEntries, fromDate, toDate) {
    장부(가져간 날·사람·부품·수량)와 나란히 놓고 맞춰볼 수 있게, 하루치 부품 사용을
    부품별 × 엔지니어별로 집계하고 펼치면 수리건(시리얼)·DOA 상세까지 보여준다.
    기준: 수리 등록일(entry.date) + 그 날 등록된 DOA(되돌려진 건 제외). */
+/* ⭐ v3.10a: 데이터 소스를 재고 차감 기록(stockLog)으로 전환 — 서버가 출고(shipped) 처리 시
+   수리건의 parts를 비우기 때문에 entries.parts 기준으로는 출고 후 과거 숫자가 줄어드는 버그가 있었음
+   (마스터 보고: 출고 이후 장부 숫자 변동). stockLog는 시리얼 태그와 함께 영구 보존되므로 출고와 무관. */
 function _ledgerDayData(ds) {
   const parts = {};   // name → { repair, doa, byWorker:{}, rows:[] }
   const slot = n => parts[n] || (parts[n] = { repair: 0, doa: 0, byWorker: {}, rows: [] });
-  (entries || []).forEach(e => {
-    if(toLocalDay(e.date) !== ds) return;
-    let ep = e.parts;
-    if(typeof ep === 'string') { try { ep = JSON.parse(ep); } catch { ep = null; } }
-    if(!ep || typeof ep !== 'object') return;
-    Object.entries(ep).forEach(([name, qty]) => {
-      const n = Number(qty) || 0;
-      if(n <= 0 || !name || isQualityFlagKey(name)) return;
-      const s = slot(name);
-      s.repair += n;
-      s.byWorker[e.worker] = (s.byWorker[e.worker] || 0) + n;
-      s.rows.push({ t: String(e.date).slice(11, 16), worker: e.worker, label: `수리 ${e.serial || ''}${e.model ? ' · ' + e.model : ''}`, qty: n });
-    });
-  });
   (stockLog || []).forEach(l => {
-    if(l.type !== 'out' || String(l.date).slice(0, 10) !== ds) return;
-    if(!/^DOA 불량/.test(String(l.note || ''))) return;
-    if(typeof _doaUndone === 'function' && _doaUndone(l)) return;   // 되돌려진 DOA 제외
+    if(toLocalDay(l.date) !== ds) return;
+    if(l.type === 'adjust') return;                       // 실사 조정은 사용 아님
     const name = l.partName || '';
-    if(!name) return;
     const q = Number(l.qty) || 0;
+    if(!name || !q) return;
+    const note = String(l.note || '');
     const w = String(l.worker || '').split('::')[0];
-    const s = slot(name);
-    s.doa += q;
-    if(w) s.byWorker[w] = (s.byWorker[w] || 0) + q;
-    const sym = (String(l.note).match(/\[([^\]]+)\]/) || [])[1] || '';
-    s.rows.push({ t: String(l.date).slice(11, 16), worker: w, label: `DOA${sym ? ' · ' + sym : ''}`, qty: q, doa: true });
+    const t = String(l.date).slice(11, 16);
+    const isDoaOut = l.type === 'out' && /^DOA 불량/.test(note);
+    const isDoaCancel = l.type === 'in' && /DOA 등록 취소/.test(note);
+    const isCredit = l.type === 'in' && /복구|취소|환입/.test(note);
+    if(l.type === 'out' && !isDoaOut) {
+      const s = slot(name);
+      s.repair += q;
+      if(w) s.byWorker[w] = (s.byWorker[w] || 0) + q;
+      const ser = (note.match(/\[([A-Z0-9_-]{6,})\]/) || [])[1] || '';
+      s.rows.push({ t, worker: w, label: ser ? `수리 ${ser}` : (note.split('·')[0].trim().slice(0, 28) || '수동 출고'), qty: q });
+    } else if(isDoaOut) {
+      const s = slot(name);
+      s.doa += q;
+      if(w) s.byWorker[w] = (s.byWorker[w] || 0) + q;
+      const sym = (note.match(/\[([^\]]+)\]/) || [])[1] || '';
+      s.rows.push({ t, worker: w, label: `DOA${sym ? ' · ' + sym : ''}`, qty: q, doa: true });
+    } else if(isDoaCancel) {
+      const s = slot(name);
+      s.doa -= q;
+      if(w) s.byWorker[w] = (s.byWorker[w] || 0) - q;
+      s.rows.push({ t, worker: w, label: '↩ DOA 취소(환입)', qty: -q, doa: true });
+    } else if(isCredit) {
+      const s = slot(name);
+      s.repair -= q;
+      if(w) s.byWorker[w] = (s.byWorker[w] || 0) - q;
+      s.rows.push({ t, worker: w, label: '↩ ' + (note.split('·')[0].trim().slice(0, 28) || '환입'), qty: -q });
+    }
+    // 일반 입고(in)는 사용이 아니므로 제외
   });
+  // 합계 0 이하(전부 환입된 날)는 행 제거
+  Object.keys(parts).forEach(n => { if(parts[n].repair + parts[n].doa <= 0 && !parts[n].rows.length) delete parts[n]; });
   return parts;
 }
 /* ⭐ v3.01: 주간(월~금) 보기로 전환 — 수기 장부가 주 단위로 넘어가므로 한 주를 한 표로 대조 (마스터 지시) */
@@ -19993,7 +20031,13 @@ function _ledgerCardHtml() {
     for(let i = 0; i < 5; i++) { const d = new Date(mon + 'T12:00:00'); d.setDate(d.getDate() + i); days.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); }
     const DOW = ['월', '화', '수', '목', '금'];
     const today = todayStr();
-    const byDay = days.map(ds => _ledgerDayData(ds));
+    // ⭐ v3.10a: 재고 기록 보관 시작일 — 서버가 오래된 로그를 지우므로 그 전 날짜는 '기록 없음'이 아니라 '보관 범위 밖'
+    let covMin = null;
+    (stockLog || []).forEach(l => { const d = toLocalDay(l.date); if(d && (!covMin || d < covMin)) covMin = d; });
+    const capped = (stockLog || []).length >= 3000;   // 서버가 최근 3000줄만 보관 → 가장 오래된 날은 중간에 잘림
+    const gone = ds => !!(covMin && (ds < covMin || (capped && ds <= covMin)));
+    const covStart = (capped && covMin) ? (() => { const d = new Date(covMin + 'T12:00:00'); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })() : covMin;
+    const byDay = days.map(ds => gone(ds) ? {} : _ledgerDayData(ds));   // 보관 범위 밖 날은 합계에서도 제외
     // 주간 부품 목록 (합계 내림차순)
     const nameSet = {};
     byDay.forEach(m => Object.keys(m).forEach(n => { nameSet[n] = (nameSet[n] || 0) + m[n].repair + m[n].doa; }));
@@ -20018,7 +20062,8 @@ function _ledgerCardHtml() {
           const v = byDay[i][n];
           const q = v ? v.repair + v.doa : 0;
           const future = ds > today;
-          return `<td style="text-align:right;${future ? 'color:var(--text3);' : ''}${v && v.doa ? 'color:#dc2626;font-weight:800;' : q ? 'font-weight:700;' : 'color:var(--text3);'}" title="${ds}${v && v.doa ? ` · DOA ${v.doa}개 포함` : ''}">${future ? '·' : (q || '·')}</td>`;
+          const out = future ? '·' : gone(ds) ? '—' : (q || '·');
+          return `<td style="text-align:right;${future ? 'color:var(--text3);' : ''}${v && v.doa ? 'color:#dc2626;font-weight:800;' : q ? 'font-weight:700;' : 'color:var(--text3);'}" title="${ds}${gone(ds) ? ' · 재고 기록 보관 범위 밖' : ''}${v && v.doa ? ` · DOA ${v.doa}개 포함` : ''}">${out}</td>`;
         }).join('');
         // 상세: 요일별 → 건별 (시간·엔지니어·시리얼/DOA·수량)
         const detail = days.map((ds, i) => {
@@ -20040,7 +20085,7 @@ function _ledgerCardHtml() {
       // 요일별 합계 행
       const dayTotals = days.map((ds, i) => {
         const s = Object.values(byDay[i]).reduce((x, v) => x + v.repair + v.doa, 0);
-        return `<td style="text-align:right;font-weight:800;${ds > today ? 'color:var(--text3);' : ''}">${ds > today ? '·' : s}</td>`;
+        return `<td style="text-align:right;font-weight:800;${ds > today ? 'color:var(--text3);' : ''}">${ds > today ? '·' : gone(ds) ? '—' : s}</td>`;
       }).join('');
       body = `<div class="table-wrap" style="overflow-x:auto;"><table style="font-size:12px;min-width:560px;">
         <thead><tr><th style="min-width:150px;">부품명</th>${days.map((ds, i) => `<th style="text-align:right;">${ds.slice(8)}일<div style="font-size:9.5px;color:var(--text3);font-weight:400;">${DOW[i]}</div></th>`).join('')}<th style="text-align:right;">주 합계</th></tr></thead>
@@ -20051,7 +20096,7 @@ function _ledgerCardHtml() {
     }
     return `<div id="ledger-wrap"><div class="card" style="margin-bottom:20px;border:1px solid var(--accent);">
       <div class="card-title" style="margin-bottom:6px;">📒 주간 사용량 — 불출 장부 대조 <span style="font-size:10px;color:var(--text3);font-weight:400;text-transform:none;">· 월~금</span></div>
-      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;line-height:1.6;"><b>수리 등록에 입력한 부품 + DOA 등록</b>(되돌린 건 제외)을 합친 숫자예요 — 장부처럼 "쓴 것"만 세고, 부품이 들어온 입고나 실사 수량 맞춤 같은 건 여기 안 섞여요. 부품 줄을 클릭하면 누가 어느 수리건에 썼는지 건별로 보여요. <b>장부에는 있는데 여기 없는 수량</b> = 수리에 안 태운 소모(파손·테스트 등) — 반복되면 그 부품·사람을 확인해보세요.</div>
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;line-height:1.6;"><b>재고 차감 기록 기준</b>이에요 — 수리 등록 때 자동으로 빠진 부품과 DOA 등록(되돌린 건 제외)을 그대로 세니까, <b>출고를 해도 숫자가 변하지 않아요</b>. 부품이 들어온 입고나 실사 수량 맞춤은 안 섞여요. 부품 줄을 클릭하면 누가 어느 수리건에 썼는지 건별로 보여요. <b>장부에는 있는데 여기 없는 수량</b> = 수리에 안 태운 소모(파손·테스트 등) — 반복되면 그 부품·사람을 확인해보세요.${gone(days[0]) ? ` <span style="color:#d97706;font-weight:700;">— 표시가 있는 날은 재고 기록 보관 범위(${covStart}~) 밖이라 보여줄 수 없어요.</span>` : ''}</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
         ${navBtn('◀ 전주', '_ledgerNav(-1)', '지난주')}
         <input type="date" value="${mon}" max="${today}" onchange="_ledgerSet(this.value)" onclick="try{this.showPicker()}catch(e){}" title="아무 날짜나 고르면 그 주(월~금)로 이동" style="height:30px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-weight:700;">
