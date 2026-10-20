@@ -10688,6 +10688,9 @@ async function saveFinance() {
     // ⭐ v2.89: 퇴사일 (퇴사자 행에만 입력칸이 있음 — 없으면 기존 값 유지)
     const dp = g('fin-dep-' + i);
     if(dp) { const dv = String(dp.value || '').slice(0, 10); if(/^\d{4}-\d{2}-\d{2}$/.test(dv)) f.departures[n] = dv; else delete f.departures[n]; }
+    // ⭐ v3.11: 퇴사자 입사일 — 계정 삭제로 입사일이 사라진 사람의 월중 입사 일할 계산용
+    const hdI = g('fin-hd-' + i);
+    if(hdI) { f.hires = f.hires || {}; const hv = String(hdI.value || '').slice(0, 10); if(/^\d{4}-\d{2}-\d{2}$/.test(hv)) f.hires[n] = hv; else delete f.hires[n]; }
   });
   // ⭐ v2.79s: 충원 시뮬레이션 입력도 저장
   const _dm = Number(g('fin-demand')?.value); if(!isNaN(_dm) && _dm > 0) f.demand = _dm; else delete f.demand;
@@ -11391,7 +11394,10 @@ async function renderFinance() {
   // ⭐ v2.79u: 입사일 반영 — 조회 달에 아직 입사 전이면 인건비 0(제외), 월중 입사면 일할 계산.
   // ⭐ v2.89: 퇴사일 반영 — 퇴사월은 1일~퇴사일 일할, 퇴사 다음 달부터 0 (퇴사해도 재직 기간 인건비는 상계에 남음)
   const _empFrac = (n) => {
-    const hd = hireDateMap[n] ? new Date(String(hireDateMap[n]).slice(0, 10) + 'T00:00:00') : null;
+    // ⭐ v3.11: 계정이 삭제된 퇴사자는 hireDateMap이 비어 월초부터 재직한 걸로 과대 계산되던 버그 →
+    //          경영분석에 저장한 입사일(f.hires)을 폴백으로 사용 (예: 10/19 입사·10/20 퇴사 = 2일치)
+    const _hdRaw = hireDateMap[n] || (f.hires || {})[n];
+    const hd = _hdRaw ? new Date(String(_hdRaw).slice(0, 10) + 'T00:00:00') : null;
     const dvRaw = (f.departures || {})[n];
     const dd = dvRaw ? new Date(String(dvRaw).slice(0, 10) + 'T00:00:00') : null;
     if(hd && !isNaN(hd) && hd > _mEnd) return { frac: 0, note: '입사 전' };
@@ -11413,7 +11419,7 @@ async function renderFinance() {
     const rev = revBy[n] || 0, cnt = cntBy[n] || 0;
     const kind = _ovOf(n);
     if(inc && sal && cost > 0) { teamCost += cost; incCnt++; }
-    return { n, i, sal, inc, cost, rev, cnt, kind, empNote: emp.note, preHire: emp.frac === 0, dep: !team.includes(n), depDate: String((f.departures || {})[n] || '').slice(0, 10) };
+    return { n, i, sal, inc, cost, rev, cnt, kind, empNote: emp.note, preHire: emp.frac === 0, dep: !team.includes(n), depDate: String((f.departures || {})[n] || '').slice(0, 10), hireDate: String(hireDateMap[n] || (f.hires || {})[n] || '').slice(0, 10) };
   });
   // 간접 인건비 순부담 = Σ(간접 인력 인건비 − 본인 매출, 음수면 0) → 직접 인력에 매출 비중 배분
   // ⭐ v2.89a: 연봉 미입력 퇴사자는 배분 계산에서 제외 (종전 '매출만 포함' 참고 행과 동일 취급 — 연봉 넣으면 합류)
@@ -11488,7 +11494,7 @@ async function renderFinance() {
       <td><input type="checkbox" id="fin-inc-${r.i}" ${r.inc ? 'checked' : ''} onchange="saveFinance()"></td>
       <td><select id="fin-ov-${r.i}" onchange="saveFinance()" title="간접 = 수리가 기본 업무가 아님 (T3 관리·QC 등) — 인건비를 직접 인력에 배분" style="height:28px;padding:0 4px;font-size:11px;border:1px solid var(--border2);border-radius:var(--radius-sm);color:${isInd ? '#0369a1' : 'var(--text2)'};">
         <option value="direct" ${!isInd ? 'selected' : ''}>🔧 직접</option><option value="indirect" ${isInd ? 'selected' : ''}>👥 간접</option></select></td>
-      <td style="font-weight:700;">${escapeHtml(r.n)} ${r.dep ? '<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#f3f4f6;color:#6b7280;">🚪 퇴사</span>' : `${tierBadge(tierMap[r.n] || '')}${(() => { const _p = partMap[r.n]; const _isLead = tierMap[r.n] === LEAD_TIER(); if(_p === 'p1' || _p === 'p2') { const _c = PART_COLORS[_p]; return ` <span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:99px;white-space:nowrap;display:inline-block;background:${_c.bg};color:${_c.text};border:1px solid ${_c.border};">${PART_LABELS[_p]}${_isLead ? ' 파트장' : ''}</span>`; } return _isLead ? ' <span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:99px;background:#e0f2fe;color:#0369a1;">파트장</span>' : ''; })()}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;font-weight:700;">🎓</span>' : ''}`}${r.dep ? `<div style="margin-top:3px;display:flex;align-items:center;gap:5px;"><input type="date" id="fin-dep-${r.i}" value="${r.depDate}" onchange="saveFinance()" title="퇴사일 — 이 날짜까지 일할로 인건비에 포함" style="height:26px;font-size:11px;padding:0 4px;border:1.5px solid ${r.depDate ? 'var(--border2)' : '#f59e0b'};border-radius:var(--radius-sm);">${!r.depDate ? '<span style="font-size:10px;color:#d97706;font-weight:700;">퇴사일 입력</span>' : ''}</div>` : ''}</td>
+      <td style="font-weight:700;">${escapeHtml(r.n)} ${r.dep ? '<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#f3f4f6;color:#6b7280;">🚪 퇴사</span>' : `${tierBadge(tierMap[r.n] || '')}${(() => { const _p = partMap[r.n]; const _isLead = tierMap[r.n] === LEAD_TIER(); if(_p === 'p1' || _p === 'p2') { const _c = PART_COLORS[_p]; return ` <span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:99px;white-space:nowrap;display:inline-block;background:${_c.bg};color:${_c.text};border:1px solid ${_c.border};">${PART_LABELS[_p]}${_isLead ? ' 파트장' : ''}</span>`; } return _isLead ? ' <span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:99px;background:#e0f2fe;color:#0369a1;">파트장</span>' : ''; })()}${mentoringMap[r.n] ? ' <span style="font-size:10px;color:#7c3aed;font-weight:700;">🎓</span>' : ''}`}${r.dep ? `<div style="margin-top:3px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;"><span style="font-size:10px;color:var(--text3);font-weight:700;">입사</span><input type="date" id="fin-hd-${r.i}" value="${r.hireDate}" onchange="saveFinance()" title="입사일 — 월중 입사면 그날부터 일할 계산 (계정 삭제로 입사일이 사라진 퇴사자는 여기 입력해야 정확)" style="height:26px;font-size:11px;padding:0 4px;border:1.5px solid ${r.hireDate ? 'var(--border2)' : '#f59e0b'};border-radius:var(--radius-sm);"><span style="font-size:10px;color:var(--text3);font-weight:700;">퇴사</span><input type="date" id="fin-dep-${r.i}" value="${r.depDate}" onchange="saveFinance()" title="퇴사일 — 이 날짜까지 일할로 인건비에 포함" style="height:26px;font-size:11px;padding:0 4px;border:1.5px solid ${r.depDate ? 'var(--border2)' : '#f59e0b'};border-radius:var(--radius-sm);">${!r.depDate ? '<span style="font-size:10px;color:#d97706;font-weight:700;">퇴사일 입력</span>' : (!r.hireDate ? '<span style="font-size:10px;color:#d97706;font-weight:700;">월중 입사자는 입사일도 입력</span>' : '')}</div>` : ''}</td>
       <td style="text-align:right;"><input type="number" id="fin-sal-${r.i}" value="${r.sal || ''}" placeholder="미입력" min="0" style="width:84px;height:30px;text-align:right;padding:0 6px;border:1px solid var(--border2);border-radius:var(--radius-sm);"></td>
       <td style="text-align:right;color:var(--text2);">${!r.sal ? (r.dep ? '<span style="color:#d97706;font-size:10.5px;font-weight:700;" title="연봉과 퇴사일을 입력하고 저장하면 재직 기간만큼 일할로 인건비 상계에 포함됩니다">연봉 입력 시 포함</span>' : '<span style="color:var(--text3);">—</span>')
         : r.preHire ? `<span style="color:var(--text3);font-size:11px;" title="${r.dep ? '퇴사일이 조회 달 이전 — 인건비 0원. 이 달 매출이 보이는 건 퇴사 전에 수리해 둔 기기가 이 달 출고(청구)된 것으로, 매출만 팀 합계에 반영됩니다.' : ''}">${r.empNote || '제외'} · 인건비 제외${(r.dep && r.cnt) ? '<div style="font-size:10px;color:#d97706;">매출 = 퇴사 전 수리분의 이 달 출고</div>' : ''}</span>`
