@@ -1364,7 +1364,7 @@ window.addEventListener('DOMContentLoaded', function(){
         <div style="font-size:13px;color:#991b1b;line-height:1.6;">
           <strong>🚨 불량처리 안내</strong><br>
           • 검수 단계에서 불량으로 판정된 수리건들입니다.<br>
-          • <strong>담당 엔지니어</strong>가 재작업을 진행한 후 <strong>"재작업 완료"</strong> 버튼을 누릅니다.<br>
+          • <strong>담당 엔지니어</strong>(또는 그 파트의 파트장·총괄)가 재작업을 진행한 후 <strong>"재작업 완료"</strong> 버튼을 누릅니다.<br>
           • 재작업 완료 시 <strong>에이징 없이 바로 검수대기</strong>로 복귀됩니다.<br>
           • <span style="color:#dc2626;font-weight:600;">⚠️ 3일 이상 대기 시 빨간색 강조 표시</span>
         </div>
@@ -7163,7 +7163,7 @@ function renderDefectList() {
     });
 
     const isMe = worker === currentUser;
-    const myCanRework = isMe || isFullAdmin(); // 본인 또는 T4만 재작업 완료 처리
+    const myCanRework = isMe || isFullAdmin() || canManageWorker(worker); // ⭐ v3.14: 본인 · 총괄(T5) · 같은 파트의 파트장(T4)
     const workerTier = tierMap[worker] || '';
 
     html += `<div class="card" style="margin-bottom:12px;padding:0;overflow:hidden;${isMe?'border:2px solid #6366f1;':''}">
@@ -7220,7 +7220,7 @@ function renderDefectList() {
           <button class="btn btn-secondary" onclick="openAddPartsModal('${e.id}')" style="height:28px;padding:0 10px;font-size:11px;">🔧 부품 추가</button>
           ${myCanRework
             ? `<button class="btn btn-primary" onclick="openReworkModal('${e.id}')" style="height:28px;padding:0 10px;font-size:11px;background:#10b981;margin-left:4px;">✅ 재작업 완료</button>`
-            : `<span style="font-size:11px;color:var(--text2);">담당자만 처리</span>`}
+            : `<span style="font-size:11px;color:var(--text2);">담당자·파트장만 처리</span>`}
         </td>
       </tr>`;
     });
@@ -7238,8 +7238,9 @@ function openReworkModal(entryId) {
 
   const originalWorker = String(e.worker||'').split('::')[0];
   const isMe = originalWorker === currentUser;
-  if(!isMe && !isFullAdmin()) {
-    notify(`담당 엔지니어(${originalWorker})만 재작업 완료 처리할 수 있습니다.`, 'error');
+  // ⭐ v3.14: 같은 파트의 파트장(T4)도 처리 가능 — canManageWorker(총괄 전부·파트장 본인 파트만)
+  if(!isMe && !isFullAdmin() && !canManageWorker(originalWorker)) {
+    notify(`담당 엔지니어(${originalWorker}) 또는 그 파트의 파트장만 재작업 완료 처리할 수 있습니다.`, 'error');
     return;
   }
 
