@@ -14227,23 +14227,26 @@ function buildAdminControlBoard() {
   const excluded = all.filter(e => String(e.status||'') === STATUS_HOLD || String(e.status||'') === STATUS_HOLD_AGING);
   // 3) 재작업 대기(불량)
   const defects = all.filter(e => String(e.status||'') === STATUS_DEFECT);
+  // 4) ⭐ v3.14a: 검수대기 적체 — 검수대기로 넘긴 지 2영업일 이상인데 검수가 안 된 건 (QC 쪽 지연도 관제판에서 보이게 — 마스터 지적)
+  const insStuck = all.filter(e => String(e.status||'') === STATUS_AGING_PASS && bizDaysElapsed(new Date(e.agingStart).getTime(), nowMs()) >= 2);
 
-  const totalPending = agingStuck.length + excluded.length + defects.length;
+  const totalPending = agingStuck.length + excluded.length + defects.length + insStuck.length;
 
   // 엔지니어별 집계
   const byEng = {};
   const addTo = (list, key) => list.forEach(e => {
     const w = String(e.worker||'미정').split('::')[0];
-    if(!byEng[w]) byEng[w] = { agingStuck: [], excluded: [], defects: [] };
+    if(!byEng[w]) byEng[w] = { agingStuck: [], excluded: [], defects: [], insStuck: [] };
     byEng[w][key].push(e);
   });
   addTo(agingStuck, 'agingStuck');
   addTo(excluded, 'excluded');
   addTo(defects, 'defects');
+  addTo(insStuck, 'insStuck');
 
   // 미처리 많은 순 정렬
   const engRows = Object.entries(byEng)
-    .map(([name, d]) => ({ name, ...d, total: d.agingStuck.length + d.excluded.length + d.defects.length }))
+    .map(([name, d]) => ({ name, ...d, total: d.agingStuck.length + d.excluded.length + d.defects.length + d.insStuck.length }))
     .filter(r => r.total > 0)
     .sort((a,b) => b.total - a.total);
 
@@ -14260,6 +14263,7 @@ function buildAdminControlBoard() {
       ${card('에이징 완료·미이관', agingStuck.length, '#f59e0b', '🕐', '2영업일 이상 검수대기로 안 넘김')}
       ${card('출고 제외', excluded.length, '#ef4444', '🚩', '출고에서 뺀 미처리건')}
       ${card('재작업 대기 (불량)', defects.length, '#dc2626', '🔄', '검수 불량 → 엔지니어 재작업 필요')}
+      ${card('검수대기 적체', insStuck.length, '#6366f1', '🔍', '검수대기로 넘긴 지 2영업일 이상 — 검수(QC) 지연')}
     </div>`;
 
   if(engRows.length === 0) {
@@ -14290,7 +14294,8 @@ function buildAdminControlBoard() {
       </div>`;
     if(r.agingStuck.length) html += `<div style="margin-bottom:6px;"><div style="font-size:11px;color:#f59e0b;font-weight:600;margin-bottom:2px;">🕐 에이징 완료·미이관 ${r.agingStuck.length}건</div><div>${serialChips(r.agingStuck, '#f59e0b', '에이징')}</div></div>`;
     if(r.excluded.length)   html += `<div style="margin-bottom:6px;"><div style="font-size:11px;color:#ef4444;font-weight:600;margin-bottom:2px;">🚩 출고 제외 ${r.excluded.length}건</div><div>${serialChips(r.excluded, '#ef4444', '제외')}</div></div>`;
-    if(r.defects.length)    html += `<div style="margin-bottom:2px;"><div style="font-size:11px;color:#dc2626;font-weight:600;margin-bottom:2px;">🔄 재작업 대기 ${r.defects.length}건</div><div>${serialChips(r.defects, '#dc2626', '불량')}</div></div>`;
+    if(r.defects.length)    html += `<div style="margin-bottom:6px;"><div style="font-size:11px;color:#dc2626;font-weight:600;margin-bottom:2px;">🔄 재작업 대기 ${r.defects.length}건</div><div>${serialChips(r.defects, '#dc2626', '불량')}</div></div>`;
+    if(r.insStuck.length)   html += `<div style="margin-bottom:2px;"><div style="font-size:11px;color:#6366f1;font-weight:600;margin-bottom:2px;">🔍 검수대기 적체 ${r.insStuck.length}건 <span style="font-weight:400;color:var(--text3);">(엔지니어 잘못 아님 — 검수 지연)</span></div><div>${serialChips(r.insStuck, '#6366f1', '에이징')}</div></div>`;
     html += `</div>`;
   });
 
