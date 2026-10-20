@@ -11291,15 +11291,25 @@ function _finHash(s) {
 function _finPinSetup() {
   if(!isFullAdmin()) return;
   const f = _finData();
-  openPromptModal('🔒 경영분석 2차 암호 ' + (f.finPin ? '변경' : '설정'),
-    '[👁 연봉 보기]를 누를 때마다 묻는 암호예요 — 연봉·월 인건비는 평소 ●●●로 가려져 있어요.\n4자 이상 입력 · 비우고 저장하면 2차 암호 해제.',
-    '새 2차 암호 (해제하려면 비워두기)', async (v) => {
-      const s = String(v || '').trim();
-      if(s && s.length < 4) { notify('4자 이상으로 입력해주세요.', 'error'); return; }
-      window.FINANCE = Object.assign({}, _finData(), s ? { finPin: _finHash(s) } : {});
-      if(!s) delete window.FINANCE.finPin;
-      try { await saveFinance(); notify(s ? '🔒 2차 암호 설정 완료 — 다음 진입부터 적용' : '2차 암호 해제 완료'); } catch(e) { notify('저장 실패 — 다시 시도해주세요.', 'error'); }
-    }, '저장');
+  const _openNew = () => {
+    openPromptModal('🔒 경영분석 2차 암호 ' + (f.finPin ? '변경' : '설정'),
+      '[👁 연봉 보기]를 누를 때마다 묻는 암호예요 — 연봉·월 인건비는 평소 ●●●로 가려져 있어요.\n4자 이상 입력 · 비우고 저장하면 2차 암호 해제.\n⚠ 잊으면 화면에서 되찾을 수 없어요 — 신중히 정해주세요.',
+      '새 2차 암호 (해제하려면 비워두기)', async (v) => {
+        const s = String(v || '').trim();
+        if(s && s.length < 4) { notify('4자 이상으로 입력해주세요.', 'error'); return; }
+        window.FINANCE = Object.assign({}, _finData(), s ? { finPin: _finHash(s) } : {});
+        if(!s) delete window.FINANCE.finPin;
+        try { await saveFinance(); notify(s ? '🔒 2차 암호 설정 완료' : '2차 암호 해제 완료'); } catch(e) { notify('저장 실패 — 다시 시도해주세요.', 'error'); }
+      }, '저장');
+    try { const el = document.getElementById('prompt-modal-input'); if(el) el.type = 'password'; } catch(e) {}
+  };
+  if(!f.finPin) { _openNew(); return; }
+  // ⭐ v3.13a: 현재 암호 확인 없이 변경·해제(공란 저장)되던 구멍 차단 — 암호를 아는 사람만 바꿀 수 있다 (마스터 지적)
+  openPromptModal('🔒 현재 2차 암호 확인', '2차 암호를 변경하거나 해제하려면 먼저 현재 암호를 입력하세요.', '현재 2차 암호', (v) => {
+    if(_finHash(String(v || '')) === f.finPin) setTimeout(_openNew, 80);
+    else notify('현재 2차 암호가 틀렸습니다.', 'error');
+  }, '확인');
+  try { const el = document.getElementById('prompt-modal-input'); if(el) el.type = 'password'; } catch(e) {}
 }
 async function renderFinance() {
   const el = document.getElementById('finance-content');
