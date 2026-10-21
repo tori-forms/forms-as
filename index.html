@@ -5301,7 +5301,7 @@ function renderAging() {
 
       html += `<tr data-aging-row data-entry-id="${e.id}" data-aging-worker="${escapeHtml(worker)}">
         <td style="text-align:center;">${passed ? `<input type="checkbox" class="aging-chk" data-chk-worker="${escapeHtml(worker)}" data-chk-id="${e.id}">` : ''}</td>
-        <td style="font-weight:600;"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${escapeHtml(e.serial)}</span>${(() => { const rf = reworkFlags(e); if(!rf.isRework) return ''; const t = rf.hadDefect ? '🔄 불량재작업' : '🔧 재수리'; return ` <span style="display:inline-block;background:#fef3c7;color:#b45309;font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;margin-left:4px;" title="${rf.hadDefect?'불량 판정 이력 있음':''}${rf.hadPartAdd?' 부품 추가됨':''}">${t}</span>`; })()}</td>
+        <td style="font-weight:600;"><span class="serial-copy" onclick="copySerial('${escapeJs(e.serial)}')" title="클릭하면 복사">${_bBadge(e)}${escapeHtml(e.serial)}</span>${(() => { const rf = reworkFlags(e); if(!rf.isRework) return ''; const t = rf.hadDefect ? '🔄 불량재작업' : '🔧 재수리'; return ` <span style="display:inline-block;background:#fef3c7;color:#b45309;font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;margin-left:4px;" title="${rf.hadDefect?'불량 판정 이력 있음':''}${rf.hadPartAdd?' 부품 추가됨':''}">${t}</span>`; })()}</td>
         <td>${escapeHtml(e.model||'')}</td>
         <td style="font-size:12px;color:var(--text2);">${escapeHtml(works)}</td>
         <td style="font-size:12px;">${startFmt}</td>
