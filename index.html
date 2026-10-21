@@ -14989,6 +14989,7 @@ async function renderMyDash() {
       `<div id="t4-report-slot"><div style="color:var(--text3);font-size:13px;padding:10px 2px;">실적 리포트 불러오는 중…</div></div>` +
       `<div id="t4-triple-slot"></div>` +   // ⭐ v2.70d: 3중 작업 현황 카드 자리
       _awardsCardForMyDash() +               // ⭐ v2.86: 부품별 교체 사유 분석 카드 제거 (마스터 지시)               // ⭐ v2.83: 이 달의 엔지니어 (경영분석에서 이동)
+      _teamVacCalHtml() +                    // ⭐ v3.15: 팀 휴가 달력 (전 직원 공유 — 관리자 화면에도)
       _partOveruseCard() +                   // ⭐ v2.86a: 부품 초과 사용 TOP (누락 점검 대체 — 마스터 지시)
       _qualityWeakCard() +                   // ⭐ v2.86a: 엔지니어별 품질 약점 (상세 사유 통계)
       `<details id="t4-board-details" style="margin-top:4px;"${boardOpen?' open':''}>
@@ -15254,6 +15255,8 @@ async function renderMyDash() {
     ${_myMissFixCardHtml()}
 
     ${_myVacCardHtml()}
+
+    ${_teamVacCalHtml()}
 
     ${_myQualitySection(currentUser)}
 
@@ -19155,6 +19158,7 @@ async function toggleVacationDay(name, dayStr, type) {
     try { renderWorkers(); } catch(e) {}
     try { renderSummary(); } catch(e) {}
     try { if(document.getElementById('mydash-body') && document.getElementById('tab-mydash')?.classList.contains('active')) renderMyDash(); } catch(e) {}
+    try { const tv = document.getElementById('teamvac-wrap'); if(tv) tv.outerHTML = _teamVacCalHtml(); } catch(e) {}   // ⭐ v3.15: 팀 휴가 달력 즉시 갱신
   };
   _rerender();   // 화면 즉시 반영
   try {
@@ -19197,6 +19201,66 @@ function _myVacCardHtml() {
       </div>
       ${mine.length ? `<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><span style="font-size:11px;color:var(--text3);">등록된 휴가:</span> ${chips}</div>` : ''}
     </div>`;
+  } catch(e) { return ''; }
+}
+/* ⭐ v3.15: 팀 휴가 달력 — 마스터 포함 전 직원이 월 단위로 누가 언제 연차·반차·반반차인지 공유 (마스터 지시) */
+function _tvNav(d) {
+  const cur = window._tvYm || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+  const dt = new Date(Number(cur.slice(0, 4)), Number(cur.slice(5, 7)) - 1 + d, 1);
+  window._tvYm = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+  const el = document.getElementById('teamvac-wrap');
+  if(el) el.outerHTML = _teamVacCalHtml();
+}
+function _teamVacCalHtml() {
+  try {
+    const now = new Date();
+    const ym = window._tvYm || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
+    const dim = new Date(y, m, 0).getDate();
+    const first = new Date(y, m - 1, 1).getDay();
+    const today = todayStr();
+    const T = { full: ['연차', '#e0f2fe', '#0369a1'], half: ['반차', '#fef9c3', '#a16207'], quarter: ['반반차', '#fce7f3', '#9d174d'] };
+    const byDay = {}; const byEng = {};
+    Object.entries(vacationDaysMap || {}).forEach(([n, arr]) => (arr || []).forEach(x => {
+      const s = String(x), d = s.slice(0, 10);
+      if(d.slice(0, 7) !== ym) return;
+      const t = s.endsWith('H') ? 'half' : s.endsWith('Q') ? 'quarter' : 'full';
+      (byDay[d] = byDay[d] || []).push({ n, t });
+      const b = (byEng[n] = byEng[n] || { full: 0, half: 0, quarter: 0 });
+      b[t]++;
+    }));
+    const hol = (holidayCache[ym] || []).concat(window.COMPANY_HOLIDAYS || []);
+    let cells = '';
+    for(let i = 0; i < first; i++) cells += '<div></div>';
+    for(let d = 1; d <= dim; d++) {
+      const ds = `${ym}-${String(d).padStart(2, '0')}`;
+      const dow = (first + d - 1) % 7;
+      const off = dow === 0 || dow === 6 || hol.includes(ds);
+      const list = (byDay[ds] || []).sort((a, b2) => a.n.localeCompare(b2.n));
+      cells += `<div style="min-height:52px;border:1px solid var(--border);border-radius:8px;padding:3px 4px;min-width:0;${off ? 'background:var(--surface2);opacity:.8;' : ''}${ds === today ? 'outline:2px solid var(--accent);' : ''}">
+        <div style="font-size:10px;font-weight:800;color:${dow === 0 ? '#dc2626' : dow === 6 ? '#2563eb' : 'var(--text3)'};">${d}</div>
+        ${list.map(v => { const c = T[v.t]; return `<div style="font-size:10px;font-weight:800;background:${c[1]};color:${c[2]};border-radius:6px;padding:1px 4px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(v.n)} · ${c[0]}">${escapeHtml(v.n)}${v.t === 'full' ? '' : ' ' + c[0]}</div>`; }).join('')}
+      </div>`;
+    }
+    const sumChips = Object.entries(byEng).sort((a, b2) => (b2[1].full + b2[1].half * 0.5 + b2[1].quarter * 0.25) - (a[1].full + a[1].half * 0.5 + a[1].quarter * 0.25)).map(([n, b]) => {
+      const wgt = b.full + b.half * 0.5 + b.quarter * 0.25;
+      const parts = [b.full ? `연차 ${b.full}` : '', b.half ? `반차 ${b.half}` : '', b.quarter ? `반반차 ${b.quarter}` : ''].filter(Boolean).join(' · ');
+      return `<span style="font-size:11px;font-weight:700;background:var(--surface2);padding:2px 9px;border-radius:99px;color:var(--text2);">${escapeHtml(n)} <span style="color:#0369a1;">${wgt}일</span><span style="color:var(--text3);font-weight:500;"> (${parts})</span></span>`;
+    }).join(' ');
+    const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+    return `<div id="teamvac-wrap"><div class="card" style="margin-bottom:20px;">
+      <div class="card-title" style="margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">📅 팀 휴가 달력
+        <span style="display:inline-flex;gap:6px;align-items:center;margin-left:6px;">
+          <button class="btn btn-sm" onclick="_tvNav(-1)" style="height:26px;padding:0 9px;">◀</button>
+          <b style="font-size:13px;">${y}년 ${m}월</b>
+          <button class="btn btn-sm" onclick="_tvNav(1)" style="height:26px;padding:0 9px;">▶</button>
+        </span>
+        <span style="font-size:10.5px;color:var(--text3);font-weight:400;text-transform:none;">전 직원 공유 · ${Object.values(T).map(c => `<span style="background:${c[1]};color:${c[2]};padding:1px 6px;border-radius:99px;font-weight:700;">${c[0]}</span>`).join(' ')}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;font-size:10.5px;font-weight:800;text-align:center;margin-bottom:3px;">${DOW.map((x, i) => `<div style="color:${i === 0 ? '#dc2626' : i === 6 ? '#2563eb' : 'var(--text3)'};">${x}</div>`).join('')}</div>
+      <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;">${cells}</div>
+      ${sumChips ? `<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><span style="font-size:11px;color:var(--text3);">이 달 합계 (연차 1 · 반차 0.5 · 반반차 0.25):</span> ${sumChips}</div>` : `<div style="margin-top:8px;font-size:11.5px;color:var(--text3);">${m}월에 등록된 휴가가 없습니다.</div>`}
+    </div></div>`;
   } catch(e) { return ''; }
 }
 /* ⭐ v2.96: 목표 부족일 셀프 정리 — 시스템이 '수리건이 부족했던 날'을 찾아 보여주고,
