@@ -5312,7 +5312,7 @@ function renderAging() {
           </span>
         </td>
         <td>
-          <span data-aging-badge style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;color:#fff;background:${passed?'#10b981':'#f59e0b'};">
+          <span data-aging-badge style="display:inline-block;white-space:nowrap;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;color:#fff;background:${passed?'#10b981':'#f59e0b'};">
             ${passed ? '✅ 에이징 완료' : '🕐 진행 중'}
           </span>
         </td>
@@ -6346,6 +6346,51 @@ function renderQualityDashboard() {
     </div>`;
   }
   html += `</div>`;
+
+  // ⭐ v3.17: 등급별 품질 (일반 vs B급) — 불합격이 어느 등급에서 나왔는지 + 엔지니어별 등급 분포 (마스터 지시)
+  try {
+    const _gq = { a: { ins: 0, fail: 0 }, b: { ins: 0, fail: 0 } };
+    const _gqEng = {};
+    periodInspections.forEach(insp => {
+      const w2 = (typeof _qhEngOf === 'function') ? _qhEngOf(insp) : '';
+      if(!_t4CanSee(w2 || '')) return;   // 파트장은 본인 파트 범위만 (요약 숫자 포함)
+      const en = (typeof entryForInsp === 'function') ? entryForInsp(insp) : null;
+      const g = (en && String(en.note || '').includes('[B급]')) ? 'b' : 'a';
+      _gq[g].ins++; if(insp.result === 'fail') _gq[g].fail++;
+      if(w2 && w2 !== '미정' && (workers || []).includes(w2)) {
+        const b = (_gqEng[w2] = _gqEng[w2] || { a: { ins: 0, fail: 0 }, b: { ins: 0, fail: 0 } });
+        b[g].ins++; if(insp.result === 'fail') b[g].fail++;
+      }
+    });
+    const _gqCell = (o) => o.ins > 0
+      ? `<b style="color:${o.fail > 0 ? (o.fail / o.ins >= .1 ? '#ef4444' : o.fail / o.ins >= .05 ? '#d97706' : 'var(--text)') : '#10b981'};">${o.fail}</b><span style="color:var(--text3);">/${o.ins}건</span> <span style="font-size:10px;color:var(--text3);">(${(o.fail / o.ins * 100).toFixed(1)}%)</span>`
+      : '<span style="color:var(--text3);">—</span>';
+    const engRows2 = Object.entries(_gqEng).filter(([, v]) => v.b.ins > 0 || v.a.fail > 0)
+      .sort((x, y) => (y[1].b.fail + y[1].a.fail) - (x[1].b.fail + x[1].a.fail)).slice(0, 12);
+    html += `<div class="card" style="padding:16px 18px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px;color:var(--text);">🏷 등급별 품질 (일반 vs B급)</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:12px;">이 기간 검수 ${_gq.a.ins + _gq.b.ins}건 중 B급 ${_gq.b.ins}건 — 불합격이 어느 등급에서 나왔는지</div>
+      <div style="display:flex;gap:10px;margin-bottom:12px;">
+        <div style="flex:1;padding:10px 12px;border-radius:9px;background:var(--surface2);">
+          <div style="font-size:11px;color:var(--text3);font-weight:700;">일반 (A급)</div>
+          <div style="font-size:14px;margin-top:3px;">${_gqCell(_gq.a)}</div>
+        </div>
+        <div style="flex:1;padding:10px 12px;border-radius:9px;background:rgba(245,158,11,.07);border:1px solid #f59e0b55;">
+          <div style="font-size:11px;color:#b45309;font-weight:700;">🏷 B급</div>
+          <div style="font-size:14px;margin-top:3px;">${_gqCell(_gq.b)}</div>
+        </div>
+      </div>
+      ${engRows2.length ? `<div style="display:flex;flex-direction:column;gap:2px;">
+        <div style="display:flex;font-size:10px;color:var(--text3);font-weight:700;padding:0 2px;"><span style="flex:1;">엔지니어 (불합격/검수)</span><span style="width:112px;">일반</span><span style="width:112px;">B급</span></div>
+        ${engRows2.map(([n, v]) => `<div style="display:flex;align-items:center;font-size:12px;padding:5px 2px;border-top:1px solid var(--border);">
+          <span style="flex:1;font-weight:700;">${escapeHtml(n)}</span>
+          <span style="width:112px;">${_gqCell(v.a)}</span>
+          <span style="width:112px;">${_gqCell(v.b)}</span>
+        </div>`).join('')}
+      </div>` : '<div style="font-size:11px;color:var(--text3);">이 기간 불합격이나 B급 검수가 없습니다.</div>'}
+      <div style="font-size:10px;color:var(--text3);margin-top:10px;line-height:1.5;">B급 = 수리 등록 때 🏷 B급으로 체크된 기기 · 표는 불합격이 있거나 B급을 검수받은 엔지니어만 표시</div>
+    </div>`;
+  } catch(e) {}
 
   html += `</div>`; // grid 닫기
 
