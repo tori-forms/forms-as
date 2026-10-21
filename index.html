@@ -19209,6 +19209,55 @@ function _tvNav(d) {
   const el = document.getElementById('teamvac-wrap');
   if(el) el.outerHTML = _teamVacCalHtml();
 }
+// ⭐ v3.15b: 날짜 클릭 → 휴가 등록/해제 모달 (엔지니어 = 본인 · 파트장 = 본인+팀원 · 총괄 = 전원)
+function _tvClose() { try { document.getElementById('tv-day-modal')?.remove(); } catch(e) {} }
+function _tvWho() { const el = document.getElementById('tv-day-who'); return el ? el.value : currentUser; }
+function _tvDayDo(ds, type) { const n = _tvWho(); if(!n) return; _tvClose(); toggleVacationDay(n, ds, type); }
+function _tvDayOff(ds) {
+  const n = _tvWho(); if(!n) return;
+  if(!vacationDayType(n, ds)) { notify(`${n}님은 ${ds.slice(5).replace('-', '/')}에 등록된 휴가가 없어요.`, 'error'); return; }
+  _tvClose(); toggleVacationDay(n, ds);
+}
+function _tvDayClick(ds) {
+  try {
+    if(!currentUser) return;
+    const d = new Date(ds + 'T12:00:00');
+    const dow = d.getDay();
+    const hol = (holidayCache[ds.slice(0, 7)] || []).concat(window.COMPANY_HOLIDAYS || []);
+    if(dow === 0 || dow === 6 || hol.includes(ds)) { notify('주말·공휴일은 원래 쉬는 날이라 휴가 등록이 필요 없어요.'); return; }
+    const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+    const T = { full: ['연차', '#e0f2fe', '#0369a1'], half: ['반차', '#fef9c3', '#a16207'], quarter: ['반반차', '#fce7f3', '#9d174d'] };
+    // 그 날 이미 등록된 사람들 (정보 표시)
+    const regd = [];
+    Object.keys(vacationDaysMap || {}).forEach(n => { const t = vacationDayType(n, ds); if(t) regd.push({ n, t }); });
+    // 대상 선택: 관리 권한 범위 (본인 포함, 마스터 제외)
+    const mgr = isFullAdmin() || (typeof isPartMaster === 'function' && isPartMaster());
+    const targets = mgr
+      ? (workers || []).filter(w2 => w2 !== MASTER_NAME && (w2 === currentUser || canManageWorker(w2)))
+      : [currentUser];
+    if(currentUser === MASTER_NAME && !targets.length) { notify('휴가를 등록할 엔지니어가 없습니다.', 'error'); return; }
+    const whoUi = `<select id="tv-day-who" style="height:36px;min-width:110px;">${targets.map(w2 => `<option value="${escapeHtml(w2)}">${escapeHtml(w2)}</option>`).join('')}</select>`;
+    const whoVal = currentUser;
+    _tvClose();
+    const btn = (t) => { const c = T[t]; return `<button onclick="_tvDayDo('${ds}','${t}')" style="flex:1;min-width:86px;height:44px;border:none;border-radius:10px;background:${c[1]};color:${c[2]};font-size:14px;font-weight:800;cursor:pointer;">${c[0]}</button>`; };
+    document.body.insertAdjacentHTML('beforeend', `
+    <div id="tv-day-modal" onclick="if(event.target===this)_tvClose()" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px;">
+      <div style="background:var(--surface,#fff);color:var(--text,#111);width:100%;max-width:360px;border-radius:14px;border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,.4);padding:16px 16px 14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <span style="font-size:15px;font-weight:800;">🏖 ${ds.slice(5).replace('-', '/')} (${DOW[dow]}) 휴가</span>
+          <button onclick="_tvClose()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text2);">×</button>
+        </div>
+        ${regd.length ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px;">${regd.map(r => { const c = T[r.t]; return `<span style="font-size:11px;font-weight:700;background:${c[1]};color:${c[2]};padding:2px 8px;border-radius:99px;">${escapeHtml(r.n)} ${c[0]}</span>`; }).join('')}</div>` : ''}
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <span style="font-size:12px;color:var(--text3);">대상</span>${mgr ? whoUi : `<b style="font-size:13.5px;">${escapeHtml(whoVal)}</b><input type="hidden" id="tv-day-who" value="${escapeHtml(whoVal)}">`}
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">${btn('full')}${btn('half')}${btn('quarter')}</div>
+        <button onclick="_tvDayOff('${ds}')" style="width:100%;height:38px;border:1px solid var(--border2);border-radius:10px;background:transparent;color:var(--text2);font-size:12.5px;font-weight:700;cursor:pointer;">이 날 휴가 해제</button>
+        <div style="font-size:10.5px;color:var(--text3);margin-top:8px;line-height:1.5;">연차 = 목표 면제 · 반차 절반 · 반반차 3/4 — 미달로 안 잡혀요. 버튼을 누르면 확인 창이 한 번 더 떠요.</div>
+      </div>
+    </div>`);
+  } catch(e) {}
+}
 function _teamVacCalHtml() {
   try {
     const now = new Date();
@@ -19233,40 +19282,13 @@ function _teamVacCalHtml() {
       const dow = (first + d - 1) % 7;
       const off = dow === 0 || dow === 6 || hol.includes(ds);
       const list = (byDay[ds] || []).sort((a, b2) => a.n.localeCompare(b2.n));
-      cells += `<div style="min-height:52px;border:1px solid var(--border);border-radius:8px;padding:3px 4px;min-width:0;${off ? 'background:var(--surface2);opacity:.8;' : ''}${ds === today ? 'outline:2px solid var(--accent);' : ''}">
+      cells += `<div onclick="_tvDayClick('${ds}')" title="클릭하면 휴가 등록/해제" style="cursor:pointer;min-height:52px;border:1px solid var(--border);border-radius:8px;padding:3px 4px;min-width:0;${off ? 'background:var(--surface2);opacity:.8;' : ''}${ds === today ? 'outline:2px solid var(--accent);' : ''}">
         <div style="font-size:10px;font-weight:800;color:${dow === 0 ? '#dc2626' : dow === 6 ? '#2563eb' : 'var(--text3)'};">${d}</div>
         ${list.map(v => { const c = T[v.t]; return `<div style="font-size:10px;font-weight:800;background:${c[1]};color:${c[2]};border-radius:6px;padding:1px 4px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(v.n)} · ${c[0]}">${escapeHtml(v.n)}${v.t === 'full' ? '' : ' ' + c[0]}</div>`; }).join('')}
       </div>`;
     }
-    // ⭐ v3.15a: 내 휴가 등록을 달력 카드 안으로 통합 (별도 카드 제거 — 마스터 지시) · 합계 칩 제거 (사용량 비교 부담 방지)
-    let regRow = '';
-    if(currentUser && currentUser !== MASTER_NAME) {
-      const cut = (() => { const d2 = new Date(); d2.setDate(d2.getDate() - 30); return `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, '0')}-${String(d2.getDate()).padStart(2, '0')}`; })();
-      const mine = (vacationDaysMap[currentUser] || []).slice().sort().filter(x => String(x).slice(0, 10) >= cut);
-      const myChips = mine.map(x => {
-        const d2 = String(x).slice(0, 10);
-        const t = String(x).endsWith('H') ? 'half' : String(x).endsWith('Q') ? 'quarter' : 'full';
-        const c = T[t];
-        return `<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:99px;font-size:11.5px;font-weight:700;background:${c[1]};color:${c[2]};${d2 >= today ? '' : 'opacity:.6;'}">
-          ${d2.slice(5).replace('-', '/')} ${c[0]}
-          <a href="#" onclick="event.preventDefault();toggleVacationDay('${escapeJs(currentUser)}','${d2}')" title="이 휴가 기록 해제" style="color:inherit;text-decoration:none;font-weight:900;">✕</a>
-        </span>`;
-      }).join(' ');
-      regRow = `<div style="padding:9px 0 11px;border-bottom:1px solid var(--border);margin-bottom:10px;">
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <span style="font-size:12px;font-weight:800;">🏖 내 휴가 등록</span>
-          <input type="date" id="my-vac-date" value="${today}" onclick="try{this.showPicker()}catch(e){}" style="height:32px;padding:0 8px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);">
-          <select id="my-vac-type" style="height:32px;width:92px;">
-            <option value="full">연차</option>
-            <option value="half">반차</option>
-            <option value="quarter">반반차</option>
-          </select>
-          <button class="btn btn-primary" style="height:32px;" onclick="toggleVacationDay('${escapeJs(currentUser)}', document.getElementById('my-vac-date')?.value, document.getElementById('my-vac-type')?.value)">등록</button>
-          <span style="font-size:10.5px;color:var(--text3);">연차 = 목표 면제 · 반차 절반 · 반반차 3/4 — 미달로 안 잡혀요 (소급 가능)</span>
-        </div>
-        ${myChips ? `<div style="margin-top:8px;display:flex;gap:5px;flex-wrap:wrap;align-items:center;"><span style="font-size:11px;color:var(--text3);">내 휴가:</span> ${myChips}</div>` : ''}
-      </div>`;
-    }
+    // ⭐ v3.15b: 날짜를 누르면 등록/해제 모달 — 모바일에서도 탭 한 번으로 (마스터 지시)
+    const regRow = `<div style="font-size:11px;color:var(--text3);margin:-2px 0 8px;line-height:1.6;">📱 <b>날짜 칸을 누르면</b> 휴가 등록/해제 창이 열려요 — 연차 = 목표 면제 · 반차 절반 · 반반차 3/4, 미달로 안 잡혀요 (지난 날짜 소급 가능).</div>`;
     const DOW = ['일', '월', '화', '수', '목', '금', '토'];
     return `<div id="teamvac-wrap"><div class="card" style="margin-bottom:20px;">
       <div class="card-title" style="margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">📅 팀 휴가 달력
