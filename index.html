@@ -2675,20 +2675,20 @@ function getPersonalDailyTarget(name, asOf) {
   try { const _hd0 = hireDateMap[name]; if(_hd0 && refStr < String(_hd0).slice(0, 10)) return 0; } catch(e) {}
   // ⭐ v2.79q: 파트장 대행일 → 그 날은 수리 목표 면제 (사람 관리 업무 — 기록은 대행일 목록에 남음)
   if(isActingDay(name, refStr)) return 0;
-  // ⭐ v2.95: 개인 휴가일 → 연차 면제 · 반차 절반 · 반반차(v2.96) 3/4 (미달·일일 현황 합계 자동 반영)
+  // ⭐ v2.95 → v3.16: 개인 휴가일 → 종류(연차·반차·반반차) 불문 그 날 목표 면제 (마스터 지시 —
+  //   반나절이라도 자리를 비우면 정상 목표를 칠 수 없으므로 미달로 잡지 않는다. 미달·일일 현황 합계 자동 반영)
   const _vt = vacationDayType(name, refStr);
-  if(_vt === 'full') return 0;
-  const _vh = _vt === 'half' ? 0.5 : _vt === 'quarter' ? 0.75 : 1;
+  if(_vt) return 0;
   // 개별 입력값 우선 (양수일 때)
   const manual = workerDailyTargets[name];
-  if(manual !== undefined && manual !== null && manual > 0) return Math.ceil(manual * _vh);
+  if(manual !== undefined && manual !== null && manual > 0) return Math.ceil(manual);
   // 수리 엔지니어가 아니면(QC 전담·T4 등) 목표 없음
   if(!isRepairEngineer(name)) return 0;
   // ⭐ v2.79q: T3(파트장)는 2026-09-10부터 수리 목표 제외 — 사람 관리 전담으로 전환
   //   (이전 날짜는 기존 정책 유지: v2.70s 관리·교육 병행 일 6건 — 과거 미달 기록이 소급 변동하지 않게)
-  if(tierMap[name] === LEAD_TIER()) return refStr >= T3_MANAGE_START ? 0 : Math.ceil(T3_STD_DAILY * _vh);   // ⭐ v2.82: 파트장(구 T3/신 T4) 관리 전담
+  if(tierMap[name] === LEAD_TIER()) return refStr >= T3_MANAGE_START ? 0 : Math.ceil(T3_STD_DAILY);   // ⭐ v2.82: 파트장(구 T3/신 T4) 관리 전담
   // 입사일 기준 그 시점 일 목표 (입사일 없으면 정착 기준)
-  return Math.ceil((tenureDailyTarget(name, ref) || KPI_STD_DAILY) * _vh);
+  return Math.ceil(tenureDailyTarget(name, ref) || KPI_STD_DAILY);
 }
 
 // 파트 정의 (UI 표시용)
@@ -18110,7 +18110,7 @@ async function renderReport() {
       const _vds = r.vacDays.map(d => d.slice(5, 10).replace('-','/') + (String(d).endsWith('H') ? '(반)' : ''));
       const _vShown = _vds.slice(0,4).join('·') + (_vds.length > 4 ? ` 외 ${_vds.length-4}건` : '');
       const _vW = r.vacDays.reduce((s, d) => s + (String(d).endsWith('H') ? 0.5 : 1), 0);
-      stage += `<br><span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#e0f2fe;color:#0369a1;" title="휴가일 (연차 목표 면제 · 반차 목표 절반 · 미달 미집계 — 실적 집계 보정 없음): ${r.vacDays.join(', ')}">🏖 휴가 ${_vW}일 (${_vShown})</span>`;
+      stage += `<br><span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:#e0f2fe;color:#0369a1;" title="휴가일 (종류 불문 목표 면제 · 미달 미집계 — 실적 집계 보정 없음): ${r.vacDays.join(', ')}">🏖 휴가 ${_vW}일 (${_vShown})</span>`;
     }
     h += `<tr${(r.cnt>0&&rank===1)?' style="background:var(--accent-bg,rgba(45,212,191,.06));"':''}>
       <td style="text-align:center;">${rankCell}</td>
@@ -19101,8 +19101,8 @@ async function toggleVacationDay(name, dayStr, type) {
     return;
   }
   if(name === MASTER_NAME) { notify('마스터는 휴가 집계 대상이 아닙니다.', 'error'); return; }
-  const half = type === 'half';       // ⭐ v2.95a: 반차 — 그 날 목표 절반
-  const quarter = type === 'quarter'; // ⭐ v2.96: 반반차 — 그 날 목표 3/4
+  const half = type === 'half';       // ⭐ v2.95a → v3.16: 반차도 그 날 목표 면제 (기록 구분만)
+  const quarter = type === 'quarter'; // ⭐ v2.96 → v3.16: 반반차도 그 날 목표 면제 (기록 구분만)
   const label = half ? '반차' : quarter ? '반반차' : '휴가(연차)';
   const entry = half ? day + 'H' : quarter ? day + 'Q' : day;
   const cur = Array.isArray(vacationDaysMap[name]) ? vacationDaysMap[name].slice() : [];
@@ -19122,7 +19122,7 @@ async function toggleVacationDay(name, dayStr, type) {
   // ⭐ v2.98: 브라우저 confirm → 앱 디자인 모달
   if(on) {
     const icon = half ? '🌗' : quarter ? '🌘' : '🏖';
-    const effect = half ? '이 날 수리 목표가 <b>절반</b>으로 줄어 미달로 잡히지 않아요.' : quarter ? '이 날 수리 목표가 <b>3/4</b>로 줄어들어요.' : '이 날은 수리 목표가 <b>면제</b>되어 미달로 잡히지 않아요.';
+    const effect = '이 날은 수리 목표가 <b>면제</b>되어 미달로 잡히지 않아요.';   // ⭐ v3.16: 종류 불문 면제
     const okd = await uiConfirm({
       title: `${icon} ${label} 등록`,
       msg: `${_confChip(`${escapeHtml(name)} · ${day}`)}
@@ -19151,7 +19151,7 @@ async function toggleVacationDay(name, dayStr, type) {
   if(on) cur.push(entry); else cur.splice(cur.indexOf(existing), 1);
   if(cur.length) vacationDaysMap[name] = cur.sort(); else delete vacationDaysMap[name];
   window._grAggMemo = null;   // 성장분석 분모 변경 → 메모 무효화
-  notify(on ? `🏖 ${name} — ${day} ${label} 기록됨${half ? ' (목표 절반)' : quarter ? ' (목표 3/4)' : ' (수리 목표 면제)'} · 서버 저장 중...` : `${name} — ${day} 휴가 해제됨 · 서버 저장 중...`);
+  notify(on ? `🏖 ${name} — ${day} ${label} 기록됨 (수리 목표 면제) · 서버 저장 중...` : `${name} — ${day} 휴가 해제됨 · 서버 저장 중...`);
   const _rerender = () => {
     try { renderWorkers(); } catch(e) {}
     try { renderSummary(); } catch(e) {}
@@ -19253,7 +19253,7 @@ function _tvDayClick(ds) {
         </div>
         <div style="display:flex;gap:8px;margin-bottom:8px;">${btn('full')}${btn('half')}${btn('quarter')}</div>
         <button onclick="_tvDayOff('${ds}')" style="width:100%;height:38px;border:1px solid var(--border2);border-radius:10px;background:transparent;color:var(--text2);font-size:12.5px;font-weight:700;cursor:pointer;">이 날 휴가 해제</button>
-        <div style="font-size:10.5px;color:var(--text3);margin-top:8px;line-height:1.5;">연차 = 목표 면제 · 반차 절반 · 반반차 3/4 — 미달로 안 잡혀요. 버튼을 누르면 확인 창이 한 번 더 떠요.</div>
+        <div style="font-size:10.5px;color:var(--text3);margin-top:8px;line-height:1.5;">연차·반차·반반차 모두 그 날 수리 목표 면제 — 미달로 안 잡혀요. 버튼을 누르면 확인 창이 한 번 더 떠요.</div>
       </div>
     </div>`);
   } catch(e) {}
@@ -19288,7 +19288,7 @@ function _teamVacCalHtml() {
       </div>`;
     }
     // ⭐ v3.15b: 날짜를 누르면 등록/해제 모달 — 모바일에서도 탭 한 번으로 (마스터 지시)
-    const regRow = `<div style="font-size:11px;color:var(--text3);margin:-2px 0 8px;line-height:1.6;">📱 <b>날짜 칸을 누르면</b> 휴가 등록/해제 창이 열려요 — 연차 = 목표 면제 · 반차 절반 · 반반차 3/4, 미달로 안 잡혀요 (지난 날짜 소급 가능).</div>`;
+    const regRow = `<div style="font-size:11px;color:var(--text3);margin:-2px 0 8px;line-height:1.6;">📱 <b>날짜 칸을 누르면</b> 휴가 등록/해제 창이 열려요 — 연차·반차·반반차 모두 그 날 <b>수리 목표 면제</b>, 미달로 안 잡혀요 (지난 날짜 소급 가능).</div>`;
     const DOW = ['일', '월', '화', '수', '목', '금', '토'];
     return `<div id="teamvac-wrap"><div class="card" style="margin-bottom:20px;">
       <div class="card-title" style="margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">📅 팀 휴가 달력
@@ -19371,8 +19371,8 @@ function _myMissFixCardHtml() {
         ${memo ? `<span onclick="_missFixMemo('${escapeJs(currentUser)}','${r.ds}',${r.target},${r.done},${r.short})" title="클릭하면 메모 수정" style="font-size:11.5px;color:#0369a1;background:#e0f2fe;padding:2px 9px;border-radius:99px;font-weight:700;cursor:pointer;max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">✍ ${escapeHtml(memo)}</span>` : ''}
         <span style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap;">
           ${btn('🏖 연차', '#e0f2fe', '#0369a1', `toggleVacationDay('${escapeJs(currentUser)}','${r.ds}','full')`, '이 날을 연차로 등록 — 목표 면제')}
-          ${btn('🌗 반차', '#fef9c3', '#a16207', `toggleVacationDay('${escapeJs(currentUser)}','${r.ds}','half')`, '이 날을 반차로 등록 — 목표 절반')}
-          ${btn('🌘 반반차', '#fce7f3', '#9d174d', `toggleVacationDay('${escapeJs(currentUser)}','${r.ds}','quarter')`, '이 날을 반반차로 등록 — 목표 3/4')}
+          ${btn('🌗 반차', '#fef9c3', '#a16207', `toggleVacationDay('${escapeJs(currentUser)}','${r.ds}','half')`, '이 날을 반차로 등록 — 목표 면제')}
+          ${btn('🌘 반반차', '#fce7f3', '#9d174d', `toggleVacationDay('${escapeJs(currentUser)}','${r.ds}','quarter')`, '이 날을 반반차로 등록 — 목표 면제')}
           ${(typeof canBeActing === 'function' && canBeActing(currentUser)) ? btn('👑 대행', '#fff7ed', '#d97706', `toggleActingDay('${escapeJs(currentUser)}','${r.ds}')`, '이 날 파트장 대행이었음 — 목표 면제') : ''}
           ${memo ? '' : btn('📝 메모', 'var(--surface2)', 'var(--text2)', `_missFixMemo('${escapeJs(currentUser)}','${r.ds}',${r.target},${r.done},${r.short})`, '쉰 게 아니라면 부족 사유를 메모로 — 미달 기록에 사유가 함께 남습니다')}
         </span>
