@@ -13727,7 +13727,17 @@ async function addEntry() {
     const _staleNote = _active.length
       ? `기존 기록(${_active[0].worker} / ${fmtDT(_active[0].date)})이 '${_ST_KO[String(_active[0].status)] || _active[0].status}' 상태로 남아 있지만 30일이 지나 재인입 등록을 허용합니다. 필요 시 T4 대시보드에서 기존 건을 정리해주세요.`
       : '';
-    openReentryModal(serial, _latest, _staleNote);   // 출고 완료(shipped)·구형(빈 status)·유령 기록 → 재인입(재전달) 등록
+    // ⭐ v3.20: 출고 완료(shipped)·구형(빈 status)·유령 기록 → 재인입(재전달) 등록.
+    //   사유는 등록 화면 이전 내역 상자에서 고른 값으로 (팝업 없음 — 이유는 serialHistoryHtml 주석)
+    const _rs = window._regReentryReason;
+    if(!_rs) {
+      notify('이전에 수리한 기기입니다 — 위 주황 상자에서 재인입 사유를 먼저 선택하세요.', 'error');
+      try { renderSerialHistory(); document.getElementById('serial-history').scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
+      return;
+    }
+    if(_staleNote) notify(_staleNote);
+    window._reentryInfo = { serial, visit: _dups.length + 1, reason: _rs, memo: '', prevId: _latest.id };
+    addEntry();   // 재진입 — 중복 체크가 _reentryInfo를 보고 통과시킴
     return;
   }
   // 교품 처리된 시리얼 체크
@@ -17862,16 +17872,17 @@ function reentryBadge(e) {
 //   끝의 N은 떼고 비교한다 — 논배터리 전환 시 N이 붙어 저장되지만(v2.19), 재입고 때 엔지니어는
 //   기기 라벨의 원래 시리얼(N 없음)을 치므로 정확히 일치만 보면 이력을 놓친다.
 //   부품은 안 보여준다 — load.json이 출고 건의 parts를 생략하므로 재입고 기기는 대부분 비어 보인다.
-function serialHistoryHtml(serial) {
+function serialHistoryHtml(serial, withReason) {
   const base = s => normalizeSerial(s).replace(/N$/, '');
   const sn = base(serial);
   if(sn.length < 8) return '';   // 입력 도중(앞 몇 글자)엔 띄우지 않음
   const ST = { aging:'에이징 중', aging_pass:'검수대기', inspected:'출고대기', defect:'불량(재작업 대기)', shipped:'출고 완료', hold:'출고 보류', hold_aging:'출고 보류(에이징)' };
   const day = v => { const d = new Date(v); return isFinite(d) ? d.toLocaleDateString('ko-KR', { year:'2-digit', month:'2-digit', day:'2-digit' }) : ''; };
+  const reps = entries.filter(e => base(e.serial) === sn);
   const rows = [
-    ...entries.filter(e => base(e.serial) === sn).map(e => ({ t: new Date(e.date).getTime() || 0, html:
+    ...reps.map(e => ({ t: new Date(e.date).getTime() || 0, html:
       `${_bBadge(e)}<b>🔧 ${day(e.date)} 수리</b> · ${escapeHtml(e.worker)}${e.status ? ` · <span style="color:#6b7280;">${ST[e.status] || escapeHtml(e.status)}</span>` : ''}${reentryBadge(e)}
-       <div style="margin-top:3px;">${workTags(e.works)}</div>${e.note ? `<div style="color:#4b5563;margin-top:2px;">📝 ${escapeHtml(e.note)}</div>` : ''}` })),
+       <div style="margin-top:3px;">${workTags(e.works)}</div>${e.note ? `<div style="color:#4b5563;margin-top:2px;">📝 ${escapeHtml(e.note)}</div>` : ''}${(parseReentry(e) || {}).memo ? `<div style="color:#4b5563;margin-top:2px;">🔁 재인입 메모: ${escapeHtml(parseReentry(e).memo)}</div>` : ''}` })),
     ...(inspections || []).filter(i => i.result === 'fail' && base(i.serial) === sn).map(i => ({ t: new Date(i.inspectedAt).getTime() || 0, html:
       `<b style="color:#dc2626;">❌ ${day(i.inspectedAt)} 검수 불합격</b> · ${escapeHtml(String(i.inspector || '').split('::')[0])}
        ${parseDefectTypes(i.defectTypes).length ? ` · ${escapeHtml(parseDefectTypes(i.defectTypes).join(', '))}` : ''}${i.defectReason ? `<div style="color:#4b5563;margin-top:2px;">${escapeHtml(i.defectReason)}</div>` : ''}` })),
@@ -17884,15 +17895,26 @@ function serialHistoryHtml(serial) {
   const until = lastShip && new Date(lastShip); if(until) until.setMonth(until.getMonth() + WARRANTY_MONTHS);
   const warn = until && Date.now() <= until.getTime()
     ? `<div style="background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;border-radius:8px;padding:6px 9px;margin-bottom:6px;">🛡 직전 AS 출고 <b>${shipDateKey(lastShip)}</b> — <b>${shipDateKey(until)}</b>까지 6개월 이내입니다. 같은 증상·같은 수리 항목이면 공임 무상 대상이니, 재인입 사유를 <b>'증상 재발'</b>로 골라주세요.</div>` : '';
+  // ⭐ v3.20: 재인입 사유를 등록 화면에서 고른다 (필수 · 기본값 없음). 상세 내용은 특이사항 한 칸에.
+  //   전엔 [수리 등록] 뒤 팝업에서 골랐는데 '증상 재발'이 미리 선택돼 있어 그냥 누르고 지나가기 쉬웠고
+  //   (6개월 무상 판정이 이 사유로 된다), 팝업의 '상세 메모'는 수정 창에서만 보여 아무도 못 봤다.
+  const pick = withReason && reps.length
+    ? `<div style="background:#fff;border:1px solid #fdba74;border-radius:8px;padding:7px 10px;margin-bottom:6px;">
+        <b>재인입 사유 <span style="color:#dc2626;">(필수)</span></b> <span style="color:#6b7280;">— 상세 내용은 아래 특이사항에 적어주세요</span><div style="margin-top:3px;">
+        ${Object.entries(REENTRY_REASONS).filter(([, v]) => !v.hidden).map(([k, v]) => `<label style="display:inline-flex;align-items:center;gap:5px;margin:2px 12px 2px 0;cursor:pointer;"><input type="radio" name="reg-reentry-reason" value="${k}" ${window._regReentryReason === k ? 'checked' : ''} onchange="window._regReentryReason=this.value" style="accent-color:${v.color};">${escapeHtml(v.label)}</label>`).join('')}
+      </div></div>` : '';
   return `<div style="font-size:12.5px;line-height:1.5;background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:10px 12px;color:#1f2937;">
-    <div style="font-weight:800;color:#c2410c;margin-bottom:6px;">⚠ 이전에 수리한 기기입니다 — 기록 ${rows.length}건 (최근 순)</div>${warn}
+    <div style="font-weight:800;color:#c2410c;margin-bottom:6px;">⚠ 이전에 수리한 기기입니다 — 기록 ${rows.length}건 (최근 순)</div>${warn}${pick}
     ${rows.map(r => `<div style="padding:6px 0;border-top:1px dashed #fed7aa;">${r.html}</div>`).join('')}
   </div>`;
 }
 function renderSerialHistory() {
   const el = document.getElementById('serial-history');
   if(!el) return;
-  const html = serialHistoryHtml(document.getElementById('inp-serial')?.value || '');
+  const v = document.getElementById('inp-serial')?.value || '';
+  const key = normalizeSerial(v).replace(/N$/, '');
+  if(key !== window._regHistKey) { window._regHistKey = key; window._regReentryReason = null; }   // 다른 기기로 바뀌면 고른 사유 초기화
+  const html = serialHistoryHtml(v, true);
   el.innerHTML = html;
   el.style.display = html ? 'block' : 'none';
 }
@@ -17907,7 +17929,7 @@ function openReentryModal(serial, dupInfo, staleNote) {
   wrap.style.display = 'flex';
   const opts = Object.entries(REENTRY_REASONS).filter(([, v]) => !v.hidden).map(([k, v], i) => `
     <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;cursor:pointer;margin-bottom:8px;">
-      <input type="radio" name="reentry-reason" value="${k}" ${i===0?'checked':''} style="accent-color:${v.color};">
+      <input type="radio" name="reentry-reason" value="${k}" style="accent-color:${v.color};">
       <span style="font-size:13.5px;font-weight:600;">${v.label}</span>
     </label>`).join('');
   wrap.innerHTML = `
@@ -17920,7 +17942,6 @@ function openReentryModal(serial, dupInfo, staleNote) {
       ${staleNote ? `<div style="font-size:12px;line-height:1.5;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:8px;padding:8px 10px;margin-bottom:10px;">⚠ ${staleNote}</div>` : ''}
       <div style="max-height:220px;overflow:auto;margin-bottom:10px;">${serialHistoryHtml(serial)}</div>
       ${opts}
-      <textarea id="reentry-memo" placeholder="상세 메모 (선택)" style="width:100%;min-height:52px;margin-top:4px;font-size:12.5px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);box-sizing:border-box;"></textarea>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
         <button class="btn" onclick="document.getElementById('reentry-modal').remove()">취소</button>
         <button class="btn btn-primary" onclick="confirmReentry('${String(serial).replace(/'/g,'')}', ${visit}, '${String(dupInfo && dupInfo.id || '').replace(/'/g,'')}')">재인입 등록</button>
@@ -17928,11 +17949,13 @@ function openReentryModal(serial, dupInfo, staleNote) {
     </div>`;
   document.body.appendChild(wrap);
 }
+// v3.20: 팝업은 서버 중복 가드(화면 데이터가 낡아 등록 화면이 이력을 몰랐던 경우)에서만 뜬다.
+//   여기도 기본 선택 없음 — 고르지 않으면 진행 안 함. 상세 메모 칸은 없앴다(특이사항으로 통일).
 function confirmReentry(serial, visit, prevId) {
-  const reason = document.querySelector('input[name="reentry-reason"]:checked')?.value || 'defect';
-  const memo = document.getElementById('reentry-memo')?.value.trim() || '';
+  const reason = document.querySelector('input[name="reentry-reason"]:checked')?.value;
+  if(!reason) { notify('재인입 사유를 선택하세요.', 'error'); return; }
   document.getElementById('reentry-modal')?.remove();
-  window._reentryInfo = { serial, visit, reason, memo, prevId };
+  window._reentryInfo = { serial, visit, reason, memo: '', prevId };
   addEntry();   // 재진입 — 중복 체크가 _reentryInfo를 보고 통과시킴
 }
 
