@@ -5144,8 +5144,11 @@ function getAgingEntries() {
 // 검수대기 entries (status === 'aging_pass')
 // 에이징 통과는 사용자가 직접 버튼 눌러서 'aging_pass'로 옮긴 건만 표시
 function getInspectWaitingEntries() {
+  // ⭐ v3.22: B급은 QC 전용(inspector) 검수 대상에서 제외 — 겸직(both)·T3/T4·관리자는 그대로 보고 검수 (마스터 지시)
+  const hideB = !!currentUser && !_isAdminUser(currentUser) && (roleMap[currentUser] || 'engineer') === 'inspector';
   return entries.filter(e => {
     const s = String(e.status || '');
+    if(hideB && String(e.note || '').includes('[B급]')) return false;
     return s === STATUS_AGING_PASS;
   });
 }
