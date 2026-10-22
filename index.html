@@ -4495,8 +4495,9 @@ function renderShippingListPanel() {
       // 서브탭 구분선도 숨김
       const svSubtabWrap = listSubBtn?.parentElement;
       if(svSubtabWrap) svSubtabWrap.style.display = 'none';
-      // 필터 적용
-      if(typeof setSvFilter === 'function') setSvFilter('all', true);
+      // ⭐ v3.21: 처음엔 이번 달만 — 전체 출고 이력을 한 번에 그리면 화면이 무거워진다(마스터 지시).
+      //   지난 기록은 [전체]·[지난 달]·기간 입력으로 본다.
+      if(typeof setSvFilter === 'function') setSvFilter('month', true);
     }, 50);
   }
 }
