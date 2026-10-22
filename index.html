@@ -1185,7 +1185,7 @@ window.addEventListener('DOMContentLoaded', function(){
         </div>
         <div class="form-group">
           <label class="form-label">시리얼 번호</label>
-          <input type="text" id="inp-serial" placeholder="예: SN12345678" style="width:200px;" oninput="this.value=this.value.toUpperCase().replace(/_/g,'');autoDetectModel();">
+          <input type="text" id="inp-serial" placeholder="예: SN12345678" style="width:200px;" oninput="this.value=this.value.toUpperCase().replace(/_/g,'');autoDetectModel();renderSerialHistory();">
         </div>
         <div class="form-group">
           <label class="form-label">기종</label>
@@ -1199,6 +1199,7 @@ window.addEventListener('DOMContentLoaded', function(){
           <div style="display:flex;gap:6px;flex-wrap:wrap;" id="color-chips"></div>
         </div>
       </div>
+      <div id="serial-history" style="display:none;margin-bottom:16px;"></div>
       <!-- ⭐ v2.78a: T2N 입고 불량증상 재현 확인 — 가로 전체 폭 블록 (기존: form-row 안에 끼어 레이아웃 깨짐) -->
       <div class="form-group" id="t2n-row" style="display:none;margin-bottom:16px;padding:12px 14px;border:1px dashed var(--border2);border-radius:10px;background:var(--surface2,rgba(148,163,184,.06));">
         <label class="form-label">입고 불량증상 재현 여부 · 고객과실 <span style="color:var(--text3);font-weight:400;">(선택 — 안 골라도 등록되고, 다시 누르면 해제 · 상세는 수리메모에)</span></label>
@@ -13732,6 +13733,7 @@ async function addEntry() {
 
     // 폼 초기화
     document.getElementById('inp-serial').value = '';
+    renderSerialHistory();
     document.getElementById('inp-note').value = '';
     document.getElementById('inp-model').value = '';
     document.getElementById('model-auto').textContent = '';
@@ -17807,6 +17809,43 @@ function reentryBadge(e) {
   const rs = REENTRY_REASONS[r.rs] || REENTRY_REASONS.etc;
   return `<span style="display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:99px;background:${rs.color}22;color:${rs.color};border:1px solid ${rs.color}55;margin-left:6px;white-space:nowrap;">🔁 ${r.v}차 · ${rs.label.split(' (')[0]}</span>`;
 }
+// ⭐ v3.18: 이전 수리 내역 — 수리 등록 칸에 시리얼을 넣는 즉시 표시.
+//   엔지니어가 시리얼 조회 탭을 거치지 않고 바로 등록해도 재입고 기기의 지난 수리·검수 불합격·
+//   교품 기록을 보고 작업하게 하려는 것. (전엔 [수리 등록]을 눌러야 재인입 모달이 떴고,
+//   그마저 '직전 엔지니어' 이름만 나왔다)
+//   끝의 N은 떼고 비교한다 — 논배터리 전환 시 N이 붙어 저장되지만(v2.19), 재입고 때 엔지니어는
+//   기기 라벨의 원래 시리얼(N 없음)을 치므로 정확히 일치만 보면 이력을 놓친다.
+//   부품은 안 보여준다 — load.json이 출고 건의 parts를 생략하므로 재입고 기기는 대부분 비어 보인다.
+function serialHistoryHtml(serial) {
+  const base = s => normalizeSerial(s).replace(/N$/, '');
+  const sn = base(serial);
+  if(sn.length < 8) return '';   // 입력 도중(앞 몇 글자)엔 띄우지 않음
+  const ST = { aging:'에이징 중', aging_pass:'검수대기', inspected:'출고대기', defect:'불량(재작업 대기)', shipped:'출고 완료', hold:'출고 보류', hold_aging:'출고 보류(에이징)' };
+  const day = v => { const d = new Date(v); return isFinite(d) ? d.toLocaleDateString('ko-KR', { year:'2-digit', month:'2-digit', day:'2-digit' }) : ''; };
+  const rows = [
+    ...entries.filter(e => base(e.serial) === sn).map(e => ({ t: new Date(e.date).getTime() || 0, html:
+      `${_bBadge(e)}<b>🔧 ${day(e.date)} 수리</b> · ${escapeHtml(e.worker)}${e.status ? ` · <span style="color:#6b7280;">${ST[e.status] || escapeHtml(e.status)}</span>` : ''}${reentryBadge(e)}
+       <div style="margin-top:3px;">${workTags(e.works)}</div>${e.note ? `<div style="color:#4b5563;margin-top:2px;">📝 ${escapeHtml(e.note)}</div>` : ''}` })),
+    ...(inspections || []).filter(i => i.result === 'fail' && base(i.serial) === sn).map(i => ({ t: new Date(i.inspectedAt).getTime() || 0, html:
+      `<b style="color:#dc2626;">❌ ${day(i.inspectedAt)} 검수 불합격</b> · ${escapeHtml(String(i.inspector || '').split('::')[0])}
+       ${parseDefectTypes(i.defectTypes).length ? ` · ${escapeHtml(parseDefectTypes(i.defectTypes).join(', '))}` : ''}${i.defectReason ? `<div style="color:#4b5563;margin-top:2px;">${escapeHtml(i.defectReason)}</div>` : ''}` })),
+    ...(exchangeList || []).filter(x => base(x.serial) === sn).map(x => ({ t: new Date(x.date).getTime() || 0, html:
+      `<b style="color:#b45309;">📦 ${day(x.date)} 교품 처리</b> · ${escapeHtml(x.worker)} · ${escapeHtml(x.reason)}${x.note ? `<div style="color:#4b5563;margin-top:2px;">${escapeHtml(x.note)}</div>` : ''}` })),
+  ].sort((a, b) => b.t - a.t);
+  if(!rows.length) return '';
+  return `<div style="font-size:12.5px;line-height:1.5;background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:10px 12px;color:#1f2937;">
+    <div style="font-weight:800;color:#c2410c;margin-bottom:6px;">⚠ 이전에 수리한 기기입니다 — 기록 ${rows.length}건 (최근 순)</div>
+    ${rows.map(r => `<div style="padding:6px 0;border-top:1px dashed #fed7aa;">${r.html}</div>`).join('')}
+  </div>`;
+}
+function renderSerialHistory() {
+  const el = document.getElementById('serial-history');
+  if(!el) return;
+  const html = serialHistoryHtml(document.getElementById('inp-serial')?.value || '');
+  el.innerHTML = html;
+  el.style.display = html ? 'block' : 'none';
+}
+
 function openReentryModal(serial, dupInfo, staleNote) {
   const localCnt = entries.filter(e => String(e.serial) === String(serial)).length;
   const visit = Math.max(Number(dupInfo && dupInfo.count) || 0, localCnt) + 1;
@@ -17828,6 +17867,7 @@ function openReentryModal(serial, dupInfo, staleNote) {
         재전달 사유를 선택하면 <b>${visit}차 수리</b>로 등록됩니다.
       </div>
       ${staleNote ? `<div style="font-size:12px;line-height:1.5;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:8px;padding:8px 10px;margin-bottom:10px;">⚠ ${staleNote}</div>` : ''}
+      <div style="max-height:220px;overflow:auto;margin-bottom:10px;">${serialHistoryHtml(serial)}</div>
       ${opts}
       <textarea id="reentry-memo" placeholder="상세 메모 (선택)" style="width:100%;min-height:52px;margin-top:4px;font-size:12.5px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);box-sizing:border-box;"></textarea>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
