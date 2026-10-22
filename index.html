@@ -4722,8 +4722,8 @@ function renderShippingList() {
           <td style="font-size:12px;color:var(--text2);">${works}</td>
           <td style="font-size:12px;">${shipFmt}</td>
           <td style="text-align:right;white-space:nowrap;font-size:12px;">${e
-            ? `${fmt(Number(e.total||0))}원${isFreeEntry(e) ? ' <span style="font-size:10px;font-weight:800;background:#10b9811a;color:#10b981;border:1px solid #10b98155;padding:1px 6px;border-radius:99px;">무상</span>' : ''}
-               <button class="btn btn-sm" onclick="event.stopPropagation();toggleFreeShip('${escapeJs(String(h.serial||''))}','${escapeJs(String(h.shipDate||''))}')" style="height:24px;padding:0 8px;font-size:11px;color:#10b981;border-color:#10b981;font-weight:700;margin-left:4px;">${isFreeEntry(e) ? '해제' : '🆓 무상'}</button>`
+            ? `${fmt(Number(e.total||0))}원${freeBadge(e)}${warrantyChip(e)}
+               <button class="btn btn-sm" onclick="event.stopPropagation();toggleFreeShip('${escapeJs(String(h.serial||''))}','${escapeJs(String(h.shipDate||''))}')" style="height:24px;padding:0 8px;font-size:11px;color:#10b981;border-color:#10b981;font-weight:700;margin-left:4px;">${hasFreeTag(e) ? '해제' : '🆓 무상'}</button>`
             : '-'}</td>
         </tr>`;
       });
@@ -4807,7 +4807,7 @@ function getShipItemsByDate(dateKey, includeFree) {
     const works = e ? parseWorks(e.works).map(k => WORKS[k]?.tag || k) : String(h.works||'').split('|').filter(Boolean);
     const free = !!(e && isFreeEntry(e));   // ⭐ v2.72b
     const total = free ? 0 : (e ? Number(e.total||0) : Number(h.fee||0)); // VAT 포함가 (무상 = 0원 보증)
-    return { serial: h.serial, model, works, total, free, color: entryColor(e || { serial: h.serial }) };   // ⭐ v2.71: 색상
+    return { serial: h.serial, model, works, total, free, pfree: !!(e && isPartFreeEntry(e)), color: entryColor(e || { serial: h.serial }) };   // ⭐ v2.71: 색상
   });
 }
 
@@ -5069,7 +5069,7 @@ function issueShipList(dateKey) {
   const aoa = [['No', '시리얼번호', '기종', '색상', '수리항목', '수리비용(VAT포함)']];   // ⭐ v2.71: 색상란 추가
   items.forEach((it, i) => {
     total += it.total;
-    aoa.push([i+1, it.serial, it.model, it.color || '', (it.free ? '[무상 재작업] ' : '') + it.works.join(' / '), it.total]);
+    aoa.push([i+1, it.serial, it.model, it.color || '', (it.free ? '[무상 재작업] ' : it.pfree ? '[부분 무상] ' : '') + it.works.join(' / '), it.total]);
   });
   aoa.push(['', '', '', '', '합계', total]);
 
@@ -7801,7 +7801,7 @@ function renderShipping() {
       <tbody>${ok.map((x,i) => `<tr>
         <td style="text-align:center;"><input type="checkbox" class="ship-row-check" data-idx="${i}" data-serial="${x.entry.serial}" style="accent-color:var(--accent);" onchange="onShipCheckChange()"></td>
         <td>${(() => { const __m = normalizeModel(x.entry.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
-        <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${x.entry.serial}</span>${isFreeEntry(x.entry) ? ' <span style="font-size:10px;font-weight:800;background:#10b9811a;color:#10b981;border:1px solid #10b98155;padding:1px 6px;border-radius:99px;">무상</span>' : ''}</td>
+        <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${x.entry.serial}</span>${freeBadge(x.entry)}${warrantyChip(x.entry)}</td>
         <td>${x.entry.worker}</td>
         <td>${workTags(x.entry.works)}</td>
         <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
@@ -8016,6 +8016,66 @@ function onShipCheckChange() {
 //   note에 [무상 재작업·원공임 N원] 태그로 원금 보존 → 같은 버튼으로 해제(원금 복원) 가능.
 const FREE_TAG_RE = /\s?\[무상 재작업·원공임 ([\d,]+)원\]/;
 function isFreeEntry(e) { return FREE_TAG_RE.test(String(e && e.note || '')); }
+
+// ⭐ v3.19: 6개월 무상 재작업 기준 — 직전 AS 출고일로부터 6개월 이내에 같은 수리 항목이 같은 증상
+//   (재인입 사유 '증상 재발')으로 다시 들어오면 그 항목의 공임은 청구하지 않는다(마스터 방침).
+//   판정은 '무상 대상' 표시만 하고, 0원 처리는 사람이 [🆓 무상] 버튼으로 확정한다 (v2.75f 오적용 사고 이후
+//   청구 금액을 자동으로 바꾸지 않기로 함).
+//   겹치는 항목만 무상 — 새 항목이 섞여 있으면 그 공임은 청구해야 하므로 [부분 무상] 태그로 따로 둔다.
+//   [부분 무상]은 isFreeEntry가 아니다: 견적서·KPI에서 빠지면 안 되고 줄어든 total로 청구돼야 하기 때문.
+const PART_FREE_TAG_RE = /\s?\[부분 무상·원공임 ([\d,]+)원\]/;
+const WARRANTY_MONTHS = 6;
+function isPartFreeEntry(e) { return PART_FREE_TAG_RE.test(String(e && e.note || '')); }
+function hasFreeTag(e) { return isFreeEntry(e) || isPartFreeEntry(e); }
+function freeBadge(e) {
+  if(isFreeEntry(e)) return ' <span style="font-size:10px;font-weight:800;background:#10b9811a;color:#10b981;border:1px solid #10b98155;padding:1px 6px;border-radius:99px;">무상</span>';
+  if(isPartFreeEntry(e)) return ' <span style="font-size:10px;font-weight:800;background:#10b9811a;color:#10b981;border:1px dashed #10b98188;padding:1px 6px;border-radius:99px;">부분 무상</span>';
+  return '';
+}
+function freeLabel(e) { return isFreeEntry(e) ? '[무상 재작업] ' : isPartFreeEntry(e) ? '[부분 무상] ' : ''; }
+// 무상 대상이면 { shipDay, until, overlap, freeAmt, partial }, 아니면 null.
+//   직전 출고일을 못 찾으면 { unknown:true } — 공임을 더 받는 쪽으로 틀리지 않게 '확인 필요'로 띄운다.
+function warrantyInfo(e) {
+  const r = parseReentry(e);
+  if(!r || r.rs !== 'defect') return null;
+  const base = s => normalizeSerial(s).replace(/N$/, '');   // 논배터리 전환 N 접미사 무시 (v3.18과 같은 이유)
+  const sn = base(e.serial), t = new Date(e.date).getTime();
+  const prev = (r.prev && entries.find(x => String(x.id) === String(r.prev)))
+    || entries.filter(x => x !== e && base(x.serial) === sn && (new Date(x.date).getTime() || 0) < t)
+              .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+  if(!prev) return null;
+  const prevW = new Set(parseWorks(prev.works));
+  const works = parseWorks(e.works);
+  const overlap = works.filter(k => prevW.has(k));
+  if(!overlap.length) return null;
+  const pt = new Date(prev.date).getTime() || 0;
+  const ship = (shipHistory || []).filter(h => base(h.serial) === sn)
+    .map(h => parseShipDate(h.shipDate)).filter(d => d && d.getTime() >= pt && d.getTime() <= t)
+    .sort((a, b) => b - a)[0];
+  if(!ship) return { unknown: true, overlap };
+  const until = new Date(ship); until.setMonth(until.getMonth() + WARRANTY_MONTHS);
+  if(t > until.getTime()) return null;
+  const partial = overlap.length < works.length;
+  const freeAmt = partial ? overlap.reduce((s, k) => s + ((WORKS[k] && WORKS[k].price) || 0), 0) : Number(e.total || 0);
+  return { shipDay: shipDateKey(ship), until: shipDateKey(until), overlap, partial, freeAmt: Math.min(freeAmt, Number(e.total || 0)) };
+}
+function warrantyChip(e) {
+  if(hasFreeTag(e)) return '';
+  const w = warrantyInfo(e);
+  if(!w) return '';
+  const items = w.overlap.map(k => WORKS[k]?.tag || k).join('·');
+  if(w.unknown) return ` <span style="font-size:10px;font-weight:800;background:#f59e0b1a;color:#b45309;border:1px solid #f59e0b88;padding:1px 6px;border-radius:99px;" title="증상 재발 재인입 · 같은 항목(${escapeHtml(items)}) — 직전 출고일을 못 찾아 6개월 여부 확인 필요">🛡 무상 확인 필요</span>`;
+  return ` <span style="font-size:10px;font-weight:800;background:#10b9811a;color:#047857;border:1px solid #10b981;padding:1px 6px;border-radius:99px;" title="직전 출고 ${w.shipDay} → ${w.until}까지 6개월 이내 · 증상 재발 · 같은 항목(${escapeHtml(items)})">🛡 무상 대상${w.partial ? ` ${fmt(w.freeAmt)}원` : ''}</span>`;
+}
+// 무상 전환/해제 계산 — 개별·일괄 버튼이 같은 규칙을 쓰도록 한 곳에 둔다.
+function freeToggleCalc(e) {
+  const note = String(e.note || '');
+  const m = note.match(FREE_TAG_RE) || note.match(PART_FREE_TAG_RE);
+  if(m) return { restore: true, newTotal: Number(m[1].replace(/,/g, '')) || 0, newNote: note.replace(FREE_TAG_RE, '').replace(PART_FREE_TAG_RE, '').trim() };
+  const total = Number(e.total || 0), w = warrantyInfo(e);
+  if(w && w.partial) return { restore: false, partial: true, newTotal: total - w.freeAmt, newNote: `${note.trim()} [부분 무상·원공임 ${fmt(total)}원]`.trim() };
+  return { restore: false, newTotal: 0, newNote: `${note.trim()} [무상 재작업·원공임 ${fmt(total)}원]`.trim() };
+}
 async function freeSelected() {
   const serials = [...document.querySelectorAll('.ship-row-check:checked')].map(cb => cb.dataset.serial).filter(Boolean);
   if(!serials.length) { notify('처리할 항목을 선택하세요.', 'error'); return; }
@@ -8023,22 +8083,14 @@ async function freeSelected() {
   const targets = serials.map(sn =>
     (window._shipOk || []).find(x => String(x.entry?.serial) === String(sn))?.entry || findEntryBySerial(sn)
   ).filter(Boolean);
-  const toFree = targets.filter(e => !isFreeEntry(e)).length;
+  const toFree = targets.filter(e => !hasFreeTag(e)).length;
   const toRestore = targets.length - toFree;
   openModal('무상 재작업 처리', `선택 ${targets.length}건 — 무상 전환 ${toFree}건${toRestore ? ` · 무상 해제(원공임 복원) ${toRestore}건` : ''}. 무상 건은 청구·월 KPI 출고 실적에서 빠지고, 부품 차감과 일일 등록 카운트는 유지됩니다. 진행할까요?`, async () => {
     notifyPersist('처리 중...');
     let done = 0;
     for(const e of targets) {
       try {
-        let newTotal, newNote;
-        const m = String(e.note || '').match(FREE_TAG_RE);
-        if(m) {   // 해제 — 원공임 복원
-          newTotal = Number(m[1].replace(/,/g, '')) || 0;
-          newNote = String(e.note || '').replace(FREE_TAG_RE, '').trim();
-        } else {  // 무상 전환
-          newTotal = 0;
-          newNote = `${String(e.note || '').trim()} [무상 재작업·원공임 ${fmt(Number(e.total || 0))}원]`.trim();
-        }
+        const { newTotal, newNote } = freeToggleCalc(e);
         const partsSafe2 = Object.entries(e.parts && typeof e.parts === 'object' ? e.parts : {})
           .map(([k, v]) => encodeURIComponent(k) + '=' + v).join('|');
         const r = await gasCall({ action: 'edit', id: String(e.id), works: JSON.stringify(parseWorks(e.works)),
@@ -8126,23 +8178,17 @@ function toggleFreeShip(serial, shipDate) {
 async function toggleFreeEntry(id) {
   const e = entries.find(x => String(x.id) === String(id));
   if(!e) { notify('수리건을 찾을 수 없습니다.', 'error'); return; }
-  const wasFree = isFreeEntry(e);
-  const m0 = String(e.note || '').match(FREE_TAG_RE);
+  const wasFree = hasFreeTag(e);
+  const calc = freeToggleCalc(e);
   const msg = wasFree
-    ? `${e.serial} (${e.worker}) 건의 무상 처리를 해제하고 원공임 ${fmt(m0 ? Number(m0[1].replace(/,/g,'')) : 0)}원을 복원할까요?`
-    : `${e.serial} (${e.worker}) 건을 무상 재작업으로 전환할까요?\n공임 ${fmt(Number(e.total||0))}원 → 0원. 청구·월 KPI 출고 실적에서 빠지고, 부품 차감·일일 등록 카운트는 유지됩니다.`;
-  openModal(wasFree ? '무상 해제' : '무상 재작업 전환', msg, async () => {
+    ? `${e.serial} (${e.worker}) 건의 무상 처리를 해제하고 원공임 ${fmt(calc.newTotal)}원을 복원할까요?`
+    : calc.partial
+      ? `${e.serial} (${e.worker}) 건을 부분 무상으로 전환할까요?\n6개월 이내 같은 항목 재발분만 무상 — 공임 ${fmt(Number(e.total||0))}원 → ${fmt(calc.newTotal)}원. 새로 추가된 항목 공임은 그대로 청구됩니다.`
+      : `${e.serial} (${e.worker}) 건을 무상 재작업으로 전환할까요?\n공임 ${fmt(Number(e.total||0))}원 → 0원. 청구·월 KPI 출고 실적에서 빠지고, 부품 차감·일일 등록 카운트는 유지됩니다.`;
+  openModal(wasFree ? '무상 해제' : calc.partial ? '부분 무상 전환' : '무상 재작업 전환', msg, async () => {
     notifyPersist('처리 중...');
     try {
-      let newTotal, newNote;
-      const m = String(e.note || '').match(FREE_TAG_RE);
-      if(m) {   // 해제 — 원공임 복원
-        newTotal = Number(m[1].replace(/,/g, '')) || 0;
-        newNote = String(e.note || '').replace(FREE_TAG_RE, '').trim();
-      } else {  // 무상 전환
-        newTotal = 0;
-        newNote = `${String(e.note || '').trim()} [무상 재작업·원공임 ${fmt(Number(e.total || 0))}원]`.trim();
-      }
+      const { newTotal, newNote } = freeToggleCalc(e);
       const partsSafe2 = Object.entries(e.parts && typeof e.parts === 'object' ? e.parts : {})
         .map(([k, v]) => encodeURIComponent(k) + '=' + v).join('|');
       const r = await gasCall({ action: 'edit', id: String(e.id), works: JSON.stringify(parseWorks(e.works)),
@@ -8155,7 +8201,7 @@ async function toggleFreeEntry(id) {
       try { renderToday(); renderAll(); } catch(x) {}
       try { renderShipHistory(); } catch(x) {}   // ⭐ v2.75d: 출고 이력 화면도 즉시 갱신
       try { renderShipview(); } catch(x) {}      // ⭐ v2.75e: 출고 현황(견적서 화면)도 즉시 갱신
-      notify(wasFree ? `무상 해제 완료 — 공임 ${fmt(newTotal)}원 복원.` : '🆓 무상 재작업 전환 완료 — 견적서에서 0원 상계 처리됩니다.');
+      notify(wasFree ? `무상 해제 완료 — 공임 ${fmt(newTotal)}원 복원.` : calc.partial ? `🆓 부분 무상 전환 완료 — 견적서에 ${fmt(newTotal)}원으로 청구됩니다.` : '🆓 무상 재작업 전환 완료 — 견적서에서 0원 상계 처리됩니다.');
     } catch(err) { console.warn('[무상 토글]', err); notify('처리 실패. 다시 시도해주세요.', 'error'); }
   }, wasFree ? '해제' : '무상 전환', 'btn-primary');
 }
@@ -9773,7 +9819,7 @@ function renderShipview() {
                 <td style="text-align:center;font-size:12px;white-space:nowrap;">${mfgLabel}</td>
                 <td style="text-align:center;font-size:12px;">${wCount}</td>
                 <td style="text-align:center;white-space:nowrap;"><span style="font-size:11px;padding:2px 8px;border-radius:99px;background:${wType==='복합수리'?'#fef9c3':'#f0fdf4'};color:${wType==='복합수리'?'#854d0e':'#166534'};">${wType}</span></td>
-                ${!clientMode ? `<td style="text-align:center;white-space:nowrap;">${e && isFreeEntry(e) ? '<span style="font-size:10px;font-weight:800;background:#10b9811a;color:#10b981;border:1px solid #10b98155;padding:1px 6px;border-radius:99px;">무상</span> ' : ''}${e ? `<button class="btn btn-sm" onclick="event.stopPropagation();toggleFreeShip('${escapeJs(String(x.serial||''))}','${escapeJs(String(x.shipDate||''))}')" style="height:22px;padding:0 7px;font-size:10.5px;color:#10b981;border-color:#10b981;font-weight:700;">${isFreeEntry(e) ? '해제' : '🆓 무상'}</button>` : '-'}</td>` : ''}
+                ${!clientMode ? `<td style="text-align:center;white-space:nowrap;">${e ? freeBadge(e) + ' ' : ''}${e ? `<button class="btn btn-sm" onclick="event.stopPropagation();toggleFreeShip('${escapeJs(String(x.serial||''))}','${escapeJs(String(x.shipDate||''))}')" style="height:22px;padding:0 7px;font-size:10.5px;color:#10b981;border-color:#10b981;font-weight:700;">${hasFreeTag(e) ? '해제' : '🆓 무상'}</button>` : '-'}</td>` : ''}
               </tr>`;
             }).join('')}</tbody>
             <tfoot><tr>
@@ -9905,7 +9951,7 @@ function exportShipviewXlsx() {
       const fee = e ? Number(e.total) : 0;
       const partsFee = getPartsFeeForEntry(e);
       const worksArr = e ? parseWorks(e.works) : [];
-      const worksText = (e && isFreeEntry(e) ? '[무상 재작업] ' : '') + worksArr.map(k => WORKS[k]?.tag||k).join(' / ');   // ⭐ v2.72b: 무상 명시
+      const worksText = (e ? freeLabel(e) : '') + worksArr.map(k => WORKS[k]?.tag||k).join(' / ');   // ⭐ v2.72b: 무상 명시
       totalFee += fee;
       totalParts += partsFee;
       // 제조년월 파싱
@@ -10045,7 +10091,7 @@ function exportShippingXlsx() {
       entryColor(x.entry),
       x.entry.serial,
       x.entry.worker,
-      (isFreeEntry(x.entry) ? '[무상 재작업] ' : '') + ws.map(k=>WORKS[k]?.label||k).join(' / '),   // ⭐ v2.72b: 무상 명시
+      freeLabel(x.entry) + ws.map(k=>WORKS[k]?.label||k).join(' / '),   // ⭐ v2.72b: 무상 명시
       x.entry.total,
       x.entry.note||'',
       fmtDT2(x.repairDT)
@@ -17833,8 +17879,13 @@ function serialHistoryHtml(serial) {
       `<b style="color:#b45309;">📦 ${day(x.date)} 교품 처리</b> · ${escapeHtml(x.worker)} · ${escapeHtml(x.reason)}${x.note ? `<div style="color:#4b5563;margin-top:2px;">${escapeHtml(x.note)}</div>` : ''}` })),
   ].sort((a, b) => b.t - a.t);
   if(!rows.length) return '';
+  // ⭐ v3.19: 6개월 무상 기준 안내 — 엔지니어가 재인입 사유를 정확히 고르게 (무상 판정은 그 사유로 한다)
+  const lastShip = (shipHistory || []).filter(h => base(h.serial) === sn).map(h => parseShipDate(h.shipDate)).filter(Boolean).sort((a, b) => b - a)[0];
+  const until = lastShip && new Date(lastShip); if(until) until.setMonth(until.getMonth() + WARRANTY_MONTHS);
+  const warn = until && Date.now() <= until.getTime()
+    ? `<div style="background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;border-radius:8px;padding:6px 9px;margin-bottom:6px;">🛡 직전 AS 출고 <b>${shipDateKey(lastShip)}</b> — <b>${shipDateKey(until)}</b>까지 6개월 이내입니다. 같은 증상·같은 수리 항목이면 공임 무상 대상이니, 재인입 사유를 <b>'증상 재발'</b>로 골라주세요.</div>` : '';
   return `<div style="font-size:12.5px;line-height:1.5;background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:10px 12px;color:#1f2937;">
-    <div style="font-weight:800;color:#c2410c;margin-bottom:6px;">⚠ 이전에 수리한 기기입니다 — 기록 ${rows.length}건 (최근 순)</div>
+    <div style="font-weight:800;color:#c2410c;margin-bottom:6px;">⚠ 이전에 수리한 기기입니다 — 기록 ${rows.length}건 (최근 순)</div>${warn}
     ${rows.map(r => `<div style="padding:6px 0;border-top:1px dashed #fed7aa;">${r.html}</div>`).join('')}
   </div>`;
 }
@@ -17941,7 +17992,7 @@ function doSearch() {
           <div style="font-size:11px;color:var(--text3);margin-top:2px;font-family:'JetBrains Mono',monospace;">${fmtDT(e.date)}</div>
         </div>
         <div style="text-align:right;"><div class="search-worker">${e.worker}</div>
-          <div style="font-size:12px;color:var(--text2);font-family:'JetBrains Mono',monospace;margin-top:2px;">${fmt(e.total)}원${isFreeEntry(e) ? ' <span style="font-size:10px;font-weight:800;background:#10b9811a;color:#10b981;border:1px solid #10b98155;padding:1px 6px;border-radius:99px;">무상</span>' : ''}</div>
+          <div style="font-size:12px;color:var(--text2);font-family:'JetBrains Mono',monospace;margin-top:2px;">${fmt(e.total)}원${freeBadge(e)}${warrantyChip(e)}</div>
         </div>
       </div>
       <div style="margin-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;">${statusBadgeHtml(e)}</div>
@@ -17951,7 +18002,7 @@ function doSearch() {
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
         <button class="btn btn-sm" onclick="openEditModal(${e.id});lastSearch='${document.getElementById('inp-search').value.trim()}'" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>수정</button>
         <button class="btn btn-sm btn-danger" onclick="delSearch(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>삭제</button>
-        <button class="btn btn-sm" onclick="toggleFreeEntry('${e.id}')" style="color:#10b981;border-color:#10b981;font-weight:700;">${isFreeEntry(e) ? '무상 해제' : '🆓 무상 전환'}</button>
+        <button class="btn btn-sm" onclick="toggleFreeEntry('${e.id}')" style="color:#10b981;border-color:#10b981;font-weight:700;">${hasFreeTag(e) ? '무상 해제' : '🆓 무상 전환'}</button>
       </div>
     </div>`).join('');
 
