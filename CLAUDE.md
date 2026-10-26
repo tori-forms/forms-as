@@ -6,7 +6,10 @@
 ## 구조와 데이터 흐름
 
 - 프론트: `index.html` 하나. 빌드 없음 — 파일을 main에 커밋하면 GitHub Pages로 바로 배포된다.
-- 백엔드: GAS 웹앱 (`gasCall({action, ...})` JSONP/fetch). Code.gs는 이 저장소에 없음(구글 측 관리).
+- 백엔드: GAS 웹앱 (`gasCall({action, ...})` JSONP/fetch). Code.gs는 이 저장소에 없음(구글 측 관리) — **티오더 AS 프로그램 GAS: scriptId `1HbEzUWU0xnPNBBY-0u516wl81k-WronulnCZlhcCGIvoolXpNAp9-uaU`** (사용자 확인 2026-10-23, https://script.google.com/home/projects/1HbEzUWU0xnPNBBY-0u516wl81k-WronulnCZlhcCGIvoolXpNAp9-uaU/edit). `clasp clone`으로 받아 볼 수 있음.
+  로컬 사본: `C:\Users\Forms\forms-as-gas` (이 public 저장소 밖, 자체 git — 배포 전 `clasp pull`로 최신 확인).
+  - **티오더 고객사 AS 대시보드 서버 GAS: scriptId `1TRM-DUXMkNeGdYOORtcD4GfGn6bY8_4vkvpdkdmbEDz3fRH5kv_rinMV`** (프로젝트명 `voltales-as-backend`, 사용자 확인 2026-10-23, https://script.google.com/home/projects/1TRM-DUXMkNeGdYOORtcD4GfGn6bY8_4vkvpdkdmbEDz3fRH5kv_rinMV/edit). 사내 AS 프로그램 GAS(위)와 별개 — 고객사 대시보드 작업일 때만 이쪽.
+  - ⚠ 공개 data/load.json에 passwordMap(직원 비밀번호 해시)·priceSettings.finance가 그대로 실림 (2026-10-23 확인, client=1 응답만 제거). 고치려면 로그인이 load.json의 passwordMap을 쓰는지 먼저 확인.
 - 읽기 데이터: GAS가 주기적으로 `data` 브랜치의 `data/load.json`으로 덤프 (`_z` = gzip+base64, entries는 컬럼형 tbl).
   - **중요**: load.json은 용량 절약을 위해 **출고(shipped) 건의 `parts`를 생략**한다. 서버에는 데이터가 있고,
     수정 모달이 열릴 때 상세를 따로 불러온다. 그래서 **부품 사용량 집계는 반드시 `stockLog`(재고 차감 기록) 기준**으로 한다
@@ -51,6 +54,10 @@ serializeWorkers가 참조하는 맵(workerDailyTargets·mentoringEndMap 등)을
   퇴사자는 f.departures/f.hires로 입·퇴사일 일할. 추천 KPI는 손익분기 하한.
 - **B급**: entry.note의 `[B급]` 태그가 원본. `_bBadge(e)`로 시리얼 앞에 칩 표시 (전 화면).
 - **재작업 완료**: 담당 본인 + 총괄 + 같은 파트 파트장(canManageWorker).
+- **고객사 검사요청 (v3.23)**: 수리 등록 탭 아래. 시트 `검사요청`(수리 통계와 분리 — 건수·목표·수당 미포함).
+  상태 wait → approved → converted / declined. 예상 공임비 = WORKS 단가 합 + 기타작업 자동 규칙(syncEtcRule과 동일)·NB_EXCLUSIVE 적용.
+  승인 건은 수리 등록 전까지 탭 배지·배너로 계속 표시. 서버는 converted 건 상태 되돌리기 거절.
+  1차는 승인을 엔지니어가 대신 누름 — **2차(대기)**: 고객사 대시보드 승인 버튼(서버 권한 확인 필요) + 티미 슬랙 알림·미처리 재알림.
 - **품질점수**: 100 − 불합격률×5. 초과건 수당: `_finOverBonusData` (품질 게이트 5%).
 - 불출 전산화(엔지니어가 부품 가져갈 때 직접 입력)는 **거부됨** — 대신 주간 장부 대조 카드로 수기 장부와 대조.
 - 공휴일은 API 실패 대비 `KR_HOLIDAYS_FALLBACK` 합집합 (10/5 대체공휴일 오탐 사건).
