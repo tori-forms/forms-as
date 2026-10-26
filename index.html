@@ -17284,8 +17284,6 @@ async function irRegister() {
   const rec = { id: _rt || String(Date.now()), worker, serial, model, date: new Date().toISOString(), items,
     opinion: document.getElementById('ir-opinion').value.trim(), works,
     needText: document.getElementById('ir-need').value.trim(), labor: irLabor(works), status: 'wait', statusAt: '', repairId: '' };
-  // 저장 응답을 기다린 뒤 창을 열면 팝업 차단에 걸리므로 클릭 시점에 미리 연다
-  const win = window.open('', '_blank');
   const btn = document.getElementById('btn-add');
   btn.disabled = true; btn.textContent = '저장 중...';
   try {
@@ -17295,13 +17293,11 @@ async function irRegister() {
     window._irRetry = null;
     inspReqList.push(rec);
     markPendingChange('inspReqs', rec.id, { type: 'add', data: rec }, 180000);
-    notify(`${serial} 검사요청 등록 완료`);
+    notify(`${serial} 검사요청 등록 완료 — 아래 검사요청 현황의 [내역서]로 출력하세요`);
     btn.disabled = false;
     irResetForm();
     renderInspReqs();
-    irPrint(rec.id, win);
   } catch(e) {
-    if(win) win.close();
     window._irRetry = { serial, id: rec.id };
     notify('저장 실패. 다시 시도해주세요.', 'error');
   }
@@ -17409,41 +17405,55 @@ function renderInspReqs() {
         <td><span style="font-weight:700;color:${stC};white-space:nowrap;">${stL}</span></td><td style="white-space:nowrap;">${acts.join(' ')}</td></tr>`;
     }).join('')}</tbody></table></div>`;
 }
-// 검사 내역서 — 기존 엑셀 양식과 같은 구성. 인쇄 창 제목이 PDF 저장 시 기본 파일명이 된다.
-function irPrint(id, win) {
+// 검사 내역서 — 목록의 [내역서] 버튼으로만 출력 (등록 시 자동으로 띄우지 않음). 인쇄 창 제목 = PDF 기본 파일명
+function irPrint(id) {
   const r = inspReqList.find(x => String(x.id) === String(id));
   if(!r) return;
-  const w = win || window.open('', '_blank');
+  const w = window.open('', '_blank');
   if(!w) { notify('팝업이 차단되었습니다 — 브라우저에서 이 사이트의 팝업을 허용해주세요.', 'error'); return; }
   const e = escapeHtml;
-  const rows = IR_ITEMS.map(([k, l]) => {
+  // ⭐ v3.23c: 기존 엑셀 양식(태블릿_검사 내역서.xlsx) 그대로 — 12칸(A=8, B~L=9 글자폭)·행 높이(pt)·병합·색을 옮김
+  const items = IR_ITEMS.map(([k, l]) => {
     const v = r.items?.[k] || {};
-    return `<tr><td class="c">${l}</td><td class="c${v.r === '이상' ? ' bad' : ''}">${e(v.r || '정상')}</td><td>${e(v.n || '')}</td></tr>`;
+    return `<tr style="height:36pt"><td colspan="3" class="lb">${l}</td><td colspan="3" class="cv">${e(v.r || '정상')}</td><td colspan="6" class="lv">${e(v.n || '')}</td></tr>`;
   }).join('');
-  w.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>티오더패드_검사내역서_${e(r.serial)}</title><style>
-    @page { size: A4; margin: 18mm; }
-    body { font-family: 'Malgun Gothic', sans-serif; color: #111; font-size: 13px; }
-    h1 { text-align: center; font-size: 24px; letter-spacing: 4px; margin: 0 0 22px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
-    th, td { border: 1px solid #333; padding: 9px 10px; vertical-align: top; }
-    th { background: #eef2f7; font-weight: 700; }
-    .c { text-align: center; } .bad { color: #c00; font-weight: 700; }
-    .sec { font-weight: 800; font-size: 14px; margin: 0 0 6px; }
-    .op { white-space: pre-wrap; line-height: 1.7; min-height: 90px; }
-    .foot { text-align: right; color: #555; margin-top: 26px; }
+  w.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>티오더패드_검사내역서_${e(r.serial)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    @page { size: A4; margin: 0.75in 0.7in; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { margin: 0; font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; color: #243447; font-size: 10pt; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    td { padding: 0 6px; vertical-align: middle; overflow: hidden; }
+    .bx td, td.bx { border: 1px solid #000; }
+    .title { font-size: 21pt; font-weight: 700; text-align: center; background: #fff; border: 1px solid #000; }
+    .hd { font-weight: 700; background: #EDF2F7; border: 1px solid #000; }
+    .sec { font-weight: 700; color: #fff; background: #243F56; border: 1px solid #000; }
+    .lb { font-weight: 700; background: #F6F8FA; border: 1px solid #000; }
+    .cv { text-align: center; background: #fff; border: 1px solid #000; }
+    .lv { background: #fff; border: 1px solid #000; }
+    .op { background: #fff; border: 1px solid #000; white-space: pre-wrap; line-height: 1.5; }
+    .fk { font-family: Carlito, Calibri, 'Malgun Gothic', sans-serif; font-size: 11pt; }
+    .fh { font-weight: 700; color: #fff; background: #243F54; text-align: center; }
+    .fv { color: #243F54; background: #F3F6FA; }
+    .fp { color: #243F54; background: #E7EFF7; font-size: 13pt; font-weight: 700; text-align: right; }
   </style></head><body>
-    <h1>티오더패드 검사 내역서</h1>
-    <table><tr><th style="width:15%">기종</th><td style="width:35%">${e(r.model)}</td><th style="width:15%">S/N</th><td>${e(r.serial)}</td></tr></table>
-    <div class="sec">항목별 검수 결과</div>
-    <table><tr><th style="width:25%">검사 항목</th><th style="width:20%">결과</th><th>특이사항</th></tr>${rows}</table>
-    <div class="sec">검사 소견</div>
-    <table><tr><td class="op">${e(r.opinion || '-')}</td></tr></table>
-    <table>
-      <tr><th style="width:25%">수리 필요 항목</th><td>${e(r.needText || '없음')}</td></tr>
-      <tr><th>예상 수리 공임비</th><td><b>${fmt(r.labor || 0)}원</b></td></tr>
-    </table>
-    <div class="foot">검사일 ${e(toLocalDay(r.date))}</div>
-    <script>window.onload = () => window.print();<\/script>
+  <table>
+    <colgroup><col style="width:${(8 / 107 * 100).toFixed(3)}%">${('<col style="width:' + (9 / 107 * 100).toFixed(3) + '%">').repeat(11)}</colgroup>
+    <tr style="height:44pt"><td colspan="12" class="title">티오더패드 검사 내역서</td></tr>
+    <tr style="height:22pt"><td colspan="12"></td></tr>
+    <tr style="height:22pt"><td colspan="2" class="hd">기종</td><td colspan="4" class="lv">${e(r.model)}</td><td colspan="2" class="hd">S/N</td><td colspan="4" class="lv">${e(r.serial)}</td></tr>
+    <tr style="height:22pt"><td colspan="12"></td></tr>
+    <tr style="height:27pt"><td colspan="12" class="sec">항목별 검수 결과</td></tr>
+    <tr style="height:22pt"><td colspan="3" class="hd" style="text-align:center">검사 항목</td><td colspan="3" class="hd" style="text-align:center">결과</td><td colspan="6" class="hd" style="text-align:center">특이사항</td></tr>
+    ${items}
+    <tr style="height:22pt"><td colspan="6"></td><td colspan="6" class="lv"></td></tr>
+    <tr style="height:27pt"><td colspan="12" class="sec">검사 소견</td></tr>
+    <tr style="height:88pt"><td colspan="12" class="op">${e(r.opinion || '')}</td></tr>
+    <tr style="height:34pt" class="fk"><td colspan="3" class="fh">수리 필요 항목</td><td colspan="9" class="fv">${e(r.needText || '')}</td></tr>
+    <tr style="height:34pt" class="fk"><td colspan="3" class="fh">예상 수리 공임비</td><td colspan="9" class="fp">${fmt(r.labor || 0)}원</td></tr>
+  </table>
+  <script>window.onload = () => (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => window.print());<\/script>
   </body></html>`);
   w.document.close();
 }
