@@ -576,6 +576,9 @@ textarea:focus{border-color:var(--accent)!important;background:var(--surface)!im
 .btn-primary:hover{background:#0f766e!important;border-color:#0f766e!important;}
 [data-theme="dark"] .btn-primary:hover{background:#14b8a6!important;border-color:#14b8a6!important;}
 .btn-sm{height:32px!important;padding:0 12px!important;font-size:12px!important;}
+/* ⭐ v3.23b: 검사요청 정상/이상 선택 표시 — .btn 배경 !important를 이기려면 클래스로 */
+.btn.ir-ok,.btn.ir-ok:hover{background:#16a34a!important;color:#fff!important;border-color:#16a34a!important;}
+.btn.ir-bad,.btn.ir-bad:hover{background:#dc2626!important;color:#fff!important;border-color:#dc2626!important;}
 
 /* ── WORK CHECK ── */
 .work-check{
@@ -17234,9 +17237,9 @@ function irBuildForm() {
   IR_ITEMS.forEach(([k]) => { if(!window._irItems[k]) window._irItems[k] = '정상'; });
   box.innerHTML = IR_ITEMS.map(([k, l]) => {
     const v = window._irItems[k];
-    const b = (val, col) => `<button type="button" class="btn btn-sm" onclick="irSetItem('${k}','${val}')" style="font-weight:700;${v === val ? `background:${col};color:#fff;border-color:${col};` : ''}">${val}</button>`;
+    const b = (val, cls) => `<button type="button" class="btn btn-sm${v === val ? ' ' + cls : ''}" onclick="irSetItem('${k}','${val}')" style="font-weight:700;">${val}</button>`;
     return `<div style="display:grid;grid-template-columns:72px auto 1fr;gap:8px;align-items:center;margin-bottom:6px;">
-      <b style="font-size:13px;">${l}</b><span style="display:flex;gap:4px;">${b('정상', '#16a34a')}${b('이상', '#dc2626')}</span>
+      <b style="font-size:13px;">${l}</b><span style="display:flex;gap:4px;">${b('정상', 'ir-ok')}${b('이상', 'ir-bad')}</span>
       <input type="text" id="ir-n-${k}" placeholder="특이사항 (예: 액정 중앙 하단부가 노랗게 보임)" style="width:100%;">
     </div>`;
   }).join('');
