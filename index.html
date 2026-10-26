@@ -1212,12 +1212,37 @@ window.addEventListener('DOMContentLoaded', function(){
         <label class="form-label">수리 항목 (복수 선택 가능)</label>
         <div id="work-checks" style="margin-top:4px;"></div>
       </div>
+      <!-- ⭐ v3.23a: 고객사 검사요청 — 체크하면 이 폼이 [검사 등록]으로 바뀌고, 위에서 고른 수리 항목 = 수리 필요 항목(예상 공임비).
+           저장은 시트 '검사요청'(수리 통계와 별도) · 재고 차감 없음 -->
       <div class="form-group" style="margin-bottom:16px;">
+        <label class="work-check" id="wc-insp" style="cursor:pointer;border-style:dashed;">
+          <input type="checkbox" id="inp-insp" onchange="irModeChange()" style="margin-top:4px;accent-color:#0ea5e9;width:15px;height:15px;flex-shrink:0;cursor:pointer;">
+          <div style="flex:1;">
+            <div class="work-check-name">🔍 검사요청 (고객사 검사 의뢰 — 수리 없이 검사만)</div>
+            <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">체크하면 [검사 등록]으로 바뀌고 검사 내역서가 나옵니다 · 위에서 고른 수리 항목이 내역서의 수리 필요 항목(예상 공임비)이 됩니다 · 재고 차감 없음</div>
+          </div>
+        </label>
+        <div id="ir-panel" style="display:none;margin-top:12px;padding:14px;border:1px dashed var(--border2);border-radius:10px;">
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">항목별 검사 결과</label>
+            <div id="ir-items"></div>
+          </div>
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">검사 소견</label>
+            <textarea id="ir-opinion" placeholder="예: 백라이트 확산필름 열변형으로 판단됨. 패널 자체 결함(데드픽셀 등) 없음 — 설치 환경에 의한 손상으로 무상 보증 범위 아님" style="min-height:80px;"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">내역서에 적을 수리 필요 항목 <span style="color:var(--text3);font-weight:400;">(위 수리 항목으로 자동 채움 · 고쳐 써도 됨)</span></label>
+            <input type="text" id="ir-need" placeholder="예: 액정 패널 교체 · 펌웨어 재설치" style="width:100%;" oninput="this.dataset.edited='1'">
+          </div>
+        </div>
+      </div>
+      <div class="form-group" id="note-row" style="margin-bottom:16px;">
         <label class="form-label">특이사항 <span style="color:var(--text3);font-weight:400;">(선택)</span></label>
         <textarea id="inp-note" placeholder="특이사항을 입력하세요. 없으면 공란으로 두셔도 됩니다."></textarea>
       </div>
       <!-- ⭐ v2.73: B급 제품 등급 — 체크 시 노트에 [B급] 태그 저장, 고객사 대시보드 출고 목록에 B급 배지 표기 -->
-      <div class="form-group" style="margin-bottom:16px;">
+      <div class="form-group" id="bgrade-row" style="margin-bottom:16px;">
         <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;padding:8px 12px;border:1px dashed #f59e0b88;border-radius:10px;background:rgba(245,158,11,.06);">
           <input type="checkbox" id="inp-bgrade" style="accent-color:#f59e0b;width:16px;height:16px;">
           <span style="font-size:13px;font-weight:700;color:#f59e0b;">🏷 B급 제품</span>
@@ -1230,46 +1255,6 @@ window.addEventListener('DOMContentLoaded', function(){
       </div>
     </div>
 
-  <!-- ⭐ v3.23: 고객사 검사요청 — 수리 없이 검사만 하고 검사 내역서(예상 공임비) 발행. 수리 통계와 별도(시트 '검사요청') -->
-  <details class="card" id="ir-card" style="margin-top:14px;">
-    <summary style="cursor:pointer;font-size:14px;font-weight:700;">🔍 고객사 검사요청 등록 <span style="font-size:12px;color:var(--text3);font-weight:400;">· 검사만 하고 검사 내역서 발행 (수리 건수·목표에는 안 들어감)</span></summary>
-    <div style="margin-top:14px;">
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">엔지니어</label>
-          <select id="ir-worker" style="width:150px;"></select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">시리얼 번호</label>
-          <input type="text" id="ir-serial" placeholder="예: TN2606TT06191" style="width:200px;" autocomplete="off" oninput="this.value=this.value.toUpperCase().replace(/_/g,'');irAutoModel();">
-        </div>
-        <div class="form-group">
-          <label class="form-label">기종</label>
-          <input type="text" id="ir-model" placeholder="시리얼로 자동" style="width:130px;">
-        </div>
-      </div>
-      <div class="form-group" style="margin-bottom:14px;">
-        <label class="form-label">항목별 검사 결과</label>
-        <div id="ir-items"></div>
-      </div>
-      <div class="form-group" style="margin-bottom:14px;">
-        <label class="form-label">검사 소견</label>
-        <textarea id="ir-opinion" placeholder="예: 백라이트 확산필름 열변형으로 판단됨. 패널 자체 결함(데드픽셀 등) 없음 — 설치 환경에 의한 손상으로 무상 보증 범위 아님" style="min-height:80px;"></textarea>
-      </div>
-      <div class="form-group" style="margin-bottom:10px;">
-        <label class="form-label">수리 필요 항목 <span style="color:var(--text3);font-weight:400;">(공임비 자동 계산 — 기타작업은 수리 등록과 같은 규칙으로 자동 포함)</span></label>
-        <div id="ir-works" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;"></div>
-      </div>
-      <div class="form-group" style="margin-bottom:14px;">
-        <label class="form-label">내역서에 적을 수리 필요 항목 <span style="color:var(--text3);font-weight:400;">(자동으로 채워짐 · 고쳐 써도 됨)</span></label>
-        <input type="text" id="ir-need" placeholder="예: 액정 패널 교체 · 펌웨어 재설치" style="width:100%;" oninput="this.dataset.edited='1'">
-      </div>
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        <button class="btn btn-primary" id="btn-ir-add" onclick="irRegister()">검사 등록 + 내역서 출력</button>
-        <span id="ir-preview" style="font-size:13px;color:var(--text2);"></span>
-      </div>
-    </div>
-  </details>
   <div class="section-header" style="margin-top:18px;">
     <span class="section-title">🔍 검사요청 현황 <span id="ir-count" style="font-size:13px;color:var(--text2);font-weight:500;"></span></span>
   </div>
@@ -13546,6 +13531,7 @@ function syncEtcRule() {
 function updatePP() {
   try { syncEtcRule(); } catch(e) {}   // ⭐ v2.79n: 금액 계산 전에 기타작업 상태 동기화
   const cs = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
+  if(typeof irOn === 'function' && irOn()) { irPreview(); return; }   // ⭐ v3.23a: 검사요청 모드
   document.getElementById('price-preview').textContent = cs.length ? `공임비 합계: ${fmt(cs.reduce((s,k)=>s+WORKS[k].price,0))}원` : '';
   try { renderDeductPreview(); } catch(e) {}   // ⭐ v2.70c: 재고 차감 미리보기 갱신
 }
@@ -13630,13 +13616,12 @@ function clearChecks() {
 function renderWorkerSel() {
   const s = document.getElementById('sel-worker');
   const es = document.getElementById('exc-worker');
-  const irs = document.getElementById('ir-worker');   // ⭐ v3.23: 검사요청
   // ⭐ v2.6: 수리 등록 셀렉트는 QC 전용 작업자 제외 (수리 안 함)
   const repairableWorkers = workers.filter(w => {
     const r = roleMap[w] || 'engineer';
     return r !== 'inspector'; // QC 전용 제외, engineer/both는 포함
   });
-  [s, es, irs].forEach(sel => {
+  [s, es].forEach(sel => {
     if(!sel) return;
     // 최민규(마스터)만 모든 엔지니어 선택 가능 (대리 등록용)
     // 서승주/이권우 포함 나머지는 본인 이름만
@@ -13658,6 +13643,7 @@ function renderWorkerSel() {
 
 /* 수리 등록 */
 async function addEntry() {
+  if(document.getElementById('inp-insp')?.checked) return irRegister();   // ⭐ v3.23a: [검사요청] 체크 시 검사 등록
   const worker = document.getElementById('sel-worker').value;
   let serial = document.getElementById('inp-serial').value.trim();
   const works = getChecked();
@@ -17207,9 +17193,9 @@ async function registerExchange() {
 const IR_ITEMS = [['power','전원'], ['screen','화면'], ['touch','터치'], ['func','기타기능'], ['exterior','외관']];
 const IR_ST = { wait:['승인 대기','#d97706'], approved:['고객 승인 · 수리 대기','#dc2626'], declined:['수리 안 함','#6b7280'], converted:['수리 등록됨','#16a34a'] };
 window._irItems = {};      // 항목 키 → '정상' | '이상'
-window._irSel = [];        // 고른 수리 항목 (기타작업 자동 규칙 적용 전)
 window._irShowAll = false;
-// 수리 등록과 같은 규칙: 기타작업은 논배터리(백커버 포함)가 아니면 자동 포함, 논배터리면 제외
+// 수리 등록과 같은 규칙: 기타작업은 논배터리(백커버 포함)가 아니면 자동 포함, 논배터리면 제외.
+//   검사요청 모드에선 syncEtcRule이 켜 둔 기타작업을 빼고 계산 — 수리 필요 항목이 없으면 공임비 0원
 function irEffectiveWorks(sel) {
   let ks = sel.filter(k => WORKS[k]);
   if(ks.includes('nonbat')) ks = ks.filter(k => k !== 'etc');
@@ -17218,10 +17204,29 @@ function irEffectiveWorks(sel) {
 }
 const irLabor = ks => ks.reduce((s, k) => s + (WORKS[k]?.price || 0), 0);
 const irWorkName = k => String(WORKS[k]?.label || k).replace(/\s*\(.*\)\s*$/, '');
-function irAutoModel() {
-  const m = document.getElementById('ir-model');
-  const d = detectModel(document.getElementById('ir-serial').value.trim());
-  if(d) m.value = d;
+const irOn = () => !!document.getElementById('inp-insp')?.checked;
+const irWorksFromForm = () => irEffectiveWorks(getChecked().filter(k => k !== 'etc'));
+// ⭐ v3.23a: 수리 등록 폼의 [검사요청] 체크 — 폼을 검사 등록 모드로 전환 (버튼 이름·입력란·미리보기)
+function irModeChange() {
+  const on = irOn();
+  document.getElementById('wc-insp')?.classList.toggle('checked', on);
+  const panel = document.getElementById('ir-panel');
+  if(panel) panel.style.display = on ? '' : 'none';
+  ['note-row', 'bgrade-row'].forEach(id => { const el = document.getElementById(id); if(el) el.style.display = on ? 'none' : ''; });
+  const b = document.getElementById('btn-add');
+  if(b && !b.disabled) b.textContent = on ? '검사 등록' : '수리 등록';
+  if(on && !document.getElementById('ir-items')?.children.length) irBuildForm();
+  updatePP();
+}
+// updatePP가 검사요청 모드일 때 부르는 미리보기 (공임비 + 내역서 수리 필요 항목 자동 채움)
+function irPreview() {
+  const eff = irWorksFromForm();
+  const need = document.getElementById('ir-need');
+  if(need && need.dataset.edited !== '1') need.value = eff.map(irWorkName).join(' · ');
+  const dp = document.getElementById('deduct-preview');
+  if(dp) dp.innerHTML = '';   // 검사는 재고 차감 없음
+  document.getElementById('price-preview').textContent = eff.length
+    ? `검사 내역서 예상 수리 공임비: ${fmt(irLabor(eff))}원` : '수리 필요 항목 없음 (예상 공임비 0원)';
 }
 function irBuildForm() {
   const box = document.getElementById('ir-items');
@@ -17235,7 +17240,6 @@ function irBuildForm() {
       <input type="text" id="ir-n-${k}" placeholder="특이사항 (예: 액정 중앙 하단부가 노랗게 보임)" style="width:100%;">
     </div>`;
   }).join('');
-  irRenderWorks();
 }
 function irSetItem(k, v) {
   window._irItems[k] = v;
@@ -17244,43 +17248,34 @@ function irSetItem(k, v) {
   irBuildForm();
   IR_ITEMS.forEach(([kk]) => { const el = document.getElementById('ir-n-' + kk); if(el) el.value = notes[kk]; });
 }
-function irToggleWork(k) {
-  const s = window._irSel;
-  // 수리 화면 nbExclusive와 같은 상호배제 — 논배터리(포함)와 백커버/파워보드가 함께 견적에 잡히지 않게
-  window._irSel = s.includes(k) ? s.filter(x => x !== k) : [...s.filter(x => !(NB_EXCLUSIVE[k] || []).includes(x)), k];
-  irRenderWorks();
-}
-function irRenderWorks() {
-  const box = document.getElementById('ir-works');
-  if(!box) return;
-  const eff = irEffectiveWorks(window._irSel);
-  const keys = [...WORK_ROW1, ...WORK_ROW2, ...WORK_ROW3].filter(k => WORKS[k]);
-  box.innerHTML = keys.map(k => {
-    const on = eff.includes(k), auto = on && !window._irSel.includes(k);
-    return `<button type="button" class="btn btn-sm" onclick="irToggleWork('${k}')" style="font-weight:600;${on ? 'background:var(--accent);color:#fff;border-color:var(--accent);' : ''}">${escapeHtml(irWorkName(k))} ${fmt(WORKS[k].price)}원${auto ? ' (자동)' : ''}</button>`;
-  }).join('');
-  const need = document.getElementById('ir-need');
-  if(need && need.dataset.edited !== '1') need.value = eff.map(irWorkName).join(' · ');
-  const pv = document.getElementById('ir-preview');
-  if(pv) pv.textContent = eff.length ? `예상 수리 공임비: ${fmt(irLabor(eff))}원` : '수리 필요 항목 없음 (공임비 0원)';
-}
+// 등록 후 폼 초기화 — 시리얼·기종은 addEntry 성공 처리와 같은 방식, 모드는 수리로 되돌림(다음 건을 검사로 잘못 등록하지 않게)
 function irResetForm() {
-  ['ir-serial', 'ir-model', 'ir-opinion', 'ir-need'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  document.getElementById('inp-serial').value = '';
+  document.getElementById('inp-model').value = '';
+  document.getElementById('model-auto').textContent = '';
+  document.getElementById('model-auto').style.display = 'none';
+  document.getElementById('inp-model').style.display = 'block';
+  try { renderSerialHistory(); } catch(e) {}
+  ['ir-opinion', 'ir-need'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   document.getElementById('ir-need').dataset.edited = '';
-  window._irItems = {}; window._irSel = [];
+  window._irItems = {};
   irBuildForm();
+  clearChecks();
+  document.getElementById('inp-insp').checked = false;
+  irModeChange();
 }
+// [검사 등록] — addEntry가 검사요청 모드일 때 여기로 넘긴다
 async function irRegister() {
-  const worker = document.getElementById('ir-worker').value;
-  const serial = normalizeSerial(document.getElementById('ir-serial').value.trim());
-  const model = document.getElementById('ir-model').value.trim() || detectModel(serial) || '';
+  const worker = document.getElementById('sel-worker').value;
+  const serial = normalizeSerial(document.getElementById('inp-serial').value.trim());
+  const model = getModel() || detectModel(serial) || '';
   if(!worker) { notify('엔지니어를 선택하세요.', 'error'); return; }
   if(!serial) { notify('시리얼 번호를 입력하세요.', 'error'); return; }
   if(inspReqList.some(x => normalizeSerial(x.serial) === serial && (x.status === 'wait' || x.status === 'approved'))) {
     notify('이미 진행 중인 검사요청이 있는 시리얼입니다 — 아래 검사요청 현황에서 확인하세요.', 'error'); return;
   }
   const items = Object.fromEntries(IR_ITEMS.map(([k]) => [k, { r: window._irItems[k] || '정상', n: (document.getElementById('ir-n-' + k)?.value || '').trim() }]));
-  const works = irEffectiveWorks(window._irSel);
+  const works = irWorksFromForm();
   // 저장 실패로 보였지만 실제론 저장됐을 수 있으므로, 같은 시리얼 재시도는 같은 id로 (서버 멱등)
   const _rt = window._irRetry && window._irRetry.serial === serial ? window._irRetry.id : '';
   const rec = { id: _rt || String(Date.now()), worker, serial, model, date: new Date().toISOString(), items,
@@ -17288,7 +17283,7 @@ async function irRegister() {
     needText: document.getElementById('ir-need').value.trim(), labor: irLabor(works), status: 'wait', statusAt: '', repairId: '' };
   // 저장 응답을 기다린 뒤 창을 열면 팝업 차단에 걸리므로 클릭 시점에 미리 연다
   const win = window.open('', '_blank');
-  const btn = document.getElementById('btn-ir-add');
+  const btn = document.getElementById('btn-add');
   btn.disabled = true; btn.textContent = '저장 중...';
   try {
     const res = await gasCall({ action: 'addInspReq', id: rec.id, worker, serial, model, date: rec.date,
@@ -17298,6 +17293,7 @@ async function irRegister() {
     inspReqList.push(rec);
     markPendingChange('inspReqs', rec.id, { type: 'add', data: rec }, 180000);
     notify(`${serial} 검사요청 등록 완료`);
+    btn.disabled = false;
     irResetForm();
     renderInspReqs();
     irPrint(rec.id, win);
@@ -17306,7 +17302,7 @@ async function irRegister() {
     window._irRetry = { serial, id: rec.id };
     notify('저장 실패. 다시 시도해주세요.', 'error');
   }
-  btn.disabled = false; btn.textContent = '검사 등록 + 내역서 출력';
+  btn.disabled = false; btn.textContent = irOn() ? '검사 등록' : '수리 등록';
 }
 async function irSetStatus(id, status) {
   const r = inspReqList.find(x => String(x.id) === String(id));
@@ -17342,6 +17338,8 @@ function irDelete(id) {
 function irToRepair(id) {
   const r = inspReqList.find(x => String(x.id) === String(id));
   if(!r) return;
+  const _ic = document.getElementById('inp-insp');
+  if(_ic && _ic.checked) { _ic.checked = false; irModeChange(); }   // 수리 등록 모드로
   const sel = document.getElementById('sel-worker');
   if(sel && [...sel.options].some(o => o.value === r.worker) && !sel.disabled) sel.value = r.worker;
   const inp = document.getElementById('inp-serial');
@@ -17371,7 +17369,6 @@ function _irAfterRepair(serial, repairId) {
 }
 const _irDays = v => { const t = new Date(v).getTime(); return isFinite(t) ? Math.floor((Date.now() - t) / 864e5) : 0; };
 function renderInspReqs() {
-  if(document.getElementById('ir-items') && !document.getElementById('ir-items').children.length) irBuildForm();
   const approved = inspReqList.filter(x => x.status === 'approved');
   const badge = document.getElementById('nav-ir-badge');
   if(badge) { badge.textContent = approved.length; badge.style.display = approved.length ? 'inline-block' : 'none'; }
