@@ -54,7 +54,7 @@ serializeWorkers가 참조하는 맵(workerDailyTargets·mentoringEndMap 등)을
   퇴사자는 f.departures/f.hires로 입·퇴사일 일할. 추천 KPI는 손익분기 하한.
 - **B급**: entry.note의 `[B급]` 태그가 원본. `_bBadge(e)`로 시리얼 앞에 칩 표시 (전 화면).
 - **재작업 완료**: 담당 본인 + 총괄 + 같은 파트 파트장(canManageWorker).
-- **고객사 검사요청 (v3.23·v3.23a)**: 수리 등록 폼의 [🔍 검사요청] 체크(수리 항목 바로 아래) → 버튼이 [검사 등록]으로, addEntry가 irRegister로 넘김. 체크한 수리 항목 = 수리 필요 항목. 시트 `검사요청`(수리 통계와 분리 — 건수·목표·수당 미포함).
+- **티오더 검사 의뢰 (v3.23~d)**: 수리 항목 3행 메인보드 옆 [🔍 검사요청] 카드(input 아님 — window._irMode, buildChecks가 그림) → 버튼이 [검사 등록]으로, addEntry가 irRegister로 넘김. 체크한 수리 항목 = 수리 필요 항목. 시트 `검사요청`(수리 통계와 분리 — 건수·목표·수당 미포함).
   상태 wait → approved → converted / declined. 예상 공임비 = WORKS 단가 합 + 기타작업 자동 규칙(syncEtcRule과 동일)·NB_EXCLUSIVE 적용.
   승인 건은 수리 등록 전까지 탭 배지·배너로 계속 표시. 서버는 converted 건 상태 되돌리기 거절.
   1차는 승인을 엔지니어가 대신 누름 — **2차(대기)**: 고객사 대시보드 승인 버튼(서버 권한 확인 필요) + 티미 슬랙 알림·미처리 재알림.

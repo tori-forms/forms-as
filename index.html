@@ -1152,6 +1152,7 @@ window.addEventListener('DOMContentLoaded', function(){
   <button class="nav-btn active" onclick="switchTab('input',this)">🔧 수리 등록<span id="nav-ir-badge" style="display:none;margin-left:5px;background:#ef4444;color:#fff;border-radius:99px;padding:0 6px;font-size:11px;font-weight:800;" title="고객 승인 — 수리 등록 대기"></span></button>
   <button class="nav-btn" id="nav-doa" onclick="switchTab('doa',this)">🚫 부품 DOA</button>
   <button class="nav-btn" onclick="switchTab('exchange',this)">💸 교품 처리</button>
+  <button class="nav-btn" id="nav-insreq" onclick="switchTab('insreq',this)">🔍 검사요청 현황</button>
   <button class="nav-btn" id="nav-inspect" onclick="switchTab('inspect',this)">🧪 검수대기</button>
   <button class="nav-btn" id="nav-aging" onclick="switchTab('aging',this)">🕐 에이징</button>
   <button class="nav-btn" onclick="switchTab('summary',this)">📊 일일 현황</button>
@@ -1215,17 +1216,10 @@ window.addEventListener('DOMContentLoaded', function(){
         <label class="form-label">수리 항목 (복수 선택 가능)</label>
         <div id="work-checks" style="margin-top:4px;"></div>
       </div>
-      <!-- ⭐ v3.23a: 고객사 검사요청 — 체크하면 이 폼이 [검사 등록]으로 바뀌고, 위에서 고른 수리 항목 = 수리 필요 항목(예상 공임비).
-           저장은 시트 '검사요청'(수리 통계와 별도) · 재고 차감 없음 -->
+      <!-- ⭐ v3.23a/d: 티오더 검사 의뢰 — 수리 항목 3행의 [검사요청] 카드(buildChecks가 그림)를 켜면 이 입력란이 열리고
+           버튼이 [검사 등록]으로. 위에서 고른 수리 항목 = 수리 필요 항목(예상 공임비). 시트 '검사요청' · 재고 차감 없음 -->
       <div class="form-group" style="margin-bottom:16px;">
-        <label class="work-check" id="wc-insp" style="cursor:pointer;border-style:dashed;">
-          <input type="checkbox" id="inp-insp" onchange="irModeChange()" style="margin-top:4px;accent-color:#0ea5e9;width:15px;height:15px;flex-shrink:0;cursor:pointer;">
-          <div style="flex:1;">
-            <div class="work-check-name">🔍 검사요청 (고객사 검사 의뢰 — 수리 없이 검사만)</div>
-            <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">체크하면 [검사 등록]으로 바뀌고 검사 내역서가 나옵니다 · 위에서 고른 수리 항목이 내역서의 수리 필요 항목(예상 공임비)이 됩니다 · 재고 차감 없음</div>
-          </div>
-        </label>
-        <div id="ir-panel" style="display:none;margin-top:12px;padding:14px;border:1px dashed var(--border2);border-radius:10px;">
+        <div id="ir-panel" style="display:none;padding:14px;border:1px dashed var(--border2);border-radius:10px;">
           <div class="form-group" style="margin-bottom:14px;">
             <label class="form-label">항목별 검사 결과</label>
             <div id="ir-items"></div>
@@ -1257,11 +1251,6 @@ window.addEventListener('DOMContentLoaded', function(){
         <span id="price-preview" style="font-size:13px;color:var(--text2);"></span>
       </div>
     </div>
-
-  <div class="section-header" style="margin-top:18px;">
-    <span class="section-title">🔍 검사요청 현황 <span id="ir-count" style="font-size:13px;color:var(--text2);font-weight:500;"></span></span>
-  </div>
-  <div id="ir-list"></div>
 
   <!-- hidden elements for compatibility -->
   <input type="date" id="date-input" style="display:none;">
@@ -1864,6 +1853,14 @@ window.addEventListener('DOMContentLoaded', function(){
       <span id="exchange-count" style="font-size:13px;color:var(--text2);"></span>
     </div>
     <div id="exchange-content"></div>
+  </div>
+
+  <!-- ⭐ v3.23d: 검사요청 현황 — 교품 처리 옆 별도 탭 -->
+  <div id="tab-insreq" class="section">
+    <div class="section-header">
+      <span class="section-title">🔍 검사요청 현황 <span id="ir-count" style="font-size:13px;color:var(--text2);font-weight:500;"></span></span>
+    </div>
+    <div id="ir-list"></div>
   </div>
 
   <div id="tab-shipview" class="section">
@@ -13233,6 +13230,7 @@ function switchTab(name, btn) {
   if(name==='shipping') { initShipping(); }
   if(name==='shipview') { setSvFilter('all', true); }
   if(name==='exchange') { renderWorkerSel(); renderExchangeList(); setTimeout(excUpdatePreview, 0); }
+  if(name==='insreq') { try { renderInspReqs(); } catch(e) {} }   // ⭐ v3.23d
   if(name==='admin') { switchAdminTab('workers'); }
   if(name==='aging') { renderAging(); startAgingTimer(); } else { stopAgingTimer(); }
   if(name==='inspect') { renderInspect(); }
@@ -13353,7 +13351,7 @@ function buildChecks(preserveQtys) {
   document.getElementById('work-checks').innerHTML = `
     <div class="work-row-1" style="display:grid !important;grid-template-columns:1fr 1fr 1fr !important;gap:10px;margin-bottom:10px;">${_rw(WORK_ROW1)}</div>
     <div class="work-row-2" style="display:grid !important;grid-template-columns:1fr 1fr !important;gap:10px;margin-bottom:10px;">${_rw(WORK_ROW2)}</div>
-    <div class="work-row-3" style="display:grid !important;grid-template-columns:1fr 1fr 1fr !important;gap:10px;">${_rw(WORK_ROW3)}</div>
+    <div class="work-row-3" style="display:grid !important;grid-template-columns:1fr 1fr 1fr 1fr !important;gap:10px;">${_rw(WORK_ROW3)}${irModeCardHTML()}</div>
   `;
   try { syncEtcRule(); } catch(e) {}   // ⭐ v2.79n: 기타작업 기본 선택 (논배 포함 미체크 상태)
 }
@@ -13646,7 +13644,7 @@ function renderWorkerSel() {
 
 /* 수리 등록 */
 async function addEntry() {
-  if(document.getElementById('inp-insp')?.checked) return irRegister();   // ⭐ v3.23a: [검사요청] 체크 시 검사 등록
+  if(window._irMode) return irRegister();   // ⭐ v3.23a: [검사요청] 켜져 있으면 검사 등록
   const worker = document.getElementById('sel-worker').value;
   let serial = document.getElementById('inp-serial').value.trim();
   const works = getChecked();
@@ -17207,12 +17205,25 @@ function irEffectiveWorks(sel) {
 }
 const irLabor = ks => ks.reduce((s, k) => s + (WORKS[k]?.price || 0), 0);
 const irWorkName = k => String(WORKS[k]?.label || k).replace(/\s*\(.*\)\s*$/, '');
-const irOn = () => !!document.getElementById('inp-insp')?.checked;
+// ⭐ v3.23d: [검사요청]은 체크박스(input)가 아닌 카드 — #work-checks input:checked 집계(getChecked·재고 차감)에 섞이지 않게.
+//   buildChecks가 시리얼 입력마다 수리 항목을 다시 그리므로 상태는 DOM이 아니라 window._irMode에 둔다.
+window._irMode = false;
+const irOn = () => !!window._irMode;
+function irModeCardHTML() {
+  const on = !!window._irMode;   // (irOn은 아래 const — 초기 로드 순서와 무관하게)
+  return `<div class="work-check${on ? ' checked' : ''}" id="wc-insp" onclick="irToggleMode()" style="cursor:pointer;border-style:dashed;">
+    <span style="margin-top:2px;width:15px;height:15px;flex-shrink:0;border:1.5px solid ${on ? '#0ea5e9' : 'var(--border2)'};border-radius:3px;background:${on ? '#0ea5e9' : 'transparent'};color:#fff;font-size:11px;line-height:13px;text-align:center;">${on ? '✓' : ''}</span>
+    <div style="flex:1;"><div class="work-check-name">🔍 검사요청 (티오더 검사 의뢰)</div>
+    <div class="work-check-price" style="font-weight:500;">수리 없이 검사만 · 검사 내역서 발행</div></div>
+  </div>`;
+}
+function irToggleMode() { window._irMode = !window._irMode; irModeChange(); }
 const irWorksFromForm = () => irEffectiveWorks(getChecked().filter(k => k !== 'etc'));
 // ⭐ v3.23a: 수리 등록 폼의 [검사요청] 체크 — 폼을 검사 등록 모드로 전환 (버튼 이름·입력란·미리보기)
 function irModeChange() {
   const on = irOn();
-  document.getElementById('wc-insp')?.classList.toggle('checked', on);
+  const card = document.getElementById('wc-insp');
+  if(card) card.outerHTML = irModeCardHTML();
   const panel = document.getElementById('ir-panel');
   if(panel) panel.style.display = on ? '' : 'none';
   ['note-row', 'bgrade-row'].forEach(id => { const el = document.getElementById(id); if(el) el.style.display = on ? 'none' : ''; });
@@ -17228,6 +17239,8 @@ function irPreview() {
   if(need && need.dataset.edited !== '1') need.value = eff.map(irWorkName).join(' · ');
   const dp = document.getElementById('deduct-preview');
   if(dp) dp.innerHTML = '';   // 검사는 재고 차감 없음
+  const etcCard = document.getElementById('wc-etc');   // 기타작업은 다른 수리 항목이 있을 때만 견적에 포함 — 아니면 흐리게
+  if(etcCard) etcCard.style.opacity = eff.includes('etc') ? '' : '.45';
   document.getElementById('price-preview').textContent = eff.length
     ? `검사 내역서 예상 수리 공임비: ${fmt(irLabor(eff))}원` : '수리 필요 항목 없음 (예상 공임비 0원)';
 }
@@ -17264,7 +17277,7 @@ function irResetForm() {
   window._irItems = {};
   irBuildForm();
   clearChecks();
-  document.getElementById('inp-insp').checked = false;
+  window._irMode = false;
   irModeChange();
 }
 // [검사 등록] — addEntry가 검사요청 모드일 때 여기로 넘긴다
@@ -17275,7 +17288,7 @@ async function irRegister() {
   if(!worker) { notify('엔지니어를 선택하세요.', 'error'); return; }
   if(!serial) { notify('시리얼 번호를 입력하세요.', 'error'); return; }
   if(inspReqList.some(x => normalizeSerial(x.serial) === serial && (x.status === 'wait' || x.status === 'approved'))) {
-    notify('이미 진행 중인 검사요청이 있는 시리얼입니다 — 아래 검사요청 현황에서 확인하세요.', 'error'); return;
+    notify('이미 진행 중인 검사요청이 있는 시리얼입니다 — 검사요청 현황 탭에서 확인하세요.', 'error'); return;
   }
   const items = Object.fromEntries(IR_ITEMS.map(([k]) => [k, { r: window._irItems[k] || '정상', n: (document.getElementById('ir-n-' + k)?.value || '').trim() }]));
   const works = irWorksFromForm();
@@ -17293,7 +17306,7 @@ async function irRegister() {
     window._irRetry = null;
     inspReqList.push(rec);
     markPendingChange('inspReqs', rec.id, { type: 'add', data: rec }, 180000);
-    notify(`${serial} 검사요청 등록 완료 — 아래 검사요청 현황의 [내역서]로 출력하세요`);
+    notify(`${serial} 검사요청 등록 완료 — 검사요청 현황 탭의 [내역서]로 출력하세요`);
     btn.disabled = false;
     irResetForm();
     renderInspReqs();
@@ -17337,8 +17350,9 @@ function irDelete(id) {
 function irToRepair(id) {
   const r = inspReqList.find(x => String(x.id) === String(id));
   if(!r) return;
-  const _ic = document.getElementById('inp-insp');
-  if(_ic && _ic.checked) { _ic.checked = false; irModeChange(); }   // 수리 등록 모드로
+  if(window._irMode) { window._irMode = false; irModeChange(); }   // 수리 등록 모드로
+  const _inputBtn = document.querySelector('.nav-btn[onclick*="switchTab(\'input\'"]');
+  if(_inputBtn) switchTab('input', _inputBtn);   // 검사요청 현황 탭에서 눌러도 수리 등록 화면으로
   const sel = document.getElementById('sel-worker');
   if(sel && [...sel.options].some(o => o.value === r.worker) && !sel.disabled) sel.value = r.worker;
   const inp = document.getElementById('inp-serial');
