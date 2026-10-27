@@ -20401,6 +20401,7 @@ function switchStockTab(tab) {
     auditPanel.style.display = 'block';
     if(auditBtn) { auditBtn.style.borderBottomColor = 'var(--accent)'; auditBtn.style.color = 'var(--accent)'; }
     renderStockAudit();
+    try { ensureFreshStock(0); } catch(e) {}   // ⭐ v3.24b: 실사 화면은 열 때 항상 서버 최신
   } else if(tab === 'receive') {   // ⭐ v2.91: 입고 기록
     if(receivePanel) receivePanel.style.display = 'block';
     if(receiveBtn) { receiveBtn.style.borderBottomColor = 'var(--accent)'; receiveBtn.style.color = 'var(--accent)'; }
@@ -21510,9 +21511,37 @@ function _reconPartData(p) {
   // ⭐ 기본 가정: 추가 사용은 DOA 등 실제 추가 소모 → 기대 실물 = 현재 장부 (불량 실물 입력 시 재계산)
   return { base, repairs, baseQty, over, overList, manIn, manOut, sysOut, doa:null, expected:(Number(p.qty)||0) };
 }
+// ⭐ v3.24b: 실사 중 서버 갱신으로 다시 그려도 입력한 실물·불량 수량은 유지
+function _auditKeepInputs() {
+  const v = {};
+  document.querySelectorAll('#audit-content input[id^="audit-real-"], #audit-content input[id^="recon-doa-"]').forEach(i => { if(i.value !== '') v[i.id] = i.value; });
+  return v;
+}
+function _auditRestoreInputs(v) {
+  Object.keys(v || {}).forEach(id => {
+    const i = document.getElementById(id); if(!i) return;
+    i.value = v[id];
+    const pid = id.replace(/^(audit-real-|recon-doa-)/, '');
+    try { if(id.startsWith('recon-doa-')) updateReconExpected(pid); else updateAuditDiff(pid); } catch(e) {}
+  });
+}
+function _auditFreshLine() {
+  const t = window._stockFreshCheckedAt;
+  const hhmm = t ? new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '';
+  return `<div style="font-size:12px;font-weight:700;margin-bottom:10px;color:${t && Date.now() - t < 120000 ? 'var(--green)' : '#f59e0b'};">📡 ${t ? `서버 기준 ${hhmm}` : '서버 확인 중…'} · 실사 화면은 1분마다 최신 재고로 자동 갱신 (입력한 수량은 유지)</div>`;
+}
+// 재고 현황·실사 화면이 보이는 동안 1분마다 서버 최신 재고 — 엔지니어가 재고 현황 숫자를 보며 실물을 세므로
+//   다른 사람의 등록·수정이 바로 반영돼야 함 (입력칸이 있는 입고·발주 화면은 입력이 지워지지 않게 제외)
+setInterval(() => {
+  const vis = id => { const e = document.getElementById(id); return e && e.style.display !== 'none'; };
+  if(document.hidden || !document.getElementById('tab-stock')?.classList.contains('active')) return;
+  if(!vis('stock-audit-panel') && !vis('stock-inventory-panel')) return;
+  try { ensureFreshStock(0); } catch(e) {}
+}, 60000);
 function renderStockAudit() {
   const el = document.getElementById('audit-content');
   if(!el) return;
+  const _kept = _auditKeepInputs();
   if(!isAdmin) {
     el.innerHTML = `<div class="empty"><div class="empty-icon">🔒</div>재고 대사(실사)는 관리자만 가능합니다.</div>`;
     return;
@@ -21546,7 +21575,8 @@ function renderStockAudit() {
       <button class="btn btn-primary" onclick="applyStockAudit()">✅ 실사 반영</button>
       <span style="font-size:11px;color:var(--text3);align-self:center;">비워둔 항목은 변동 없음 · 차이가 큰 부품은 반영 전에 🔎 상세 대사로 원인을 확인하세요</span>
     </div>`;
-    el.innerHTML = sh;
+    el.innerHTML = _auditFreshLine() + sh;
+    _auditRestoreInputs(_kept);
     return;
   }
   const fmtD = v => { const d = new Date(v); return isNaN(d) ? '' : `${d.getMonth()+1}/${d.getDate()}`; };
@@ -21593,7 +21623,8 @@ function renderStockAudit() {
       <button class="btn" onclick="exportReconCSV()">📤 대사표 내보내기</button>
       <span style="font-size:11px;color:var(--text3);align-self:center;">비워둔 항목은 변동 없음 · 반영하면 그 시점이 다음 대사의 기준(실사)이 돼요</span>
     </div>`;
-  el.innerHTML = h;
+  el.innerHTML = _auditFreshLine() + h;
+  _auditRestoreInputs(_kept);
 }
 /* ⭐ v2.79e: 기대 실물 = 현재 장부 + (기록된 추가 사용 − 불량 실물).
    불량 입력이 없으면 추가 사용 = 전부 실제 소모(DOA)로 보고 기대 실물 = 장부.
@@ -21648,12 +21679,15 @@ function exportReconCSV() {
 async function applyStockAudit() {
   // ⭐ v2.79x: 실사(set)는 절대값 덮어쓰기라 낡은 화면 기준이면 위험 — 3분 내 서버 확인이 없으면
   //   먼저 서버 재고를 받아온 뒤 화면을 갱신하고, 숫자 재확인 후 다시 누르게 함.
-  if(Date.now() - (window._stockFreshCheckedAt || 0) > 3 * 60 * 1000) {
-    notify('서버 최신 재고를 확인하고 있어요 — 갱신된 숫자를 확인한 뒤 다시 [실사 반영]을 눌러주세요.', 'error');
-    ensureFreshStock(0);
+  //   v3.24b: 3분 기준 → 반영 직전에 항상 서버 최신을 받고(입력값 유지), 그 장부 기준으로 차이를 계산
+  if(!isAdmin) { notify('관리자만 가능합니다.','error'); return; }
+  notify('서버 최신 재고 확인 중…');
+  let _fresh = false;
+  try { _fresh = await ensureFreshStock(0); } catch(e) {}
+  if(!_fresh || Date.now() - (window._stockFreshCheckedAt || 0) > 60000) {
+    notify('서버 최신 재고를 못 받았어요 — 잠시 후 다시 [실사 반영]을 눌러주세요. (입력한 수량은 그대로 있어요)', 'error');
     return;
   }
-  if(!isAdmin) { notify('관리자만 가능합니다.','error'); return; }
   const changes = [];
   (stock||[]).forEach(p => {
     const inp = document.getElementById('audit-real-'+p.id);
@@ -21666,7 +21700,8 @@ async function applyStockAudit() {
   // ⭐ v2.79e: 과차감 의심이 남아있는 부품을 실물로 덮으면 정정 시 환입이 이중으로 잡힘 — 먼저 안내
   const withOver = changes.filter(c => { const r = (window._reconCache||{})[c.p.id]; return r && r.over > 0; });
   const overWarn = withOver.length ? `\n\n⚠ 과차감 의심이 남은 부품 ${withOver.length}개가 포함돼 있어요 (${withOver.map(c=>c.p.name).slice(0,3).join(', ')}${withOver.length>3?' 외':''}). 실사 반영 후에 해당 수리건 수량을 정정하면 그만큼 재고가 다시 늘어나니, 가능하면 정정을 먼저 하세요.` : '';
-  if(!confirm(`${changes.length}개 부품의 재고를 실사 수량으로 조정합니다. 진행할까요?${overWarn}`)) return;
+  const _lines = changes.slice(0, 25).map(c => `· ${c.p.name}: 전산 ${c.p.qty} → 실사 ${c.real} (${c.diff > 0 ? '+' : ''}${c.diff})`).join('\n');
+  if(!confirm(`${changes.length}개 부품의 재고를 실사 수량으로 조정합니다. (전산 = 방금 받은 서버 최신)\n\n${_lines}${changes.length > 25 ? '\n…' : ''}\n\n진행할까요?${overWarn}`)) return;
   for(const c of changes) {
     const idx = stock.findIndex(x => x.id === c.p.id);
     if(idx < 0) continue;
