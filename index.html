@@ -1149,7 +1149,7 @@ window.addEventListener('DOMContentLoaded', function(){
 
 <nav class="nav">
   <button class="nav-btn" id="nav-mydash" onclick="switchTab('mydash',this)" style="display:none;">✨ 내 대시보드</button>
-  <button class="nav-btn active" onclick="switchTab('input',this)">🔧 수리 등록<span id="nav-ir-badge" style="display:none;margin-left:5px;background:#ef4444;color:#fff;border-radius:99px;padding:0 6px;font-size:11px;font-weight:800;" title="고객 승인 — 수리 등록 대기"></span></button>
+  <button class="nav-btn active" onclick="switchTab('input',this)">🔧 수리 등록<span id="nav-ir-badge" style="display:none;margin-left:5px;background:#ef4444;color:#fff;border-radius:99px;padding:0 6px;font-size:11px;font-weight:800;" title="수리 승인 — 수리 등록 대기"></span></button>
   <button class="nav-btn" id="nav-doa" onclick="switchTab('doa',this)">🚫 부품 DOA</button>
   <button class="nav-btn" onclick="switchTab('exchange',this)">💸 교품 처리</button>
   <button class="nav-btn" id="nav-insreq" onclick="switchTab('insreq',this)">🔍 검사요청 현황</button>
@@ -1180,7 +1180,7 @@ window.addEventListener('DOMContentLoaded', function(){
     <div class="section-header">
       <span class="section-title">🔧 수리 등록</span>
     </div>
-    <!-- ⭐ v3.23: 고객 승인된 검사요청 — 수리 등록할 때까지 계속 표시 -->
+    <!-- ⭐ v3.23: 수리 승인된 검사요청 — 수리 등록할 때까지 계속 표시 -->
     <div id="ir-banner"></div>
     <div class="card">
       <div class="card-title">수리 정보 입력</div>
@@ -17188,11 +17188,11 @@ async function registerExchange() {
 }
 
 /* ⭐ v3.23: 고객사 검사요청 — 수리 없이 검사만 하고 검사 내역서(예상 공임비) 발행. 시트 '검사요청'(수리 통계와 별도).
-   상태: wait(승인 대기) → approved(고객 승인) → converted(수리 등록됨) / declined(수리 안 함).
-   1차: 고객 승인은 엔지니어가 고객사 답을 받고 대신 누른다. 2차에 고객사 대시보드 승인 버튼 + 티미 슬랙 알림.
+   상태: wait(승인 대기) → approved(수리 승인) → converted(수리 등록됨) / declined(수리 거부 — 검사 내역만 보관).
+   1차: 수리 승인·거부는 엔지니어가 고객사 답을 받고 대신 누른다. 2차에 고객사 대시보드 승인 버튼 + 티미 슬랙 알림.
    승인 건은 수리 등록할 때까지 탭 배지·상단 배너로 계속 남는다 (알림을 놓쳐도 사라지지 않게). */
 const IR_ITEMS = [['power','전원'], ['screen','화면'], ['touch','터치'], ['func','기타기능'], ['exterior','외관']];
-const IR_ST = { wait:['승인 대기','#d97706'], approved:['고객 승인 · 수리 대기','#dc2626'], declined:['수리 안 함','#6b7280'], converted:['수리 등록됨','#16a34a'] };
+const IR_ST = { wait:['승인 대기','#d97706'], approved:['수리 승인 · 등록 대기','#dc2626'], declined:['수리 거부 · 검사만','#6b7280'], converted:['수리 등록됨','#16a34a'] };
 window._irItems = {};      // 항목 키 → '정상' | '이상'
 window._irShowAll = false;
 // 수리 등록과 같은 규칙: 기타작업은 논배터리(백커버 포함)가 아니면 자동 포함, 논배터리면 제외.
@@ -17330,7 +17330,7 @@ async function irSetStatus(id, status) {
       renderInspReqs();
     } catch(e) { notify('저장 실패. 다시 시도해주세요.', 'error'); }
   };
-  if(status === 'declined') openModal('수리 안 함', `${r.serial} — 고객사가 수리하지 않기로 했나요?\n(회송 처리는 기존 출고 절차대로 진행하세요)`, run, '수리 안 함으로', 'btn-primary');
+  if(status === 'declined') openModal('수리 거부', `${r.serial} — 수리 거부로 처리할까요? 검사 내역은 남아서 [완료·거부 건도 보기]에서 내역서를 다시 볼 수 있습니다.\n(회송 처리는 기존 출고 절차대로 진행하세요)`, run, '수리 거부', 'btn-primary');
   else run();
 }
 function irDelete(id) {
@@ -17389,7 +17389,7 @@ function renderInspReqs() {
   if(banner) {
     // ponytail: 경과일은 달력 기준(주말 포함) — 영업일 기준이 필요하면 공휴일 캐시로 교체
     banner.innerHTML = approved.length ? `<div class="card" style="margin-bottom:14px;border:2px solid #dc2626;background:rgba(220,38,38,.05);">
-      <div style="font-size:14px;font-weight:800;color:#dc2626;margin-bottom:8px;">✅ 고객 승인 — 수리 등록 대기 ${approved.length}건</div>
+      <div style="font-size:14px;font-weight:800;color:#dc2626;margin-bottom:8px;">✅ 수리 승인 — 수리 등록 대기 ${approved.length}건</div>
       ${approved.map(x => { const d = _irDays(x.statusAt); return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:4px 0;font-size:13px;">
         <b>${escapeHtml(x.serial)}</b><span style="color:var(--text2);">${escapeHtml(x.model)} · 검사 ${escapeHtml(x.worker)} · ${escapeHtml(x.needText || '-')}</span>
         <span style="font-weight:700;color:${d >= 2 ? '#dc2626' : 'var(--text2)'};">승인 후 ${d}일${d >= 2 ? ' ⚠' : ''}</span>
@@ -17402,7 +17402,7 @@ function renderInspReqs() {
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const cnt = document.getElementById('ir-count');
   if(cnt) cnt.textContent = `진행 중 ${inspReqList.filter(x => x.status === 'wait' || x.status === 'approved').length}건 / 전체 ${inspReqList.length}건`;
-  const toggle = `<button class="btn btn-sm" style="margin-bottom:8px;" onclick="window._irShowAll=!window._irShowAll;renderInspReqs()">${window._irShowAll ? '진행 중만 보기' : '완료 건도 보기'}</button>`;
+  const toggle = `<button class="btn btn-sm" style="margin-bottom:8px;" onclick="window._irShowAll=!window._irShowAll;renderInspReqs()">${window._irShowAll ? '진행 중만 보기' : '완료·거부 건도 보기'}</button>`;
   if(!list.length) { el.innerHTML = toggle + '<div class="empty" style="padding:18px;">진행 중인 검사요청이 없습니다.</div>'; return; }
   el.innerHTML = toggle + `<div class="table-wrap"><table style="font-size:12.5px;">
     <thead><tr><th>검사일</th><th>시리얼</th><th>기종</th><th>검사자</th><th>이상 항목</th><th>수리 필요 항목</th><th style="text-align:right">예상 공임비</th><th>상태</th><th></th></tr></thead>
@@ -17411,7 +17411,7 @@ function renderInspReqs() {
       const [stL, stC] = IR_ST[x.status] || [x.status, '#6b7280'];
       const id = escapeJs(x.id);
       const acts = [`<button class="btn btn-sm" onclick="irPrint('${id}')">내역서</button>`];
-      if(x.status === 'wait') acts.push(`<button class="btn btn-sm btn-primary" onclick="irSetStatus('${id}','approved')">고객 승인</button>`, `<button class="btn btn-sm" onclick="irSetStatus('${id}','declined')">수리 안 함</button>`, `<button class="btn btn-sm btn-danger" onclick="irDelete('${id}')">삭제</button>`);
+      if(x.status === 'wait') acts.push(`<button class="btn btn-sm btn-primary" onclick="irSetStatus('${id}','approved')">수리 승인</button>`, `<button class="btn btn-sm" onclick="irSetStatus('${id}','declined')">수리 거부</button>`, `<button class="btn btn-sm btn-danger" onclick="irDelete('${id}')">삭제</button>`);
       if(x.status === 'approved') acts.push(`<button class="btn btn-sm btn-primary" onclick="irToRepair('${id}')">수리 등록으로</button>`, `<button class="btn btn-sm" onclick="irSetStatus('${id}','wait')">승인 취소</button>`);
       if(x.status === 'declined') acts.push(`<button class="btn btn-sm" onclick="irSetStatus('${id}','wait')">되돌리기</button>`);
       return `<tr><td>${escapeHtml(toLocalDay(x.date))}</td><td><b>${escapeHtml(x.serial)}</b></td><td>${escapeHtml(x.model)}</td><td>${escapeHtml(x.worker)}</td>
