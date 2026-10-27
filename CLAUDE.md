@@ -9,7 +9,8 @@
 - 백엔드: GAS 웹앱 (`gasCall({action, ...})` JSONP/fetch). Code.gs는 이 저장소에 없음(구글 측 관리) — **티오더 AS 프로그램 GAS: scriptId `1HbEzUWU0xnPNBBY-0u516wl81k-WronulnCZlhcCGIvoolXpNAp9-uaU`** (사용자 확인 2026-10-23, https://script.google.com/home/projects/1HbEzUWU0xnPNBBY-0u516wl81k-WronulnCZlhcCGIvoolXpNAp9-uaU/edit). `clasp clone`으로 받아 볼 수 있음.
   로컬 사본: `C:\Users\Forms\forms-as-gas` (이 public 저장소 밖, 자체 git — 배포 전 `clasp pull`로 최신 확인).
   - **티오더 고객사 AS 대시보드 서버 GAS: scriptId `1TRM-DUXMkNeGdYOORtcD4GfGn6bY8_4vkvpdkdmbEDz3fRH5kv_rinMV`** (프로젝트명 `voltales-as-backend`, 사용자 확인 2026-10-23, https://script.google.com/home/projects/1TRM-DUXMkNeGdYOORtcD4GfGn6bY8_4vkvpdkdmbEDz3fRH5kv_rinMV/edit). 사내 AS 프로그램 GAS(위)와 별개 — 고객사 대시보드 작업일 때만 이쪽.
-  - ⚠ 공개 data/load.json에 passwordMap(직원 비밀번호 해시)·priceSettings.finance가 그대로 실림 (2026-10-23 확인, client=1 응답만 제거). 고치려면 로그인이 load.json의 passwordMap을 쓰는지 먼저 확인.
+  - **민감정보 분리 (v3.24, 2026-10-27)**: load 응답·공개 load.json/client.json엔 비밀번호 해시(→ `pwNames` 이름만)와 경영분석 비밀 항목(salaries·hires·departures·hireSal·finPin → `_redacted:1` 사본)이 **없다**. 로그인·비번 변경은 `pwCheck`, 연봉은 2차 암호 확인 후 `getFinance`, 2차 암호 변경은 `setFinPin`(해제 없음, 분실 시 편집기에서 `resetFinPin`). `savePriceSettings`는 시트의 비밀 항목·finPin을 보존 병합(락). 시트 원본은 그대로. **단가 저장 등에 실리는 `_FINANCE_RAW`는 항상 가려진 사본** — 연봉 전체본은 saveFinance 요청에만.
+  - 남은 일: GAS 쓰기 요청 무인증(누구나 savePassword 등 호출 가능) → 로그인 토큰 필요. 백업: 드라이브 "AS서버의 사본"(2026-10-27). 옛 1TRM 배포 2개는 연봉 노출로 내림.
 - 읽기 데이터: GAS가 주기적으로 `data` 브랜치의 `data/load.json`으로 덤프 (`_z` = gzip+base64, entries는 컬럼형 tbl).
   - **중요**: load.json은 용량 절약을 위해 **출고(shipped) 건의 `parts`를 생략**한다. 서버에는 데이터가 있고,
     수정 모달이 열릴 때 상세를 따로 불러온다. 그래서 **부품 사용량 집계는 반드시 `stockLog`(재고 차감 기록) 기준**으로 한다

@@ -2927,7 +2927,7 @@ function gasCall(params) {
     addShipLogBulk:1   // ⭐ v2.82e: 서버가 (시리얼+출고일) 중복을 걸러줌(v2.76 skipped) → 재전송 안전. 대량 출고 중 응답 유실 1번에 전체 실패하던 문제 해소
   };
   // ⭐ v2.62b: 멱등 액션은 첫 전송 25초로 짧게 — 응답 유실 시 재전송이 빨리 개입 (총 대기 최대 ~70초→~30초)
-  let _pMut = _gasCallJsonp(params, _IDEMPOTENT_ACTIONS[_act] ? 25000 : undefined);
+  let _pMut = _gasCallJsonp(params, (_IDEMPOTENT_ACTIONS[_act] || _WARM_READ_ACTIONS[_act]) ? 25000 : undefined);
   if(_IDEMPOTENT_ACTIONS[_act]) {
     _pMut = _pMut.catch(() => {
       console.warn('[gasCall] ' + _act + ' 응답 유실 → 재전송 (서버 멱등 보장)');
@@ -2947,7 +2947,8 @@ function gasCall(params) {
   return _pMut;
 }
 
-const _WARM_READ_ACTIONS = { load:1, loadShipLog:1, getMissReason:1, getMissReasons:1, getMissReasonsRange:1, getEntryDetail:1, warm:1 };
+const _WARM_READ_ACTIONS = { load:1, loadShipLog:1, getMissReason:1, getMissReasons:1, getMissReasonsRange:1, getEntryDetail:1, warm:1,
+  pwCheck:1, getFinance:1, setFinPin:1 };   // ⭐ v3.24: 로그인·2차 암호 확인 (데이터 버전 안 바꿈)
 const _WARM_SHIP_ACTIONS = { addShipLog:1, addShipLogBulk:1, deleteShipLog:1, bulkDeleteShipLog:1, updateShipSerial:1 };
 function _pingWarm(ship) {
   if(ship) _pingWarm._ship = true;   // ⭐ v2.61d: 출고 관련 변경 누적 표시 — 디바운스로 미뤄져도 반영
@@ -3358,8 +3359,8 @@ async function syncData(silent=false, force=false, _snapData=null) {
     }
     // 서버에 없으면 localStorage 폴백 (관리자 기기에서 설정된 값)
     if(!window.PARTS_PRICE) loadPriceSettings();
-    // 비밀번호 맵 (이름 → SHA-256 해시) — 키 앞뒤 공백 제거해 정규화
-    const _rawPw = data.passwordMap || {};
+    // 비밀번호 맵 — ⭐ v3.24: 서버는 해시 대신 '비밀번호 설정된 이름'(pwNames)만 줌 → 값은 설정 여부 표시('1'). 비교는 서버(pwCheck)
+    const _rawPw = data.passwordMap || Object.fromEntries((data.pwNames || []).map(n => [n, '1']));
     window.PASSWORD_MAP = {};
     Object.keys(_rawPw).forEach(k => {
       const nk = String(k).trim();
@@ -3369,7 +3370,7 @@ async function syncData(silent=false, force=false, _snapData=null) {
     try {
       const _pov = JSON.parse(localStorage.getItem('fa_pw_ov') || 'null');
       if(_pov && _pov.name && (Date.now() - (_pov.ts || 0)) < 720000) {
-        if(window.PASSWORD_MAP[_pov.name] === _pov.hash) localStorage.removeItem('fa_pw_ov');   // 서버 확인 → 해제
+        if(!!window.PASSWORD_MAP[_pov.name] === !!_pov.hash) localStorage.removeItem('fa_pw_ov');   // 서버 확인 → 해제
         else window.PASSWORD_MAP[_pov.name] = _pov.hash;
       }
     } catch(e) {}
@@ -3440,7 +3441,7 @@ async function syncData(silent=false, force=false, _snapData=null) {
     }
     // ⭐ v2.59f: 성공한 네트워크 응답을 스냅샷으로 저장 — 다음 접속 즉시 부팅용 (출고이력은 용량상 제외)
     if(!_isSnap) {
-      try { localStorage.setItem('fa_load_snapshot_v1', JSON.stringify({ t: Date.now(), data: { ...data, shipLog: [] } })); } catch(e) {}
+      try { localStorage.setItem('fa_load_snapshot_v2', JSON.stringify({ t: Date.now(), data: { ...data, shipLog: [] } })); } catch(e) {}   // ⭐ v3.24: v2 키 (v1엔 비번 해시·연봉이 남아 있음)
     }
     setSyncStatus('ok');
     renderAll();
@@ -3951,14 +3952,23 @@ function getModel() {
 }
 // 비밀번호 SHA-256 해시
 // 마스터 PW: 1231
-const MASTER_PW_HASH = '52a6eb687cd22e80d3342eac6fcc7f2e19209e8f83eb9b82e81c6f3e6f30743b';
+// ⭐ v3.24: 마스터 예전 비밀번호 해시는 서버(Code.js MASTER_FALLBACK_PW_HASH)로 옮김 — 공개 코드에 두지 않음
 
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-// ⭐ 비밀번호 해시 조회 — 이름 앞뒤 공백 무시하고 PASSWORD_MAP에서 찾음
+// ⭐ v3.24: 비밀번호 비교는 서버가 — { has: 설정돼 있나, match: 맞나 }. 틀린 시도 10회면 서버가 10분 잠금
+async function _pwServerCheck(name, hash) {
+  const r = await gasCall({ action: 'pwCheck', name: String(name).trim(), hash });
+  if(!r || r.ok === false || typeof r.has !== 'boolean') throw new Error(r && r.error === 'locked' ? 'locked' : 'fail');
+  return r;
+}
+function _pwErrMsg(e) {
+  return e && e.message === 'locked' ? '비밀번호를 여러 번 틀려 10분간 잠겼습니다. 잠시 후 다시 시도해주세요.' : '서버 확인에 실패했습니다. 잠시 후 다시 시도해주세요.';
+}
+// 비밀번호 설정 여부 조회 — 이름 앞뒤 공백 무시하고 PASSWORD_MAP에서 찾음 (v3.24부터 값은 해시가 아니라 설정 표시)
 function getPwHash(name) {
   const pwMap = window.PASSWORD_MAP || {};
   if(name == null) return '';
@@ -4249,9 +4259,19 @@ async function pwLoginSubmit() {
     gasCall({ action: 'savePassword', name: name, hash: newHash })
       .catch(() => notifyPersist(`⚠ ${name}님 비밀번호가 서버에 저장되지 않았습니다 — 프로필의 '비밀번호 변경'에서 한 번 더 설정해주세요.`, 'error'));
   } else {
-    // 기존 비번 검증
+    // 기존 비번 검증 — ⭐ v3.24: 서버 비교. 방금 이 기기에서 설정한 비번(서버 저장 전일 수 있음)은 로컬로 통과
     const h = await sha256(pw1);
-    if(h === getPwHash(name)) {
+    let _ok = false;
+    try { const _ov = JSON.parse(localStorage.getItem('fa_pw_ov') || 'null'); _ok = !!(_ov && _ov.name === name && _ov.hash && _ov.hash === h && (Date.now() - (_ov.ts || 0)) < 720000); } catch(e) {}
+    if(!_ok) {
+      errEl.textContent = '확인 중...';
+      let _r;
+      try { _r = await _pwServerCheck(name, h); } catch(e) { errEl.textContent = _pwErrMsg(e); return; }
+      errEl.textContent = '';
+      if(!_r.has) { window.PASSWORD_MAP[name] = ''; pwLoginStart(name, _pwLoginRole); return; }   // 초기화된 계정 → 새 비번 설정
+      _ok = _r.match;
+    }
+    if(_ok) {
       loginAs(name);
     } else {
       errEl.textContent = '비밀번호가 틀렸습니다.';
@@ -4274,6 +4294,8 @@ function selectAdmin(name) {
 function logout() {
   if(!currentUser) return;
   if(!confirm('로그아웃하시겠어요?')) return;
+  // ⭐ v3.24: 경영분석 다시 잠금 — 같은 창에서 다음 사람이 2차 암호 없이 연봉을 보지 않게
+  if(window._finUnlocked) { window._finUnlocked = false; window._salShow = false; try { window.FINANCE = __finDec(window._FINANCE_RAW) || null; } catch(e) {} }
   currentUser = '';
   isAdmin = false;
   const badge = document.getElementById('current-user-badge');
@@ -4320,18 +4342,11 @@ async function submitPasswordChange() {
   if(new1.length < 4) { errorEl.textContent = '새 비밀번호는 4자 이상이어야 합니다.'; return; }
   if(new1 !== new2) { errorEl.textContent = '새 비밀번호와 확인이 일치하지 않습니다.'; return; }
 
-  // 현재 비밀번호 검증
-  const storedHash = getPwHash(currentUser);
+  // 현재 비밀번호 검증 — ⭐ v3.24: 서버 비교 (미등록 사용자는 빈 비번 허용 = 첫 설정, 마스터 미등록은 서버가 예전 비번으로 비교)
   const curHash = await sha256(cur);
   let curOk = false;
-  if(storedHash) {
-    curOk = (curHash === storedHash);
-  } else if(currentUser === MASTER_NAME) {
-    curOk = (curHash === MASTER_PW_HASH);
-  } else {
-    // 비밀번호 미등록 사용자(관리자/엔지니어): 빈 비번 허용 (첫 설정)
-    curOk = (cur === '');
-  }
+  try { const r = await _pwServerCheck(currentUser, curHash); curOk = r.has ? r.match : (cur === ''); }
+  catch(e) { errorEl.textContent = _pwErrMsg(e); return; }
   if(!curOk) { errorEl.textContent = '현재 비밀번호가 틀렸습니다.'; return; }
 
   // 새 비밀번호 해시 계산
@@ -4407,15 +4422,13 @@ async function loginMaster() {
   }
   const pw = document.getElementById('master-pw').value;
   const h = await sha256(pw);
-  const storedHash = getPwHash(_selectedAdminName);
-
+  // ⭐ v3.24: 서버 비교 (마스터 미등록 시 예전 비번 폴백도 서버가 처리)
+  let r;
+  try { r = await _pwServerCheck(_selectedAdminName, h); }
+  catch(e) { document.getElementById('login-error').textContent = _pwErrMsg(e); return; }
   let ok = false;
-  if(storedHash) {
-    // 시트에 비밀번호 등록되어 있으면 그걸로 검증
-    ok = (h === storedHash);
-  } else if(_selectedAdminName === MASTER_NAME) {
-    // 마이그레이션: 시트에 없으면 최민규는 기존 하드코딩 비번 폴백
-    ok = (h === MASTER_PW_HASH);
+  if(r.has) {
+    ok = r.match;
   } else {
     // 비밀번호 미등록 관리자(서승주, 이권우): 빈 비번으로만 첫 진입 허용
     if(pw === '') {
@@ -10815,11 +10828,24 @@ function __applyFinance(raw) {
   if(ov && ov.raw && (Date.now() - (ov.ts || 0)) < 720000) {
     if(raw === ov.raw) { try { localStorage.removeItem('fa_finance_ov'); } catch(e) {} }   // 서버 확인 → 해제
     else raw = ov.raw;                                                                      // 낡은 응답 → 내 값 유지
-  }
+  } else if(ov) { try { localStorage.removeItem('fa_finance_ov'); } catch(e) {} }          // ⭐ v3.24: 만료분 정리
   if(!raw) return;
   const d = __finDec(raw);
-  if(d && typeof d === 'object') { window.FINANCE = d; window._FINANCE_RAW = raw; }
+  if(d && typeof d === 'object') {
+    // ⭐ v3.24: 서버는 연봉 등 비밀 항목을 뺀 사본(_redacted)을 줌 — 이 세션에서 2차 암호로 연 상태면 받아 둔 비밀 항목 유지
+    //   _FINANCE_RAW는 가려진 사본 그대로 — 단가 저장 등이 열린 창의 옛 연봉을 서버에 되써서 다른 사람 수정을 덮지 않게
+    if(d._redacted && window._finUnlocked && window.FINANCE) {
+      const m = Object.assign({}, d);
+      _FIN_SECRET.forEach(k => { if(window.FINANCE[k] !== undefined) m[k] = window.FINANCE[k]; });
+      delete m._redacted;
+      window.FINANCE = m; window._FINANCE_RAW = raw; return;
+    }
+    window.FINANCE = d; window._FINANCE_RAW = d._redacted ? raw : _finRedactRaw(d);
+  }
 }
+const _FIN_SECRET = ['salaries', 'hires', 'departures', 'hireSal'];
+// 비밀 항목을 뺀 사본 — 서버가 저장 때 시트의 비밀 항목과 합침
+function _finRedactRaw(d) { const o = Object.assign({}, d); _FIN_SECRET.forEach(k => delete o[k]); delete o.finPin; o._redacted = 1; return __finEnc(o); }
 /* 단가 스냅샷 — finance 저장 시 settingsJson 전체가 교체되므로 현재 단가·부품비를 함께 실어 보존 */
 function _priceSnapshotForSave() {
   const s = {};
@@ -10835,16 +10861,21 @@ function _priceSnapshotForSave() {
 // ⭐ v3.13: 보기에 2차 암호 — 가리기는 즉시, 보기는 암호를 통과해야 (연봉·월 인건비·배분·손익이 한 세트)
 function _salToggle() {
   if(window._salShow) { window._salShow = false; try { renderFinance(); } catch(e) {} return; }
-  const f = _finData();
-  if(!f.finPin) {
-    window._salShow = true;
-    notify('2차 암호가 없어 바로 표시합니다 — [🔒 2차 암호]를 설정하면 연봉을 볼 때마다 물어봐요.');
-    try { renderFinance(); } catch(e) {} return;
-  }
-  openPromptModal('🔒 연봉 보기', '개인별 연봉·월 인건비·배분·손익을 보려면 2차 암호를 입력하세요.', '2차 암호', (v) => {
-    if(_finHash(String(v || '')) === f.finPin) { window._salShow = true; try { renderFinance(); } catch(e) {} }
-    else notify('2차 암호가 틀렸습니다.', 'error');
-  }, '보기');
+  if(window._finUnlocked) { window._salShow = true; try { renderFinance(); } catch(e) {} return; }
+  _finUnlock();
+}
+// ⭐ v3.24: 2차 암호를 서버가 확인한 뒤 연봉 포함 경영분석을 받음 (새로고침 전까지 열린 상태)
+function _finUnlock() {
+  openPromptModal('🔒 경영분석 열기', '연봉·월 인건비·손익을 보려면 2차 암호를 입력하세요.', '2차 암호', async (v) => {
+    try {
+      const r = await gasCall({ action: 'getFinance', pinHash: _finHash(String(v || '')) });
+      const d = r && r.ok && r.finance ? __finDec(r.finance) : null;
+      if(d) { window.FINANCE = d; window._FINANCE_RAW = _finRedactRaw(d); window._finUnlocked = true; window._salShow = true; try { renderFinance(); } catch(e) {} return; }
+      const er = r && r.error;
+      notify(er === 'bad_pin' ? '2차 암호가 틀렸습니다.' : er === 'locked' ? '여러 번 틀려 10분간 잠겼습니다. 잠시 후 다시 시도해주세요.'
+        : er === 'no_pin' ? '2차 암호가 아직 없어요 — [🔒 2차 암호 설정]으로 먼저 정해주세요.' : '불러오기 실패 — 잠시 후 다시 시도해주세요.', 'error');
+    } catch(e) { notify('서버 연결 실패 — 잠시 후 다시 시도해주세요.', 'error'); }
+  }, '열기');
   try { const el = document.getElementById('prompt-modal-input'); if(el) el.type = 'password'; } catch(e) {}
 }
 async function saveFinance() {
@@ -10880,8 +10911,8 @@ async function saveFinance() {
   // ⭐ v2.79v: 실질 가동일 (시나리오·충원 계산 기준, 기본 17일)
   const _od = Number(g('fin-opdays')?.value); if(!isNaN(_od) && _od > 0) f.opDays = _od;
   const raw = __finEnc(f);
-  window.FINANCE = f; window._FINANCE_RAW = raw;
-  try { localStorage.setItem('fa_finance_ov', JSON.stringify({ ts: Date.now(), raw })); } catch(e) {}
+  window.FINANCE = f; window._FINANCE_RAW = _finRedactRaw(f);   // ⭐ v3.24: 연봉이 실린 전체본은 이 저장 요청에만
+  try { localStorage.setItem('fa_finance_ov', JSON.stringify({ ts: Date.now(), raw: window._FINANCE_RAW })); } catch(e) {}
   const settingsObj = Object.assign(_priceSnapshotForSave(), { finance: raw });
   notify('💾 저장 중... (서버 반영)');
   try {
@@ -11455,31 +11486,34 @@ function _finHash(s) {
 }
 function _finPinSetup() {
   if(!isFullAdmin()) return;
-  const f = _finData();
-  const _openNew = () => {
-    openPromptModal('🔒 경영분석 2차 암호 ' + (f.finPin ? '변경' : '설정'),
-      '[👁 연봉 보기]를 누를 때마다 묻는 암호예요 — 연봉·월 인건비는 평소 ●●●로 가려져 있어요.\n4자 이상 입력 · 비우고 저장하면 2차 암호 해제.\n⚠ 잊으면 화면에서 되찾을 수 없어요 — 신중히 정해주세요.',
-      '새 2차 암호 (해제하려면 비워두기)', async (v) => {
+  // ⭐ v3.24: 설정·변경은 서버(setFinPin)가 현재 암호를 확인. 해제는 없음 (연봉 화면은 항상 2차 암호)
+  const _pw = () => { try { const el = document.getElementById('prompt-modal-input'); if(el) el.type = 'password'; } catch(e) {} };
+  openPromptModal('🔒 현재 2차 암호 확인', '2차 암호를 바꾸려면 현재 암호를 입력하세요. (처음 설정이면 비워두세요)', '현재 2차 암호', (cur) => {
+    setTimeout(() => {
+      openPromptModal('🔒 새 2차 암호', '경영분석(연봉)을 열 때 묻는 암호예요. 4자 이상.', '새 2차 암호', async (v) => {
         const s = String(v || '').trim();
-        if(s && s.length < 4) { notify('4자 이상으로 입력해주세요.', 'error'); return; }
-        window.FINANCE = Object.assign({}, _finData(), s ? { finPin: _finHash(s) } : {});
-        if(!s) delete window.FINANCE.finPin;
-        try { await saveFinance(); notify(s ? '🔒 2차 암호 설정 완료' : '2차 암호 해제 완료'); } catch(e) { notify('저장 실패 — 다시 시도해주세요.', 'error'); }
+        if(s.length < 4) { notify('4자 이상으로 입력해주세요.', 'error'); return; }
+        try {
+          const r = await gasCall({ action: 'setFinPin', pinHash: cur ? _finHash(String(cur)) : '', newPinHash: _finHash(s) });
+          if(r && r.ok) notify('🔒 2차 암호 저장 완료');
+          else notify(r && r.error === 'bad_pin' ? '현재 2차 암호가 틀렸습니다.' : r && r.error === 'locked' ? '여러 번 틀려 10분간 잠겼습니다.' : '저장 실패 — 다시 시도해주세요.', 'error');
+        } catch(e) { notify('저장 실패 — 다시 시도해주세요.', 'error'); }
       }, '저장');
-    try { const el = document.getElementById('prompt-modal-input'); if(el) el.type = 'password'; } catch(e) {}
-  };
-  if(!f.finPin) { _openNew(); return; }
-  // ⭐ v3.13a: 현재 암호 확인 없이 변경·해제(공란 저장)되던 구멍 차단 — 암호를 아는 사람만 바꿀 수 있다 (마스터 지적)
-  openPromptModal('🔒 현재 2차 암호 확인', '2차 암호를 변경하거나 해제하려면 먼저 현재 암호를 입력하세요.', '현재 2차 암호', (v) => {
-    if(_finHash(String(v || '')) === f.finPin) setTimeout(_openNew, 80);
-    else notify('현재 2차 암호가 틀렸습니다.', 'error');
-  }, '확인');
-  try { const el = document.getElementById('prompt-modal-input'); if(el) el.type = 'password'; } catch(e) {}
+      _pw();
+    }, 80);
+  }, '다음');
+  _pw();
 }
 async function renderFinance() {
   const el = document.getElementById('finance-content');
   if(!el) return;
   if(!isFullAdmin()) { el.innerHTML = '<div class="empty"><div class="empty-icon">🔒</div>경영 분석은 총괄(T5·마스터)만 볼 수 있습니다 — 연봉 등 민감 정보 포함.</div>'; return; }
+  // ⭐ v3.24: 연봉 등 비밀 항목은 2차 암호를 서버가 확인한 뒤에만 받음 — 그 전엔 손익 계산이 틀리므로 잠금 화면
+  if(window.FINANCE && window.FINANCE._redacted && !window._finUnlocked) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">🔒</div>경영 분석(연봉·인건비·손익)은 2차 암호를 입력해야 열립니다.
+      <div style="margin-top:12px;display:flex;gap:8px;justify-content:center;"><button class="btn btn-primary" onclick="_finUnlock()">🔓 2차 암호로 열기</button><button class="btn" onclick="_finPinSetup()">🔒 2차 암호 설정/변경</button></div></div>`;
+    return;
+  }
   // ⭐ v3.09 → v3.13: 2차 암호 게이트를 탭 진입에서 [👁 연봉 보기] 버튼으로 이동 (마스터 지시) —
   //   연봉·월 인건비는 기본 ●●● 가림이라 탭 자체는 바로 열리고, 금액을 볼 때만 암호를 묻는다.
   try { _grKickHolidays(); } catch(e) {}   // ⭐ v2.85b: 공휴일 프리로드 (성장분석 영업일 — 추석 등 반영, 로드 후 1회 재렌더)
@@ -11630,7 +11664,7 @@ async function renderFinance() {
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
     <span style="font-size:14px;font-weight:800;">💼 엔지니어팀 경영 분석</span>
     <span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;background:#fee2e2;color:#dc2626;">T5 전용</span>
-    <button class="btn btn-sm" onclick="_finPinSetup()" title="[👁 연봉 보기]를 누를 때 묻는 2차 암호 설정/변경/해제" style="height:26px;padding:0 10px;font-size:11px;">🔒 2차 암호</button>
+    <button class="btn btn-sm" onclick="_finPinSetup()" title="경영분석(연봉)을 열 때 묻는 2차 암호 설정/변경" style="height:26px;padding:0 10px;font-size:11px;">🔒 2차 암호</button>
     <input type="month" id="fin-month" value="${mv}" onchange="renderFinance()" style="height:32px;padding:0 8px;border:1px solid var(--border2);border-radius:var(--radius-sm);">
     <span style="font-size:11.5px;color:var(--text3);">워킹데이 ${workdays || '?'}일 · 매출 기준: <b>이 달 출고(청구) 공임비</b> — 전체 기록의 출고 공임비와 동일 · 이 달 수리 등록 ${fmt(regCntMonth)}건은 참고</span>
   </div>`;
@@ -13084,7 +13118,8 @@ function init() {
   // ⭐ v2.59f: 마지막 성공 스냅샷으로 즉시 부팅 — 로그인·화면이 GAS 응답을 기다리지 않음.
   //   스냅샷 적용은 동기 완료되므로 바로 아래 네트워크 동기화가 정상 실행되어 최신본으로 교체됨.
   try {
-    const _snap = JSON.parse(localStorage.getItem('fa_load_snapshot_v1') || 'null');
+    try { localStorage.removeItem('fa_load_snapshot_v1'); } catch(e) {}
+    const _snap = JSON.parse(localStorage.getItem('fa_load_snapshot_v2') || 'null');
     if(_snap && _snap.data && (Date.now() - _snap.t) < 86400000) syncData(true, false, _snap.data);
   } catch(e) {}
   // ⭐ v2.59g: 창 여러 개 동시 오픈 시 로드가 서버에 한꺼번에 몰려 락에 줄서는 것 방지 —
