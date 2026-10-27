@@ -3965,6 +3965,19 @@ async function _pwServerCheck(name, hash) {
   if(!r || r.ok === false || typeof r.has !== 'boolean') throw new Error(r && r.error === 'locked' ? 'locked' : 'fail');
   return r;
 }
+// ⭐ v3.24a: 서버 확인은 2~3초(GAS 기본 속도) — 이 기기에서 한 번 서버 확인된 비번은 바로 입장, 확인은 뒤에서.
+//   해시는 이 기기 저장소에만 (본인 것만). 뒤 확인에서 틀리면(다른 곳에서 변경·초기화) 저장값 지우고 로그인 화면으로.
+function _pwLocalOk(name, h) { try { return !!h && JSON.parse(localStorage.getItem('fa_pw_ok') || '{}')[String(name).trim()] === h; } catch(e) { return false; } }
+function _pwLocalSave(name, h) {
+  try { const m = JSON.parse(localStorage.getItem('fa_pw_ok') || '{}'); if(h) m[String(name).trim()] = h; else delete m[String(name).trim()]; localStorage.setItem('fa_pw_ok', JSON.stringify(m)); } catch(e) {}
+}
+function _pwBgRecheck(name, h) {
+  _pwServerCheck(name, h).then(r => {
+    if(r.match) return;
+    _pwLocalSave(name, '');
+    if(currentUser === name) { alert('비밀번호가 바뀌었거나 초기화되었습니다. 다시 로그인해주세요.'); location.reload(); }
+  }).catch(() => {});   // 네트워크 실패는 무시 (다음 로그인 때 다시 확인)
+}
 function _pwErrMsg(e) {
   return e && e.message === 'locked' ? '비밀번호를 여러 번 틀려 10분간 잠겼습니다. 잠시 후 다시 시도해주세요.' : '서버 확인에 실패했습니다. 잠시 후 다시 시도해주세요.';
 }
@@ -4254,6 +4267,7 @@ async function pwLoginSubmit() {
     if(!window.PASSWORD_MAP) window.PASSWORD_MAP = {};
     window.PASSWORD_MAP[name] = newHash;
     try { localStorage.setItem('fa_pw_ov', JSON.stringify({ name, hash: newHash, ts: Date.now() })); } catch(e) {}
+    _pwLocalSave(name, newHash);
     loginAs(name);
     setTimeout(() => notify('비밀번호가 설정되었습니다. 다음부터 이 비밀번호로 로그인하세요.'), 600);
     gasCall({ action: 'savePassword', name: name, hash: newHash })
@@ -4261,8 +4275,9 @@ async function pwLoginSubmit() {
   } else {
     // 기존 비번 검증 — ⭐ v3.24: 서버 비교. 방금 이 기기에서 설정한 비번(서버 저장 전일 수 있음)은 로컬로 통과
     const h = await sha256(pw1);
-    let _ok = false;
-    try { const _ov = JSON.parse(localStorage.getItem('fa_pw_ov') || 'null'); _ok = !!(_ov && _ov.name === name && _ov.hash && _ov.hash === h && (Date.now() - (_ov.ts || 0)) < 720000); } catch(e) {}
+    let _ok = _pwLocalOk(name, h);
+    const _fast = _ok;
+    if(!_ok) try { const _ov = JSON.parse(localStorage.getItem('fa_pw_ov') || 'null'); _ok = !!(_ov && _ov.name === name && _ov.hash && _ov.hash === h && (Date.now() - (_ov.ts || 0)) < 720000); } catch(e) {}
     if(!_ok) {
       errEl.textContent = '확인 중...';
       let _r;
@@ -4270,9 +4285,11 @@ async function pwLoginSubmit() {
       errEl.textContent = '';
       if(!_r.has) { window.PASSWORD_MAP[name] = ''; pwLoginStart(name, _pwLoginRole); return; }   // 초기화된 계정 → 새 비번 설정
       _ok = _r.match;
+      if(_ok) _pwLocalSave(name, h);
     }
     if(_ok) {
       loginAs(name);
+      if(_fast) _pwBgRecheck(name, h);
     } else {
       errEl.textContent = '비밀번호가 틀렸습니다.';
       document.getElementById('pw-login-input1').value = '';
@@ -4358,6 +4375,7 @@ async function submitPasswordChange() {
     // 로컬 PASSWORD_MAP 즉시 갱신
     if(!window.PASSWORD_MAP) window.PASSWORD_MAP = {};
     window.PASSWORD_MAP[currentUser] = newHash;
+    _pwLocalSave(currentUser, newHash);
     closeChangePasswordModal();
     notify('비밀번호가 변경되었습니다.');
   } catch(e) {
@@ -4423,12 +4441,16 @@ async function loginMaster() {
   const pw = document.getElementById('master-pw').value;
   const h = await sha256(pw);
   // ⭐ v3.24: 서버 비교 (마스터 미등록 시 예전 비번 폴백도 서버가 처리)
+  if(_pwLocalOk(_selectedAdminName, h)) { loginAs(_selectedAdminName); _pwBgRecheck(_selectedAdminName, h); return; }   // ⭐ v3.24a
+  document.getElementById('login-error').textContent = '확인 중...';
   let r;
   try { r = await _pwServerCheck(_selectedAdminName, h); }
   catch(e) { document.getElementById('login-error').textContent = _pwErrMsg(e); return; }
+  document.getElementById('login-error').textContent = '';
   let ok = false;
   if(r.has) {
     ok = r.match;
+    if(ok) _pwLocalSave(_selectedAdminName, h);
   } else {
     // 비밀번호 미등록 관리자(서승주, 이권우): 빈 비번으로만 첫 진입 허용
     if(pw === '') {
