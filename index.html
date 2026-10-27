@@ -2926,14 +2926,23 @@ function gasCall(params) {
     updateRepairStatusBulk:1,   // ⭐ v2.72b: 같은 상태 재설정은 무해 → 자연 멱등
     addShipLogBulk:1   // ⭐ v2.82e: 서버가 (시리얼+출고일) 중복을 걸러줌(v2.76 skipped) → 재전송 안전. 대량 출고 중 응답 유실 1번에 전체 실패하던 문제 해소
   };
-  // ⭐ v2.62b: 멱등 액션은 첫 전송 25초로 짧게 — 응답 유실 시 재전송이 빨리 개입 (총 대기 최대 ~70초→~30초)
-  let _pMut = _gasCallJsonp(params, (_IDEMPOTENT_ACTIONS[_act] || _WARM_READ_ACTIONS[_act]) ? 25000 : undefined);
-  if(_IDEMPOTENT_ACTIONS[_act]) {
-    _pMut = _pMut.catch(() => {
-      console.warn('[gasCall] ' + _act + ' 응답 유실 → 재전송 (서버 멱등 보장)');
-      return _gasCallJsonp(params, 45000);
-    });
-  }
+  // ⭐ v2.62b: 멱등 액션은 첫 전송을 짧게 — 응답 유실 시 재전송이 빨리 개입
+  // ⭐ v3.25a: 25→32초 — 서버가 락을 최대 20초 기다린 뒤 실행하므로, 그보다 짧으면 처리 중인 요청을 또 보내 부하만 두 배가 됨
+  const _send = () => {
+    let p = _gasCallJsonp(params, (_IDEMPOTENT_ACTIONS[_act] || _WARM_READ_ACTIONS[_act]) ? 32000 : undefined);
+    if(_IDEMPOTENT_ACTIONS[_act]) {
+      p = p.catch(() => {
+        console.warn('[gasCall] ' + _act + ' 응답 유실 → 재전송 (서버 멱등 보장)');
+        return _gasCallJsonp(params, 45000);
+      });
+    }
+    return p;
+  };
+  // ⭐ v3.25a: busy-lock = 서버가 '실행하지 않음'을 보장 → 어떤 액션이든 같은 요청 재전송이 안전. 1~3초 쉬고 최대 8번
+  const _busyRetry = (p, n) => p.then(r => (r && r.ok === false && r.error === 'busy-lock' && n < 8)
+    ? new Promise(res => setTimeout(res, 1000 + Math.random() * 2000)).then(() => _busyRetry(_send(), n + 1))
+    : r);
+  let _pMut = _busyRetry(_send(), 0);
   if(!_WARM_READ_ACTIONS[_act]) {
     _pMut.then(()=>_pingWarm(!!_WARM_SHIP_ACTIONS[_act])).catch(()=>{
       // ⭐ v2.62c: 응답 유실 시 재조정 — fresh(인라인 재빌드=락 5~10초)를 직접 돌리지 않는다.
