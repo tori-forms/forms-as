@@ -56,7 +56,7 @@ serializeWorkers가 참조하는 맵(workerDailyTargets·mentoringEndMap 등)을
 - **재작업 완료**: 담당 본인 + 총괄 + 같은 파트 파트장(canManageWorker).
 - **티오더 검사 의뢰 (v3.23~d)**: 수리 항목 3행 메인보드 옆 [🔍 검사요청] 카드(input 아님 — window._irMode, buildChecks가 그림) → 버튼이 [검사 등록]으로, addEntry가 irRegister로 넘김. 체크한 수리 항목 = 수리 필요 항목. 시트 `검사요청`(수리 통계와 분리 — 건수·목표·수당 미포함).
   상태 wait → approved(수리 승인) → converted / declined(수리 거부 — 검사 내역만 보관, 출고 관리로 넘길지는 논의 중). 예상 공임비 = WORKS 단가 합 + 기타작업 자동 규칙(syncEtcRule과 동일)·NB_EXCLUSIVE 적용.
-  승인 건은 수리 등록 전까지 탭 배지·배너로 계속 표시. 서버는 converted 건 상태 되돌리기 거절.
+  승인 건은 수리 등록 전까지 탭 배지·배너로 계속 표시. 내역서는 [내역서(엑셀)] = 원본 양식 xlsx(IR_XLSX_TPL, 예시값·작성자 지운 base64)에 JSZip으로 셀 값만 채움(금액 D20 숫자 → 엑셀에서 수정), [인쇄]는 irPrint. 서버는 converted 건 상태 되돌리기 거절.
   1차는 승인을 엔지니어가 대신 누름 — **2차(대기)**: 고객사 대시보드 승인 버튼(서버 권한 확인 필요) + 티미 슬랙 알림·미처리 재알림.
 - **품질점수**: 100 − 불합격률×5. 초과건 수당: `_finOverBonusData` (품질 게이트 5%).
 - 불출 전산화(엔지니어가 부품 가져갈 때 직접 입력)는 **거부됨** — 대신 주간 장부 대조 카드로 수기 장부와 대조.
