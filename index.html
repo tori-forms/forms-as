@@ -12365,7 +12365,7 @@ function applyQCMenuRestriction() {
   if(isAdmin) return;
 
   // QC 전용으로 보이게 할 탭 ID들
-  const QC_VISIBLE_TABS = ['inspect', 'search', 'shipping'];
+  const QC_VISIBLE_TABS = ['mydash', 'inspect', 'search', 'shipping'];   // ⭐ v3.26: QC 대시보드 추가
 
   // 모든 nav-btn 순회
   document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -12381,9 +12381,7 @@ function applyQCMenuRestriction() {
     }
   });
 
-  // 내 대시보드, 재고 관리 명시적 숨김
-  const myBtn = document.getElementById('nav-mydash');
-  if(myBtn) myBtn.style.display = 'none';
+  // 재고 관리 명시적 숨김
   const stockBtn = document.getElementById('nav-stock');
   if(stockBtn) stockBtn.style.display = 'none';
 
@@ -15197,6 +15195,29 @@ function _awardsCardForMyDash() {
     return `<div id="awards-wrap">${nav}${inner}</div>`;
   } catch(e) { return ''; }
 }
+function _qcDashHtml() {
+  const pad = n => String(n).padStart(2, '0');
+  const dk = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const today = dk(new Date()), month = today.slice(0, 7);
+  const waiting = getInspectWaitingEntries();
+  const stuck = waiting.filter(e => bizDaysElapsed(new Date(e.agingStart).getTime(), nowMs()) >= 2);
+  const mine = (inspections || []).filter(i => String(i.inspector || '').split('::')[0] === currentUser && i.inspectedAt);
+  const tally = list => ({ n: list.length, fail: list.filter(i => i.result !== 'pass').length });
+  const t = tally(mine.filter(i => dk(new Date(i.inspectedAt)) === today));
+  const m = tally(mine.filter(i => dk(new Date(i.inspectedAt)).startsWith(month)));
+  const card = (label, count, color, icon, sub, go) => `
+    <div class="card" style="padding:16px 18px;border-left:4px solid ${color};${go ? 'cursor:pointer;' : ''}"${go ? ` onclick="switchTab('inspect',document.getElementById('nav-inspect'))"` : ''}>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">${icon} ${label}</div>
+      <div style="font-size:30px;font-weight:800;color:${color};">${count}<span style="font-size:14px;color:var(--text2);font-weight:500;margin-left:2px;">건</span></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">${sub}</div>
+    </div>`;
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px;">
+    ${card('검수대기', waiting.length, '#6366f1', '🔍', '눌러서 검수하러 가기', true)}
+    ${card('2영업일 넘게 대기', stuck.length, stuck.length ? '#ef4444' : '#10b981', '⏰', '검수대기로 넘어온 지 2영업일 이상', true)}
+    ${card('오늘 내 검수', t.n, '#0ea5e9', '✅', `불합격 ${t.fail}건`)}
+    ${card('이번 달 내 검수', m.n, '#10b981', '📅', `불합격 ${m.fail}건`)}
+  </div>`;
+}
 async function renderMyDash() {
   const el = document.getElementById('mydash-body');
   const titleEl = document.getElementById('mydash-title');
@@ -15272,6 +15293,12 @@ async function renderMyDash() {
       });
     }
 
+    return;
+  }
+
+  // ⭐ v3.26: QC 전용(inspector) — 검수 현황 카드 + 이달의 엔지니어 (수리 실적·목표 카드는 QC와 무관해서 뺌)
+  if(!isAdmin && (roleMap[currentUser] || 'engineer') === 'inspector') {
+    el.innerHTML = _qcDashHtml() + _awardsCardForMyDash();
     return;
   }
 
