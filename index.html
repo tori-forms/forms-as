@@ -21153,7 +21153,7 @@ function _orderCfg() {
   try { c = JSON.parse(localStorage.getItem('fa_order_cfg') || '{}') || {}; } catch(e) {}
   return {
     lead: Math.max(1, Number(c.lead) || 60),   // 발주→입고 리드타임 (일)
-    op:   Math.max(1, Number(c.op)   || 60),   // 입고 후 안정 운영 목표 (일) — "최소 2달 이상 운영"
+    op:   Math.max(1, Number(c.op)   || 90),   // 입고 후 안정 운영 목표 (일) — ⭐ v3.25b: 회사 운영기준 90일 (티미 발주 알림과 같은 값)
     look: Math.max(7, Number(c.look) || 28),   // 소모 속도 집계 기간 (일)
     eng:  Math.max(0, Number(c.eng)  || 0)     // ⭐ v3.02: 가용 엔지니어 수 (0 = 최근 실적 기준 자동)
   };
