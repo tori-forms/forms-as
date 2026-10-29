@@ -1430,10 +1430,10 @@ window.addEventListener('DOMContentLoaded', function(){
   <div id="tab-search" class="section">
     <div class="section-title" style="margin-bottom:16px;">시리얼 번호 조회</div>
     <div class="card">
-      <div class="form-row">
-        <div class="form-group" style="flex:1;">
-          <label class="form-label">시리얼 번호</label>
-          <textarea id="inp-search" rows="3" placeholder="시리얼 번호 전체 또는 일부 입력 — 여러 개는 줄바꿈·띄어쓰기·쉼표로 구분 (엑셀 붙여넣기 가능)" style="width:100%;max-width:300px;resize:vertical;font-family:inherit;" oninput="this.value=this.value.toUpperCase()"></textarea>
+      <div class="form-row" style="margin-bottom:0;">
+        <div class="form-group" style="flex:0 1 480px;margin-bottom:0;">
+          <label class="form-label">시리얼 번호 <span style="color:var(--text3);font-weight:400;">· 여러 개는 엑셀에서 붙여넣기 (Enter = 조회)</span></label>
+          <textarea id="inp-search" rows="3" spellcheck="false" autocomplete="off" placeholder="시리얼 번호 전체 또는 일부 — 여러 개는 줄바꿈·띄어쓰기·쉼표로 구분" style="width:100%;resize:vertical;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.5;text-transform:uppercase;"></textarea>
         </div>
         <button class="btn btn-primary" onclick="doSearch()">조회</button>
       </div>
