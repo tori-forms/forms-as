@@ -18522,6 +18522,44 @@ function doSearch() {
 }
 // Enter = 조회, Shift+Enter = 줄바꿈 (붙여넣기는 줄바꿈 그대로 들어감)
 document.getElementById('inp-search')?.addEventListener('keydown', e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();doSearch();}});
+
+// ⭐ v3.28: 새 버전 자동 감지 — GitHub Pages 캐시(10분) 때문에 배포 후 강력 새로고침해야 새 화면이 뜨던 문제.
+//   cache:'reload'로 받으면 브라우저 캐시도 새 판으로 바뀌어 일반 새로고침만 해도 새 버전이 뜬다.
+//   새로고침하면 로그인이 풀리므로 자동 새로고침은 로그인 화면일 때만, 작업 중엔 배너로 안내.
+(function _verWatch(){
+  const code = d => [...d.scripts].filter(s => !s.src).map(s => s.textContent).join('');
+  let mine = null, etag = null, busy = false, stale = false;   // mine은 로드 후에 — 지금은 뒤쪽 스크립트가 아직 안 읽힘
+  async function check(full) {
+    if(busy || stale || mine === null) return; busy = true;
+    try {
+      if(!full) {   // 평소엔 헤더만 — 1.5MB 본문은 바뀐 것 같을 때만 받는다
+        const h = await fetch(location.pathname, { method:'HEAD', cache:'no-store' });
+        const t = h.headers.get('etag') || h.headers.get('last-modified');
+        if(!t || t === etag) return;
+      }
+      const r = await fetch(location.pathname, { cache:'reload' });
+      if(!r.ok) return;
+      etag = r.headers.get('etag') || r.headers.get('last-modified');
+      if(code(new DOMParser().parseFromString(await r.text(), 'text/html')) === mine) return;
+      stale = true;
+      // 자동 새로고침은 10분에 1번까지 — CDN이 옛 판을 주는 동안 무한 새로고침 방지
+      let last = 0; try { last = +sessionStorage.getItem('fa_ver_reload') || 0; } catch(_) {}
+      if(document.getElementById('login-overlay')?.style.display !== 'none' && Date.now() - last > 600000) {
+        try { sessionStorage.setItem('fa_ver_reload', Date.now()); } catch(_) {}
+        location.reload(); return;
+      }
+      const b = document.createElement('div');
+      b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99998;background:#2563eb;color:#fff;font-size:13px;font-weight:700;text-align:center;padding:10px 14px;box-shadow:0 2px 10px rgba(0,0,0,.3);';
+      b.innerHTML = '🆕 전산 새 버전이 나왔어요 — 하던 작업 저장 후 새로고침해주세요. <button onclick="location.reload()" style="margin-left:10px;padding:4px 14px;border:none;border-radius:6px;background:#fff;color:#2563eb;font-weight:800;cursor:pointer;">🔄 새로고침</button>';
+      document.body.appendChild(b);
+    } catch(_) {} finally { busy = false; }
+  }
+  if(location.protocol.startsWith('http')) {
+    window.addEventListener('load', () => { mine = code(document); setTimeout(() => check(true), 5000); });   // 열자마자 1회: 캐시된 옛 판으로 열렸는지
+    setInterval(() => check(false), 5 * 60000);
+    document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') check(false); });
+  }
+})();
 document.addEventListener('DOMContentLoaded', ()=>{
   // 각인 모드 우선 체크 - URL ?engrave=1 로 접근 시 별도 페이지 표시
   console.log('[ENGRAVE] DOMContentLoaded 핸들러, ENGRAVE_MODE =', ENGRAVE_MODE);
