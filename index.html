@@ -1433,7 +1433,7 @@ window.addEventListener('DOMContentLoaded', function(){
       <div class="form-row">
         <div class="form-group" style="flex:1;">
           <label class="form-label">시리얼 번호</label>
-          <input type="text" id="inp-search" placeholder="시리얼 번호 전체 또는 일부 입력" style="width:100%;max-width:300px;" oninput="this.value=this.value.toUpperCase()">
+          <textarea id="inp-search" rows="3" placeholder="시리얼 번호 전체 또는 일부 입력 — 여러 개는 줄바꿈·띄어쓰기·쉼표로 구분 (엑셀 붙여넣기 가능)" style="width:100%;max-width:300px;resize:vertical;font-family:inherit;" oninput="this.value=this.value.toUpperCase()"></textarea>
         </div>
         <button class="btn btn-primary" onclick="doSearch()">조회</button>
       </div>
@@ -18445,21 +18445,27 @@ function confirmReentry(serial, visit, prevId) {
 function doSearch() {
   // ⭐ v2.21: 입력에서 _ 제거 + 저장된 시리얼도 정규화하여 비교
   const raw = document.getElementById('inp-search').value.trim().toUpperCase();
-  const q = raw.replace(/_/g, '');
+  // 여러 시리얼 한 번에 조회 — 줄바꿈·공백·쉼표로 구분 (엑셀 열 붙여넣기)
+  const qs = [...new Set(raw.split(/[\s,]+/).map(s => s.replace(/_/g, '')).filter(Boolean))];
   const el = document.getElementById('search-result');
-  if(!q){ el.innerHTML='<div class="empty">시리얼 번호를 입력하세요.</div>'; return; }
+  if(!qs.length){ el.innerHTML='<div class="empty">시리얼 번호를 입력하세요.</div>'; return; }
 
-  // 시리얼 정규화 매칭 (_ 무시)
-  const matchSerial = (serial) => normalizeSerial(serial).includes(q);
-  const found = entries.filter(e => matchSerial(e.serial)).sort((a,b)=>new Date(b.date)-new Date(a.date));
-  const foundExc = (exchangeList||[]).filter(x => matchSerial(x.serial)).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  // 시리얼 정규화 매칭 (_ 무시) — 입력 순서대로, 같은 입력 안에선 최신순
+  const qIdx = (serial) => { const n = normalizeSerial(serial); return qs.findIndex(q => n.includes(q)); };
+  const pick = list => list.map(x => [qIdx(x.serial), x]).filter(([i]) => i >= 0)
+    .sort((a,b) => a[0]-b[0] || new Date(b[1].date)-new Date(a[1].date)).map(([,x]) => x);
+  const found = pick(entries);
+  const foundExc = pick(exchangeList||[]);
 
   if(!found.length && !foundExc.length){
-    el.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div>"${raw}"에 해당하는 내역이 없습니다.</div>`; return;
+    el.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div>"${qs.join(', ')}"에 해당하는 내역이 없습니다.</div>`; return;
   }
 
   const total = found.length + foundExc.length;
-  let html = `<div style="font-size:12px;color:var(--text2);margin-bottom:8px;">${total}건 검색됨</div>`;
+  const hit = new Set([...found, ...foundExc].map(x => qIdx(x.serial)));
+  const missing = qs.filter((_, i) => !hit.has(i));
+  let html = `<div style="font-size:12px;color:var(--text2);margin-bottom:8px;">${qs.length > 1 ? `시리얼 ${qs.length}개 중 ${qs.length - missing.length}개 · ` : ''}${total}건 검색됨</div>`;
+  if(missing.length) html += `<div style="font-size:12px;color:var(--amber-text);background:var(--amber-bg);padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:8px;">내역 없음 (${missing.length}개): ${missing.join(', ')}</div>`;
 
   // 교품 처리 건 먼저 표시
   if(foundExc.length) {
@@ -18506,7 +18512,7 @@ function doSearch() {
       <div style="margin-bottom:8px;">${workTags(e.works)}</div>
       ${e.note?`<div style="font-size:12px;color:var(--amber-text);background:var(--amber-bg);padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:8px;">📝 ${e.note}</div>`:''}
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        <button class="btn btn-sm" onclick="openEditModal(${e.id});lastSearch='${document.getElementById('inp-search').value.trim()}'" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>수정</button>
+        <button class="btn btn-sm" onclick="openEditModal(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>수정</button>
         <button class="btn btn-sm btn-danger" onclick="delSearch(${e.id})" ${canDelete(e)?'':'disabled style="opacity:.3;cursor:not-allowed;"'}>삭제</button>
         <button class="btn btn-sm" onclick="toggleFreeEntry('${e.id}')" style="color:#10b981;border-color:#10b981;font-weight:700;">${hasFreeTag(e) ? '무상 해제' : '🆓 무상 전환'}</button>
       </div>
@@ -18514,7 +18520,8 @@ function doSearch() {
 
   el.innerHTML = html;
 }
-document.getElementById('inp-search')?.addEventListener('keydown', e=>{if(e.key==='Enter')doSearch();});
+// Enter = 조회, Shift+Enter = 줄바꿈 (붙여넣기는 줄바꿈 그대로 들어감)
+document.getElementById('inp-search')?.addEventListener('keydown', e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();doSearch();}});
 document.addEventListener('DOMContentLoaded', ()=>{
   // 각인 모드 우선 체크 - URL ?engrave=1 로 접근 시 별도 페이지 표시
   console.log('[ENGRAVE] DOMContentLoaded 핸들러, ENGRAVE_MODE =', ENGRAVE_MODE);
