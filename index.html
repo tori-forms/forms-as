@@ -10183,16 +10183,9 @@ function exportShippingXlsx() {
 
 /* ===== ⭐ 작업별 부품 매핑 설정 ===== */
 // 수리 작업 목록 (WORKS 키 + 라벨)
-const WORKPARTS_JOBS = [
-  // ⭐ v2.79h: nonbat = 백커버 포함(기존 매핑 그대로 유효) / nonbat_nc = 미포함(백커버·후면필름 제외 구성)
-  { key:'nonbat', label:'논배터리 작업 (백커버 포함)', color:'#ea580c', bg:'#ffedd5' },
-  { key:'nonbat_nc', label:'논배터리 작업 (백커버 미포함)', color:'#c2410c', bg:'#ffedd5' },
-  { key:'battery',label:'배터리 교체',    color:'#0891b2', bg:'#cffafe' },
-  { key:'pcb',    label:'PCB 교체',     color:'#2563eb', bg:'#dbeafe' },
-  { key:'panel',  label:'패널(LCD) 교체', color:'#16a34a', bg:'#dcfce7' },
-  { key:'cover',  label:'백커버 교체',    color:'#d97706', bg:'#fef3c7' },   // ⭐ v2.79
-  { key:'board',  label:'메인보드 수리',  color:'#7c3aed', bg:'#ede9fe' },
-];
+// 이름·색은 WORKS(수리 항목)에서 그대로 가져온다 — 별도 표기를 두면 수리 등록 화면과 또 어긋남. 기타 작업은 고정 부품이 없어 제외.
+const WORKPARTS_JOBS = ['nonbat','nonbat_nc','battery','pcb','panel','cover','board']
+  .map(key => ({ key, label:WORKS[key].label, color:WORKS[key].tagColor, bg:WORKS[key].tagBg }));
 let _workPartsDraft = null;   // 편집 중 임시본
 
 function renderWorkParts() {
