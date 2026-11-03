@@ -8119,7 +8119,8 @@ function warrantyInfo(e) {
   if(!prev) return null;
   const prevW = new Set(parseWorks(prev.works));
   const works = parseWorks(e.works);
-  const overlap = works.filter(k => prevW.has(k));
+  // 기타작업(세척·SW·검수)은 매번 새로 하는 작업이라 반복 수리여도 청구 — 무상 겹침에서 뺀다
+  const overlap = works.filter(k => k !== 'etc' && prevW.has(k));
   if(!overlap.length) return null;
   const pt = new Date(prev.date).getTime() || 0;
   const ship = (shipHistory || []).filter(h => base(h.serial) === sn)
@@ -13847,13 +13848,24 @@ async function addEntry() {
   btn.disabled = true; btn.textContent = '저장 중...';
   // ⭐ v2.62c: catch(응답 유실)에서도 낙관 반영할 수 있게 try 밖에서 선계산
   const id = Date.now(), date = new Date().toISOString();
-  const total = works.reduce((s,k)=>s+WORKS[k].price, 0);
+  let total = works.reduce((s,k)=>s+WORKS[k].price, 0);
   const partsSnapshot0 = getPartsData();
   const parts = JSON.stringify(partsSnapshot0);
   // ⭐ v2.64: 재인입 정보 캡처 후 즉시 소진 (모든 종료 경로에서 잔존 방지)
   const _re = (window._reentryInfo && String(window._reentryInfo.serial) === String(serial)) ? window._reentryInfo : null;
   window._reentryInfo = null;
   const _reJson = _re ? JSON.stringify({ v:_re.visit, rs:_re.reason, prev:_re.prevId||'', memo:_re.memo||'', ...(_re.sub ? { sub:_re.sub } : {}) }) : '';
+  // ⭐ v3.34: 6개월 내 반복 수리는 등록 즉시 무상 적용 (사용자 지시 2026-11-03 — 건별 [🆓 무상] 버튼 대신).
+  //   겹치는 수리 항목 공임만 빼고 기타작업·새 항목은 청구, 부품은 그대로 차감. 직전 출고일을 못 찾으면(unknown) 자동 적용 안 함.
+  if(_re && _re.reason === 'defect') {
+    const _syn = { id, serial, works: JSON.stringify(works), total, note, date, reentry: _reJson };
+    const _wi = warrantyInfo(_syn);
+    if(_wi && !_wi.unknown && _wi.freeAmt > 0) {
+      const _fc = freeToggleCalc(_syn);
+      total = _fc.newTotal; note = _fc.newNote;
+      notify(`🛡 6개월 이내 반복 수리 — ${_wi.overlap.map(k => WORKS[k]?.tag || k).join('·')} 공임 ${fmt(_wi.freeAmt)}원 무상 적용 (청구 ${fmt(total)}원)`);
+    }
+  }
   // ⭐ v3.25: 저장 전에 정산 마커 — 응답이 유실돼도 서버 저장이 확인되면 같은 전표로 차감 (예전엔 차감이 통째로 빠짐)
   const _addLogKey = 'a' + id;
   if(stock.length) _pendQSet({ id: String(id), kind: 'add', serial, works, parts: partsSnapshot0, model, logKey: _addLogKey, ts: Date.now() });
@@ -18397,7 +18409,7 @@ function serialHistoryHtml(serial, withReason) {
   const lastShip = (shipHistory || []).filter(h => base(h.serial) === sn).map(h => parseShipDate(h.shipDate)).filter(Boolean).sort((a, b) => b - a)[0];
   const until = lastShip && new Date(lastShip); if(until) until.setMonth(until.getMonth() + WARRANTY_MONTHS);
   const warn = until && Date.now() <= until.getTime()
-    ? `<div style="background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;border-radius:8px;padding:6px 9px;margin-bottom:6px;">🛡 직전 AS 출고 <b>${shipDateKey(lastShip)}</b> — <b>${shipDateKey(until)}</b>까지 6개월 이내입니다. 지난번에 고친 부품·작업이 다시 고장 났으면(증상이 달라도) 공임 무상 대상이니, 재인입 사유를 <b>'반복 수리'</b>로 골라주세요.</div>` : '';
+    ? `<div style="background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;border-radius:8px;padding:6px 9px;margin-bottom:6px;">🛡 직전 AS 출고 <b>${shipDateKey(lastShip)}</b> — <b>${shipDateKey(until)}</b>까지 6개월 이내입니다. 지난번에 고친 부품·작업이 다시 고장 났으면(증상이 달라도) <b>'반복 수리'</b>로 고르세요 — 같은 수리 항목 공임은 등록할 때 자동으로 무상 처리됩니다 (기타작업은 청구, 부품은 정상 차감).</div>` : '';
   // ⭐ v3.20: 재인입 사유를 등록 화면에서 고른다 (필수 · 기본값 없음). 상세 내용은 특이사항 한 칸에.
   //   전엔 [수리 등록] 뒤 팝업에서 골랐는데 '증상 재발'이 미리 선택돼 있어 그냥 누르고 지나가기 쉬웠고
   //   (6개월 무상 판정이 이 사유로 된다), 팝업의 '상세 메모'는 수정 창에서만 보여 아무도 못 봤다.
