@@ -13358,11 +13358,6 @@ function _renderWorkCheckHTML(k, v, model) {
     <div style="flex:1;">
       <div class="work-check-name">${v.label}</div>
       <div class="work-check-price">${fmt(v.price)}원</div>
-      ${visibleParts.length > 0 ? `<div style="margin-top:8px;">
-        <button type="button" id="parts-toggle-${k}" onclick="togglePartsSection('${k}')" style="font-size:11px;color:var(--text2);background:none;border:1px solid var(--border2);border-radius:4px;padding:3px 8px;cursor:pointer;display:none;">
-          ▼ 부품 보기 (${visibleParts.length}개)
-        </button>
-      </div>` : ''}
       <div id="parts-${k}" style="display:none;margin-top:10px;border-top:1px dashed var(--border2);padding-top:10px;">
         <div style="font-size:10.5px;color:var(--text3);margin-bottom:6px;">수량 0 = 미사용 (재고 차감 안 함)</div>
         ${visibleParts.map(p=>`
@@ -13428,42 +13423,8 @@ const toggleCheck = k => {
 function renderPartQtys(k) {
   const checked = document.querySelector(`#wc-${k} input`)?.checked;
   const partsEl = document.getElementById('parts-'+k);
-  const toggleBtn = document.getElementById('parts-toggle-'+k);
-  const model = getModel();
-  const visibleParts = getWorkParts(k, model);
-
-  if(!checked) {
-    if(partsEl) partsEl.style.display = 'none';
-    if(toggleBtn) toggleBtn.style.display = 'none';
-    return;
-  }
-
-  if(visibleParts.length <= 1) {
-    // 부품 0~1개: 그냥 바로 펼침, 토글 없음
-    if(partsEl) partsEl.style.display = 'block';
-    if(toggleBtn) toggleBtn.style.display = 'none';
-  } else {
-    // 부품 2개 이상: 토글 버튼 표시, 기본 접힘
-    if(toggleBtn) {
-      toggleBtn.style.display = 'inline-block';
-      const isOpen = partsEl && partsEl.style.display === 'block';
-      toggleBtn.textContent = isOpen ? `▲ 부품 숨기기` : `▼ 부품 보기 (${visibleParts.length}개)`;
-    }
-    if(partsEl && partsEl.style.display !== 'block') {
-      partsEl.style.display = 'none';
-    }
-  }
-}
-
-function togglePartsSection(k) {
-  const partsEl = document.getElementById('parts-'+k);
-  const toggleBtn = document.getElementById('parts-toggle-'+k);
-  const model = getModel();
-  const visibleParts = getWorkParts(k, model);
-  if(!partsEl) return;
-  const isOpen = partsEl.style.display === 'block';
-  partsEl.style.display = isOpen ? 'none' : 'block';
-  if(toggleBtn) toggleBtn.textContent = isOpen ? `▼ 부품 보기 (${visibleParts.length}개)` : `▲ 부품 숨기기`;
+  // ⭐ v3.35: 체크하면 부품 상세를 항상 펼침 — 접기 버튼 없음 (마스터 지시)
+  if(partsEl) partsEl.style.display = checked ? 'block' : 'none';
 }
 function changeQty(workKey, partName, delta) {
   window._editPartsTouched = true;   // ⭐ v2.79x: 서버 검증이 사용자가 만진 수량을 덮지 않게
@@ -15533,6 +15494,8 @@ async function renderMyDash() {
         <div style="${subStyle}">${myDefectPending.length>0?'재작업 필요 → 클릭해서 처리':'없음'}</div>
       </div>
     </div>
+
+    ${_myTodayPartsHtml(currentUser)}
 
     ${_myMissFixCardHtml()}
 
@@ -20905,7 +20868,7 @@ function calcPartsUsage(allEntries, fromDate, toDate) {
 /* ⭐ v3.10a: 데이터 소스를 재고 차감 기록(stockLog)으로 전환 — 서버가 출고(shipped) 처리 시
    수리건의 parts를 비우기 때문에 entries.parts 기준으로는 출고 후 과거 숫자가 줄어드는 버그가 있었음
    (마스터 보고: 출고 이후 장부 숫자 변동). stockLog는 시리얼 태그와 함께 영구 보존되므로 출고와 무관. */
-function _ledgerDayData(ds) {
+function _ledgerDayData(ds, who) {   // ⭐ v3.35: who = 엔지니어 이름(비우면 전체)
   const parts = {};   // name → { repair, doa, byWorker:{}, rows:[] }
   const slot = n => parts[n] || (parts[n] = { repair: 0, doa: 0, byWorker: {}, rows: [] });
   (stockLog || []).forEach(l => {
@@ -20917,6 +20880,7 @@ function _ledgerDayData(ds) {
     const note = String(l.note || '');
     if(/실사|재고 수정/.test(note)) return;               // ⭐ v3.10b: 실사·수량 수정 기록은 in/out 타입이어도 사용 아님
     const w = String(l.worker || '').split('::')[0];
+    if(who && w !== who) return;
     const t = String(l.date).slice(11, 16);
     const isDoaOut = l.type === 'out' && /^DOA 불량/.test(note);
     const isDoaCancel = l.type === 'in' && /DOA 등록 취소/.test(note);
@@ -20958,59 +20922,93 @@ function _ledgerMonday(ds) {
   d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));   // 일요일이면 지난주 월요일
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
-function _ledgerSet(v) {
+/* ⭐ v3.35: 기간(시작~끝)·엔지니어 선택 — 기본은 이번 주 월~금, 전체 엔지니어 (마스터 요청) */
+function _ledgerYmd(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+function _ledgerRedraw() { const el = document.getElementById('ledger-wrap'); if(el) el.outerHTML = _ledgerCardHtml(); }
+function _ledgerSet(v) {   // 아무 날짜 → 그 주 월~금
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(v || ''))) return;
-  window._ledgerWk = _ledgerMonday(v);
-  const el = document.getElementById('ledger-wrap');
-  if(el) el.outerHTML = _ledgerCardHtml();
+  const mon = _ledgerMonday(v), d = new Date(mon + 'T12:00:00');
+  d.setDate(d.getDate() + 4);
+  window._ledgerFrom = mon; window._ledgerTo = _ledgerYmd(d);
+  _ledgerRedraw();
 }
+function _ledgerRange(f, t) {
+  const ok = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+  f = ok(f) ? f : (window._ledgerFrom || _ledgerMonday(todayStr()));
+  t = ok(t) ? t : (window._ledgerTo || f);
+  if(t < f) [f, t] = [t, f];
+  window._ledgerFrom = f; window._ledgerTo = t;
+  _ledgerRedraw();
+}
+function _ledgerMonth() { const t = todayStr(); _ledgerRange(t.slice(0, 8) + '01', t); }
+function _ledgerWho(v) { window._ledgerW = v || ''; _ledgerRedraw(); }
 function _ledgerNav(d) {
-  const cur = new Date((window._ledgerWk || _ledgerMonday(todayStr())) + 'T12:00:00');
+  const cur = new Date((window._ledgerFrom || _ledgerMonday(todayStr())) + 'T12:00:00');
   cur.setDate(cur.getDate() + d * 7);
-  _ledgerSet(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`);
+  _ledgerSet(_ledgerYmd(cur));
 }
 function _ledgerCardHtml() {
   try {
-    const mon = window._ledgerWk || _ledgerMonday(todayStr());
-    const days = [];
-    for(let i = 0; i < 5; i++) { const d = new Date(mon + 'T12:00:00'); d.setDate(d.getDate() + i); days.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); }
-    const DOW = ['월', '화', '수', '목', '금'];
     const today = todayStr();
+    if(!window._ledgerFrom) { const m = _ledgerMonday(today), d = new Date(m + 'T12:00:00'); d.setDate(d.getDate() + 4); window._ledgerFrom = m; window._ledgerTo = _ledgerYmd(d); }
+    const from = window._ledgerFrom, to = window._ledgerTo || from;
+    const who = window._ledgerW || '';
+    const DOW = ['일', '월', '화', '수', '목', '금', '토'];
     // ⭐ v3.10a: 재고 기록 보관 시작일 — 서버가 오래된 로그를 지우므로 그 전 날짜는 '기록 없음'이 아니라 '보관 범위 밖'
     let covMin = null;
     (stockLog || []).forEach(l => { const d = toLocalDay(l.date); if(d && (!covMin || d < covMin)) covMin = d; });
     const capped = (stockLog || []).length >= 3000;   // 서버가 최근 3000줄만 보관 → 가장 오래된 날은 중간에 잘림
     const gone = ds => !!(covMin && (ds < covMin || (capped && ds <= covMin)));
-    const covStart = (capped && covMin) ? (() => { const d = new Date(covMin + 'T12:00:00'); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })() : covMin;
-    const byDay = days.map(ds => gone(ds) ? {} : _ledgerDayData(ds));   // 보관 범위 밖 날은 합계에서도 제외
-    // 주간 부품 목록 (합계 내림차순)
+    const covStart = (capped && covMin) ? (() => { const d = new Date(covMin + 'T12:00:00'); d.setDate(d.getDate() + 1); return _ledgerYmd(d); })() : covMin;
+    // 기간의 날짜들 — 주말은 기록이 있을 때만 칸을 만든다 (400일 상한)
+    const days = [], byDay = [];
+    for(let d = new Date(from + 'T12:00:00'), i = 0; i < 400; i++, d.setDate(d.getDate() + 1)) {
+      const ds = _ledgerYmd(d);
+      if(ds > to) break;
+      const m = gone(ds) ? {} : _ledgerDayData(ds, who);   // 보관 범위 밖 날은 합계에서도 제외
+      const wkend = d.getDay() === 0 || d.getDay() === 6;
+      if(wkend && !Object.keys(m).length) continue;
+      days.push(ds); byDay.push(m);
+    }
+    const showCols = days.length <= 14;   // 길면 날짜 칸 없이 합계만 (상세는 날짜별로 펼쳐 보임)
+    const dw = ds => DOW[new Date(ds + 'T12:00:00').getDay()];
+    // 부품 목록 (합계 내림차순)
     const nameSet = {};
     byDay.forEach(m => Object.keys(m).forEach(n => { nameSet[n] = (nameSet[n] || 0) + m[n].repair + m[n].doa; }));
     const names = Object.keys(nameSet).sort((a, b) => nameSet[b] - nameSet[a]);
     const tot = names.reduce((s, n) => s + nameSet[n], 0);
     const totDoa = byDay.reduce((s, m) => s + Object.values(m).reduce((x, v) => x + v.doa, 0), 0);
     const navBtn = (lbl, fn, title) => `<button class="btn btn-sm" onclick="${fn}" title="${title}" style="height:30px;padding:0 10px;font-weight:800;">${lbl}</button>`;
-    const wkLabel = `${days[0].slice(5).replace('-', '/')} ~ ${days[4].slice(5).replace('-', '/')}`;
-    const isThisWeek = mon === _ledgerMonday(today);
+    const rangeLabel = `${from.slice(5).replace('-', '/')} ~ ${to.slice(5).replace('-', '/')}`;
+    const thisMon = _ledgerMonday(today);
+    const thisFri = (() => { const d = new Date(thisMon + 'T12:00:00'); d.setDate(d.getDate() + 4); return _ledgerYmd(d); })();
+    const isThisWeek = from === thisMon && to === thisFri;
+    // 엔지니어 목록 = 등록된 작업자 + 기록에 나온 이름
+    const wset = new Set((workers || []).filter(Boolean));
+    (stockLog || []).forEach(l => { const w = String(l.worker || '').split('::')[0]; if(w) wset.add(w); });
+    if(who) wset.add(who);
+    const wOpts = [...wset].sort((a, b) => a.localeCompare(b, 'ko')).map(w => `<option value="${escapeHtml(w)}"${w === who ? ' selected' : ''}>${escapeHtml(w)}</option>`).join('');
+    const inpStyle = 'height:30px;padding:0 8px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-weight:700;';
+    const ncol = (showCols ? days.length : 0) + 2;
     let body;
     if(!names.length) {
-      body = `<div style="padding:18px 4px;color:var(--text3);font-size:13px;">이 주(${wkLabel})에 수리 등록·DOA로 기록된 부품 사용이 없습니다.</div>`;
+      body = `<div style="padding:18px 4px;color:var(--text3);font-size:13px;">${rangeLabel}${who ? ` · ${escapeHtml(who)}` : ''} — 수리 등록·DOA로 기록된 부품 사용이 없습니다.</div>`;
     } else {
-      const rows = names.map(n => {
-        // 주간 엔지니어별 합계 칩
+      const rows = names.map((n, ni) => {
+        // 기간 엔지니어별 합계 칩 (엔지니어 한 명을 골랐으면 생략)
         const wkWorker = {};
         byDay.forEach(m => { const v = m[n]; if(v) Object.entries(v.byWorker).forEach(([w, q]) => wkWorker[w] = (wkWorker[w] || 0) + q); });
-        const chips = Object.entries(wkWorker).sort((a, b) => b[1] - a[1])
+        const chips = who ? '' : Object.entries(wkWorker).sort((a, b) => b[1] - a[1])
           .map(([w, q]) => `<span style="display:inline-block;padding:1px 7px;border-radius:99px;background:var(--surface2);font-size:10.5px;font-weight:700;color:var(--text2);">${escapeHtml(w)} ${q}</span>`).join(' ');
         const wkDoa = byDay.reduce((s, m) => s + (m[n] ? m[n].doa : 0), 0);
-        const cells = days.map((ds, i) => {
+        const cells = !showCols ? '' : days.map((ds, i) => {
           const v = byDay[i][n];
           const q = v ? v.repair + v.doa : 0;
           const future = ds > today;
           const out = future ? '·' : gone(ds) ? '—' : (q || '·');
           return `<td style="text-align:right;${future ? 'color:var(--text3);' : ''}${v && v.doa ? 'color:#dc2626;font-weight:800;' : q ? 'font-weight:700;' : 'color:var(--text3);'}" title="${ds}${gone(ds) ? ' · 재고 기록 보관 범위 밖' : ''}${v && v.doa ? ` · DOA ${v.doa}개 포함` : ''}">${out}</td>`;
         }).join('');
-        // 상세: 요일별 → 건별 (시간·엔지니어·시리얼/DOA·수량)
+        // 상세: 날짜별 → 건별 (시간·엔지니어·시리얼/DOA·수량)
         const detail = days.map((ds, i) => {
           const v = byDay[i][n];
           if(!v || !v.rows.length) return '';
@@ -21018,41 +21016,62 @@ function _ledgerCardHtml() {
             <span style="min-width:34px;">${r.t}</span><span style="min-width:56px;font-weight:700;color:var(--text2);">${escapeHtml(r.worker || '')}</span>
             <span style="flex:1;${r.doa ? 'color:#dc2626;' : ''}">${escapeHtml(r.label)}</span><span style="font-weight:800;">${r.qty}개</span>
           </div>`).join('');
-          return `<div style="margin-bottom:6px;"><div style="font-size:11px;font-weight:800;color:var(--text2);">${ds.slice(5).replace('-', '/')} (${DOW[i]})</div>${lines}</div>`;
+          return `<div style="margin-bottom:6px;"><div style="font-size:11px;font-weight:800;color:var(--text2);">${ds.slice(5).replace('-', '/')} (${dw(ds)})</div>${lines}</div>`;
         }).join('');
-        return `<tr onclick="var d=document.getElementById('lgd-${names.indexOf(n)}'); if(d) d.style.display = d.style.display==='none' ? '' : 'none';" style="cursor:pointer;" title="클릭하면 건별 상세(누가 어느 수리건에)">
-          <td><div style="font-weight:800;font-size:12px;">${escapeHtml(n)}</div><div style="display:flex;gap:3px;flex-wrap:wrap;margin-top:2px;">${chips}</div></td>
+        return `<tr onclick="var d=document.getElementById('lgd-${ni}'); if(d) d.style.display = d.style.display==='none' ? '' : 'none';" style="cursor:pointer;" title="클릭하면 건별 상세(누가 어느 수리건에)">
+          <td><div style="font-weight:800;font-size:12px;">${escapeHtml(n)}</div>${chips ? `<div style="display:flex;gap:3px;flex-wrap:wrap;margin-top:2px;">${chips}</div>` : ''}</td>
           ${cells}
           <td style="text-align:right;font-weight:900;">${nameSet[n]}${wkDoa ? `<div style="font-size:10px;color:#dc2626;font-weight:800;">DOA ${wkDoa}</div>` : ''}</td>
         </tr>
-        <tr id="lgd-${names.indexOf(n)}" style="display:none;"><td colspan="7" style="padding:6px 10px;background:var(--surface2);">${detail || '<span style="font-size:11px;color:var(--text3);">상세 없음</span>'}</td></tr>`;
+        <tr id="lgd-${ni}" style="display:none;"><td colspan="${ncol}" style="padding:6px 10px;background:var(--surface2);">${detail || '<span style="font-size:11px;color:var(--text3);">상세 없음</span>'}</td></tr>`;
       }).join('');
-      // 요일별 합계 행
-      const dayTotals = days.map((ds, i) => {
+      // 날짜별 합계 행
+      const dayTotals = !showCols ? '' : days.map((ds, i) => {
         const s = Object.values(byDay[i]).reduce((x, v) => x + v.repair + v.doa, 0);
         return `<td style="text-align:right;font-weight:800;${ds > today ? 'color:var(--text3);' : ''}">${ds > today ? '·' : gone(ds) ? '—' : s}</td>`;
       }).join('');
-      body = `<div class="table-wrap" style="overflow-x:auto;"><table style="font-size:12px;min-width:560px;">
-        <thead><tr><th style="min-width:150px;">부품명</th>${days.map((ds, i) => `<th style="text-align:right;">${ds.slice(8)}일<div style="font-size:9.5px;color:var(--text3);font-weight:400;">${DOW[i]}</div></th>`).join('')}<th style="text-align:right;">주 합계</th></tr></thead>
+      body = `<div class="table-wrap" style="overflow-x:auto;"><table style="font-size:12px;${showCols ? `min-width:${Math.max(360, 200 + days.length * 56)}px;` : ''}">
+        <thead><tr><th style="min-width:150px;">부품명</th>${showCols ? days.map(ds => `<th style="text-align:right;">${ds.slice(8)}일<div style="font-size:9.5px;color:var(--text3);font-weight:400;">${dw(ds)}</div></th>`).join('') : ''}<th style="text-align:right;">기간 합계</th></tr></thead>
         <tbody>${rows}
-          <tr style="border-top:2px solid var(--border);"><td style="font-weight:800;">일별 합계</td>${dayTotals}<td style="text-align:right;font-weight:900;color:var(--accent);">${tot}</td></tr>
+          <tr style="border-top:2px solid var(--border);"><td style="font-weight:800;">${showCols ? '일별 합계' : '합계'}</td>${dayTotals}<td style="text-align:right;font-weight:900;color:var(--accent);">${tot}</td></tr>
         </tbody>
-      </table></div>`;
+      </table></div>${showCols ? '' : '<div style="font-size:11px;color:var(--text3);margin-top:6px;">기간이 2주를 넘어 날짜 칸은 접었어요 — 부품 줄을 클릭하면 날짜별 건별 상세가 보여요.</div>'}`;
     }
+    const anyGone = gone(from);
     return `<div id="ledger-wrap"><div class="card" style="margin-bottom:20px;border:1px solid var(--accent);">
-      <div class="card-title" style="margin-bottom:6px;">📒 주간 사용량 — 불출 장부 대조 <span style="font-size:10px;color:var(--text3);font-weight:400;text-transform:none;">· 월~금</span></div>
-      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;line-height:1.6;"><b>재고 차감 기록 기준</b>이에요 — 수리 등록 때 자동으로 빠진 부품과 DOA 등록(되돌린 건 제외)을 그대로 세니까, <b>출고를 해도 숫자가 변하지 않아요</b>. 부품이 들어온 입고나 실사 수량 맞춤은 안 섞여요. 부품 줄을 클릭하면 누가 어느 수리건에 썼는지 건별로 보여요. <b>장부에는 있는데 여기 없는 수량</b> = 수리에 안 태운 소모(파손·테스트 등) — 반복되면 그 부품·사람을 확인해보세요.${gone(days[0]) ? ` <span style="color:#d97706;font-weight:700;">— 표시가 있는 날은 재고 기록 보관 범위(${covStart}~) 밖이라 보여줄 수 없어요.</span>` : ''}</div>
+      <div class="card-title" style="margin-bottom:6px;">📒 사용량 — 불출 장부 대조 <span style="font-size:10px;color:var(--text3);font-weight:400;text-transform:none;">· 기간·엔지니어 선택</span></div>
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px;line-height:1.6;"><b>재고 차감 기록 기준</b>이에요 — 수리 등록 때 자동으로 빠진 부품과 DOA 등록(되돌린 건 제외)을 그대로 세니까, <b>출고를 해도 숫자가 변하지 않아요</b>. 부품이 들어온 입고나 실사 수량 맞춤은 안 섞여요. 부품 줄을 클릭하면 누가 어느 수리건에 썼는지 건별로 보여요. <b>장부에는 있는데 여기 없는 수량</b> = 수리에 안 태운 소모(파손·테스트 등) — 반복되면 그 부품·사람을 확인해보세요.${anyGone ? ` <span style="color:#d97706;font-weight:700;">— 재고 기록 보관 범위(${covStart}~) 밖의 날은 보여줄 수 없어요(— 표시).</span>` : ''}</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
-        ${navBtn('◀ 전주', '_ledgerNav(-1)', '지난주')}
-        <input type="date" value="${mon}" max="${today}" onchange="_ledgerSet(this.value)" onclick="try{this.showPicker()}catch(e){}" title="아무 날짜나 고르면 그 주(월~금)로 이동" style="height:30px;padding:0 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-weight:700;">
-        <span style="font-size:12.5px;color:var(--text);font-weight:800;">${wkLabel}</span>
-        ${isThisWeek ? '<span style="font-size:10.5px;color:var(--accent);font-weight:800;">이번 주</span>' : navBtn('▶ 다음주', '_ledgerNav(1)', '다음주')}
-        ${isThisWeek ? '' : navBtn('이번 주', `_ledgerSet('${today}')`, '이번 주로')}
-        <span style="margin-left:auto;font-size:12px;color:var(--text2);">주 합계 <b style="font-size:15px;color:var(--text);">${tot}</b>개${totDoa ? ` · DOA ${totDoa}개` : ''}</span>
+        ${navBtn('◀ 전주', '_ledgerNav(-1)', '지난주 월~금')}
+        <input type="date" value="${from}" max="${today}" onchange="_ledgerRange(this.value, null)" onclick="try{this.showPicker()}catch(e){}" title="시작일" style="${inpStyle}">
+        <span style="color:var(--text3);">~</span>
+        <input type="date" value="${to}" onchange="_ledgerRange(null, this.value)" onclick="try{this.showPicker()}catch(e){}" title="끝일" style="${inpStyle}">
+        ${isThisWeek ? '<span style="font-size:10.5px;color:var(--accent);font-weight:800;">이번 주</span>' : navBtn('▶ 다음주', '_ledgerNav(1)', '다음주 월~금') + navBtn('이번 주', `_ledgerSet('${today}')`, '이번 주로')}
+        ${navBtn('이번 달', '_ledgerMonth()', '이번 달 1일 ~ 오늘')}
+        <select onchange="_ledgerWho(this.value)" title="엔지니어 선택" style="${inpStyle}"><option value="">👥 전체 엔지니어</option>${wOpts}</select>
+        <span style="margin-left:auto;font-size:12px;color:var(--text2);">기간 합계 <b style="font-size:15px;color:var(--text);">${tot}</b>개${totDoa ? ` · DOA ${totDoa}개` : ''}</span>
       </div>
       ${body}
     </div></div>`;
   } catch(e) { return '<div id="ledger-wrap"></div>'; }
+}
+/* ⭐ v3.35: 내 대시보드 — 오늘 내가 쓴 부품 (재고 차감 기록 기준, 장부 대조 카드와 같은 집계) */
+function _myTodayPartsHtml(name) {
+  try {
+    const m = _ledgerDayData(todayStr(), name);
+    const names = Object.keys(m).sort((a, b) => (m[b].repair + m[b].doa) - (m[a].repair + m[a].doa));
+    const tot = names.reduce((s, n) => s + m[n].repair + m[n].doa, 0);
+    const rows = names.map(n => {
+      const v = m[n], q = v.repair + v.doa;
+      const lines = v.rows.slice().sort((a, b) => a.t.localeCompare(b.t)).map(r => `<span style="white-space:nowrap;${r.doa ? 'color:#dc2626;' : ''}">${r.t} ${escapeHtml(r.label)}${r.qty !== 1 ? ` ×${r.qty}` : ''}</span>`).join(' · ');
+      return `<tr><td style="font-weight:700;">${escapeHtml(n)}<div style="font-size:10.5px;color:var(--text3);font-weight:400;margin-top:2px;line-height:1.5;">${lines}</div></td>
+        <td style="text-align:right;font-weight:900;white-space:nowrap;${v.doa ? 'color:#dc2626;' : ''}">${q}개${v.doa ? `<div style="font-size:10px;font-weight:800;">DOA ${v.doa}</div>` : ''}</td></tr>`;
+    }).join('');
+    return `<div class="card" style="margin-bottom:20px;">
+      <div class="card-title" style="margin-bottom:8px;">🧩 오늘 내가 쓴 부품 <span style="font-size:11px;color:var(--text3);font-weight:400;text-transform:none;">· 수리 등록 자동 차감 + DOA · 합계 <b style="color:var(--text);">${tot}</b>개</span></div>
+      ${names.length ? `<div class="table-wrap"><table style="font-size:12.5px;"><tbody>${rows}</tbody></table></div>` : '<div style="font-size:12.5px;color:var(--text3);padding:4px 2px;">오늘 등록된 부품 사용이 아직 없어요.</div>'}
+    </div>`;
+  } catch(e) { return ''; }
 }
 function renderPartsUsage() {
   const el = document.getElementById('usage-content');
