@@ -15870,6 +15870,8 @@ function renderEditParts(ws) {
   //   기본 1로 되살리면 재수정 저장만 눌러도 몰래 1개 재차감되므로 0으로 표시.
   //   스냅샷이 아예 없는 구형 기록은 기존대로 기본 수량 유지.
   const _hasSnapshot = Object.keys(savedParts).length > 0;
+  // v3.36a: 수정에서 '새로 체크한 작업'의 부품은 기본 수량 — 0은 원래 있던 작업에만 (재차감 방지 규칙의 대상)
+  const _origWorks = new Set(origEntry ? parseWorks(origEntry.works) : []);
   const assign = {};               // { workKey: [ {name, qty} ] }
   // ⭐ v2.70g: 같은 부품이 여러 작업 매핑에 겹칠 때의 '수량 뻥튀기' 근본 차단.
   //   저장은 부품명당 총합 1개인데, 기존엔 그 총합을 겹치는 작업 섹션마다 중복 시드하고
@@ -15896,7 +15898,7 @@ function renderEditParts(ws) {
       // ⭐ 명시적 0 저장 지원: 저장값이 있으면(0 포함) 그대로, 없으면 스냅샷 유무로 0/기본값 결정
       const qty = (sv !== undefined && sv !== null && sv !== '' && Number.isFinite(svNum))
         ? svNum
-        : (_hasSnapshot ? 0 : (Number(p.qty) || 1));
+        : ((_hasSnapshot && _origWorks.has(k)) ? 0 : (Number(p.qty) || 1));
       assign[k].push({ name: p.name, qty });
     });
   });
@@ -16058,7 +16060,18 @@ function syncEtcRuleEdit() {
 function updateEditPP() {
   try { syncEtcRuleEdit(); } catch(e) {}
   const cs = [...document.querySelectorAll('#edit-work-checks input:checked')].map(c=>c.value);
-  document.getElementById('edit-price-preview').textContent = cs.length ? `공임비 합계: ${fmt(cs.reduce((s,k)=>s+WORKS[k].price,0))}원` : '';
+  const _sum = cs.reduce((s,k)=>s+WORKS[k].price,0);
+  let _pv = cs.length ? `공임비 합계: ${fmt(_sum)}원` : '';
+  // v3.36a: 6개월 무상이 붙는 재인입 건이면 저장될 청구액을 미리 보여줌 (저장 때 saveEdit가 같은 규칙으로 계산)
+  try {
+    const _oe = entries.find(x => String(x.id) === String(editTargetId)), _r = parseReentry(_oe);
+    const _rs = document.querySelector('input[name="edit-reentry-rs"]:checked')?.value || (_r && _r.rs);
+    if(cs.length && _r && WARRANTY_REASONS.has(_rs)) {
+      const _wi = warrantyInfo({ id: editTargetId, serial: _oe.serial, works: JSON.stringify(cs), total: _sum, note: '', date: _oe.date, reentry: JSON.stringify({ ..._r, rs: _rs }) });
+      if(_wi && !_wi.unknown && _wi.freeAmt > 0) _pv += ` → 청구 ${fmt(_sum - _wi.freeAmt)}원 (${_wi.overlap.map(k => WORKS[k]?.tag || k).join('·')} 공임 ${fmt(_wi.freeAmt)}원 6개월 무상)`;
+    }
+  } catch(e) {}
+  document.getElementById('edit-price-preview').textContent = _pv;
   renderEditParts(cs);
 }
 async function saveEdit() {
@@ -16102,7 +16115,12 @@ async function saveEdit() {
         return;
       }
     }
-    const total = origTotal
+    // v3.36a: 무상 태그가 있으면 원공임 기준으로 다시 계산 (할인된 total에 더하면 태그의 원공임과 어긋남)
+    const _tagM = note.match(FREE_TAG_RE) || note.match(PART_FREE_TAG_RE);
+    const _tagFull = !!note.match(FREE_TAG_RE);
+    const _origFull = _tagM ? (Number(_tagM[1].replace(/,/g, '')) || 0) : origTotal;
+    note = note.replace(FREE_TAG_RE, '').replace(PART_FREE_TAG_RE, '').trim();
+    let total = _origFull
       + added.reduce((s,k) => s + (WORKS[k]?.price||0), 0)
       - removed.reduce((s,k) => s + (WORKS[k]?.price||0), 0);
     // 수정된 부품 수량 계산 — ⭐ v3.25: 기종 입력칸 기준 (기종을 고쳤으면 새 기종 부품)
@@ -16173,6 +16191,20 @@ async function saveEdit() {
       const _reSub = _rsSel === 'defect' ? (document.querySelector('input[name="edit-reentry-sub"]:checked')?.value || '') : '';
       _newReJson = JSON.stringify({ v: _origRe.v, rs: _rsSel, prev: _origRe.prev || '', memo: _reMemo, ...(_reSub ? { sub: _reSub } : {}) });
       _reentryParam = { reentryJson: _newReJson };
+    }
+    // v3.36a: 6개월 무상(반복 수리·다른 부위 고장)은 수정 저장 때도 다시 적용 — 작업을 더하거나 빼도 겹치는 항목만 무상
+    {
+      const _rsNow = _newReJson ? JSON.parse(_newReJson).rs : '';
+      const _syn = { id: editTargetId, serial: newSerial, works: JSON.stringify(works), total, note, date: origEntry?.date, reentry: _newReJson };
+      const _wi = WARRANTY_REASONS.has(_rsNow) ? warrantyInfo(_syn) : null;
+      if(_wi && !_wi.unknown && _wi.freeAmt > 0) {
+        const _fc = freeToggleCalc(_syn); total = _fc.newTotal; note = _fc.newNote;
+      } else if(_tagM) {
+        // 사람이 직접 건 무상(규칙 밖)은 유지 — 원공임만 새 작업 기준으로
+        const _cut = _tagFull ? total : Math.max(0, _origFull - origTotal);
+        note = `${note} [${_tagFull ? '무상 재작업' : '부분 무상'}·원공임 ${fmt(total)}원]`.trim();
+        total = Math.max(0, total - _cut);
+      }
     }
     // ⭐ v2.57g: 수정은 서버 저장 확인 후 성공 표시 (실패를 숨기지 않음 → 새로고침 원복 방지)
     notifyPersist('저장 중...');
