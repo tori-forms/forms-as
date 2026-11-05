@@ -21909,6 +21909,11 @@ async function applyStockAudit() {
   //   먼저 서버 재고를 받아온 뒤 화면을 갱신하고, 숫자 재확인 후 다시 누르게 함.
   //   v3.24b: 3분 기준 → 반영 직전에 항상 서버 최신을 받고(입력값 유지), 그 장부 기준으로 차이를 계산
   if(!isAdmin) { notify('관리자만 가능합니다.','error'); return; }
+  // ⭐ v3.37b: 이 기기에 밀린 재고 전송이 있으면 먼저 보냄 — 실사 뒤에 늦게 반영되면 실물에 이미 빠진 수량이 또 빠짐
+  if(_stockQAll().length) { try { await _stockQFlush(); } catch(e) {} }
+  // 수리 수정·삭제 복구 대기 표시도 나중에 재고 전송을 만들 수 있어 함께 확인
+  const _qN = _stockQAll().length + _pendQAll().length + _delQAll().length;
+  if(_qN) { notify(`이 기기에 아직 서버에 안 간 재고 전송·정산 대기 ${_qN}건이 있어요 — 잠시 후 다시 [실사 반영]을 눌러주세요. (실사 뒤에 반영되면 이중 차감)`, 'error'); return; }
   notify('서버 최신 재고 확인 중…');
   let _fresh = false;
   try { _fresh = await ensureFreshStock(0); } catch(e) {}
@@ -21930,13 +21935,20 @@ async function applyStockAudit() {
   const overWarn = withOver.length ? `\n\n⚠ 과차감 의심이 남은 부품 ${withOver.length}개가 포함돼 있어요 (${withOver.map(c=>c.p.name).slice(0,3).join(', ')}${withOver.length>3?' 외':''}). 실사 반영 후에 해당 수리건 수량을 정정하면 그만큼 재고가 다시 늘어나니, 가능하면 정정을 먼저 하세요.` : '';
   const _lines = changes.slice(0, 25).map(c => `· ${c.p.name}: 전산 ${c.p.qty} → 실사 ${c.real} (${c.diff > 0 ? '+' : ''}${c.diff})`).join('\n');
   if(!confirm(`${changes.length}개 부품의 재고를 실사 수량으로 조정합니다. (전산 = 방금 받은 서버 최신)\n\n${_lines}${changes.length > 25 ? '\n…' : ''}\n\n진행할까요?${overWarn}`)) return;
+  const conflicts = [], failed = [];
   for(const c of changes) {
     const idx = stock.findIndex(x => x.id === c.p.id);
     if(idx < 0) continue;
     // ⭐ v2.68: set 원자 연산 — 실사 수량으로 확정 (서버 시트 기준 이력 기록)
-    try { await adjustStockOp({ idx, set: c.real, type: c.diff > 0 ? 'in' : 'out', note: '재고 실사 조정' }); } catch(e) {}
+    // ⭐ v3.37b: expect = 방금 받은 서버 수량 — 그 사이 변동이 있으면 서버가 덮어쓰지 않고 거절(conflict)
+    let r = null;
+    try { r = await adjustStockOp({ idx, set: c.real, expect: c.p.qty, type: c.diff > 0 ? 'in' : 'out', note: '재고 실사 조정' }); } catch(e) {}
+    if(r && r.error === 'conflict') conflicts.push(`${c.p.name} (확인 ${c.p.qty} → 지금 ${r.qty})`);
+    else if(!(r && r.ok)) failed.push(c.p.name);
   }
-  notify(`실사 반영 완료: ${changes.length}개 부품 조정됨`);
+  const nOk = changes.length - conflicts.length - failed.length;
+  if(conflicts.length || failed.length) notifyPersist(`실사 반영 ${nOk}개 완료${conflicts.length ? ` · ⚠ ${conflicts.length}개는 그 사이 재고가 바뀌어 반영 안 함: ${conflicts.join(', ')} — 숫자를 다시 확인하고 [실사 반영]을 다시 눌러주세요` : ''}${failed.length ? ` · ${failed.length}개 서버 응답 없음(${failed.join(', ')}) — 재고 이력 확인 후 다시 눌러주세요` : ''}`, 'error');
+  else notify(`실사 반영 완료: ${changes.length}개 부품 조정됨`);
   renderStockAudit();
 }
 
@@ -22425,11 +22437,12 @@ async function adjustStockOp(o) {   // o: { idx, delta? | set?, type, note }
   const sp = stock[o.idx]; if(!sp) return null;
   const logId = o.logId || ('l' + Date.now() + '_' + (Math.random() * 1e6 | 0));   // ⭐ v3.25: 고정 전표 번호 우선
   const payload = { action: 'adjustStock', logId, partId: sp.id, partName: sp.name,
-    ...(o.set !== undefined ? { set: o.set } : { delta: o.delta }),
+    ...(o.set !== undefined ? { set: o.set, ...(o.expect !== undefined ? { expect: o.expect } : {}) } : { delta: o.delta }),
     type: o.type || '', note: o.note || '', worker: currentUser || '', date: new Date().toISOString() };
   // ⭐ v2.74: 전송 전 내구 큐 기록 (delta 연산만) — 실패·탭 닫힘에도 유실 없이 자동 재전송
   if(o.set === undefined) _stockQPush([{ logId, partId: sp.id, partName: sp.name, delta: o.delta, type: o.type || '', note: o.note || '' }]);
   let res = await gasCall(payload);
+  if(res && res.error === 'conflict') return res;   // ⭐ v3.37b: 실사 중 재고 변동 — 재시도하지 않고 호출자가 안내
   // ⭐ v2.70: 서버가 락을 못 잡으면 실행하지 않고 busy-lock을 돌려준다(백엔드 v2.70과 세트).
   //   같은 logId 재전송은 멱등이라 중복 위험 없음 — 2.5초 뒤 1회 재시도, 그래도 실패면 사용자에게 알림.
   if(!res || !res.ok) {
