@@ -20568,7 +20568,8 @@ function _doaLogs() {
 function _partLots(part) {
   const pid = String(part.id); const pname = String(part.name);
   const mine = (stockLog || []).filter(l => String(l.partId) === pid || String(l.partName) === pname);
-  const lots = mine.filter(l => l.type === 'in' && !/복구|취소|환입/.test(String(l.note || '')))
+  // ⭐ v3.37d: 입고분 = '입고'로 시작하는 기록만 — 실사 증가(재고 실사 조정, type in)가 그날짜 가짜 입고분으로 잡히던 것 차단
+  const lots = mine.filter(l => l.type === 'in' && /^입고/.test(String(l.note || '')))
     // ⭐ v2.91: 입고 기록에 "(YYYY-MM-DD 입고분)" 태그가 있으면 그 날짜를 로트로 (지난 날짜 입고를 뒤늦게 기록해도 정확)
     .map(l => { const m = String(l.note || '').match(/\((\d{4}-\d{2}-\d{2}) 입고분\)/); return { date: m ? m[1] : String(l.date).slice(0,10), qty: Number(l.qty) || 0 }; })
     .sort((a,b) => a.date.localeCompare(b.date));
