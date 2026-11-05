@@ -21679,8 +21679,11 @@ async function applyReceive() {
   const btn = document.getElementById('rcv-apply-btn');
   if(btn) { btn.disabled = true; btn.textContent = '반영 중...'; }
   try {
-    await adjustStockBatchOps(ops.map(({ _label, ...o }) => o));
-    notify(`📥 ${date} 입고분 ${ops.length}개 부품 반영 완료`);
+    const res = await adjustStockBatchOps(ops.map(({ _label, ...o }) => o));
+    // ⭐ v3.37a: 일부만 반영돼도 '완료'로 떠서 재입력 → 이중 입고되던 것 — 미확정분은 같은 전표로 자동 재전송되니 다시 넣지 말라고 안내
+    const nPend = ops.length - (res || []).filter(r => r && (r.ok || r.error === 'part not found')).length;   // 부품 없음은 큐에서 빠짐 — 따로 실패 안내됨
+    if(nPend > 0) notifyPersist(`⏳ ${date} 입고분 ${ops.length - nPend}개 반영 · ${nPend}개는 서버 확인 대기 — 같은 전표로 자동 재전송돼요. ⚠ 다시 입고 입력하지 마세요 (이중 입고).`);
+    else notify(`📥 ${date} 입고분 ${ops.length}개 부품 반영 완료`);
   } catch(e) { notify('⚠ 입고 반영 중 오류 — 재고 이력을 확인하세요.', 'error'); }
   if(btn) { btn.disabled = false; btn.textContent = '📥 입고 반영'; }
   renderReceive();
@@ -22400,7 +22403,7 @@ async function _delQRecover() {
     let exists = null;
     try {
       const r = await gasCall({ action: 'getEntryDetail', id: m.id });
-      if(r && r.ok !== undefined) exists = !!r.detail;
+      if(r && r.ok === true) exists = !!r.detail;   // ⭐ v3.37a: 오류 응답(ok:false·detail 없음)을 '삭제됨'으로 오판해 남아 있는 수리건 부품까지 환입하던 것 차단
     } catch(e) {}
     if(exists === null) continue;   // 확인 실패 — 다음 부팅에서 재시도
     if(!exists) {
@@ -22513,7 +22516,10 @@ async function adjustStockBatchOps(ops) {   // ops: [{idx, delta?|set?, type, no
           note: `${o.note ? o.note + ' · ' : ''}재고 ${prev} → ${sp.qty}`, date: new Date().toISOString(), worker: currentUser || '' });
       }
     } else if(r && !r.ok) {
-      notify(`재고 반영 실패: ${o.note || '재고 조정'} (${r.error || '서버 오류'}) — 재고 이력에서 확인 후 다시 시도하세요.`, 'error');
+      // ⭐ v3.37a: 'part not found' 외 실패는 큐에 남아 같은 전표로 자동 재전송 — "다시 시도" 안내가 재입력(이중 반영)을 부르던 것
+      notify(r.error === 'part not found'
+        ? `재고 반영 실패: ${o.note || '재고 조정'} — 부품을 찾지 못했어요. 재고 목록을 확인하세요.`
+        : `⏳ 재고 반영 지연: ${o.note || '재고 조정'} (${r.error || '서버 오류'}) — 자동으로 재전송됩니다. ⚠ 다시 입력하지 마세요.`, 'error');
     }
   });
   window._stockDirtyUntil = Date.now() + 120000;
@@ -22709,42 +22715,6 @@ async function applyStockDelta(oldParts, newParts, model, serial, oldModel, logK
   if(changed) { try { renderStock(); } catch {} }
 }
 
-// ⭐ 수리 삭제 시 부품 재고 원복 — 그 수리에 쓴 부품을 재고에 다시 더하고 '복구' 입고 기록
-async function restoreStockForEntry(e) {
-  if(!e || !stock.length) return 0;
-  const toRestore = {};
-  const partsData = (e.parts && typeof e.parts === 'object') ? e.parts : {};
-  if(Object.keys(partsData).length > 0) {
-    Object.entries(partsData).forEach(([name, qty]) => { if(qty > 0) toRestore[name] = (toRestore[name]||0) + Number(qty); });
-  } else {
-    (e.works||[]).forEach(k => {
-      getWorkParts(k, e.model||'').forEach(p => {
-        toRestore[p.name] = (toRestore[p.name]||0) + p.qty;
-      });
-    });
-  }
-  let restored = 0;
-  const curModel = normalizeModel(e.model || '');   // ⭐ v2.70c: 기종 정규화
-  const opList = [];   // ⭐ v2.72: 배치 수집
-  for(const [partName, qty] of Object.entries(toRestore)) {
-    if(qty <= 0) continue;
-    // ⭐ 차감(deductStock)과 동일한 기종 우선 매칭: (1)해당기종 →(2)공용 →(3)이름만
-    const nm = partName.trim().toLowerCase();
-    let idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && partsModelKey(p.model||'공용')===curModel);
-    if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm && (p.model||'공용')==='공용');
-    if(idx < 0) idx = stock.findIndex(p => p.name.trim().toLowerCase()===nm);
-    if(idx < 0) continue;
-    opList.push({ idx, delta: qty, type: 'in', note: '수리 삭제 복구' + (e.serial ? ` [${String(e.serial).toUpperCase()}]` : ''), _q: qty });
-  }
-  if(opList.length) {
-    // ⭐ v2.72: 한 요청·한 락으로 전 부품 복구
-    try {
-      const results = await adjustStockBatchOps(opList);
-      results.forEach((r, i) => { if(r && r.ok && opList[i]) restored += opList[i]._q; });
-    } catch {}
-  }
-  return restored;
-}
 
 // 그 수리에 사용된 부품 개수 합 (복구 확인 메시지용)
 // ⭐ v2.67b: 수정 모달 품질 특이 체크박스 렌더 (저장된 ⚑ 키 반영)
