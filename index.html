@@ -2445,7 +2445,7 @@ const DAYS = ['일','월','화','수','목','금','토'];
 let entries = [], workers = [], busy = false;
 let kpiMap = {};
 let holidayCache = {};
-let stock = [], stockLog = [], docs = [];
+let stock = [], stockLog = [], stockLots = [], docs = [];
 let exchangeList = []; // 교품 처리 목록
 let inspReqList = [];  // ⭐ v3.23: 고객사 검사요청 목록
 let tierMap = {}; // { 이름: 'T1'|'T2'|'T3'|'T4' }
@@ -3296,6 +3296,7 @@ async function syncData(silent=false, force=false, _snapData=null) {
     } else {
       stock = data.stock || [];
       stockLog = data.stockLog || [];
+      if(Array.isArray(data.stockLots)) stockLots = data.stockLots;   // ⭐ v3.38: 3000행 밖 입고 기록 (DOA 입고분·선입선출)
       if(_plMs) window._stockAppliedMs = Math.max(window._stockAppliedMs || 0, _plMs);
       if(_srcFresh) { window._stockFreshCheckedAt = Date.now(); }   // ⭐ 서버 직행 확인 시각 (신선도 배지)
       _applyInternalOverrides();   // ⭐ v2.69b: 10분 내 변경한 내부전용 체크가 낡은 페이로드에 덮이지 않게
@@ -20560,16 +20561,17 @@ function switchStockTab(tab) {
 function _doaLogs() {
   return (stockLog || []).filter(l => l.type === 'out' && /^DOA/.test(String(l.note || '')));
 }
-/* ⭐ v2.79q: 입고분(로트) 릴레이식 기본값.
-   FIFO로 자동 추정해 "때려버리면" 실제와 어긋날 수 있어(예: 8/26 대량 입고 후 소량 입고),
-   기본값은 그 부품의 **직전 DOA 등록과 같은 입고분**으로 이어 달고(릴레이),
-   새 입고분 박스를 개봉했을 때만 드롭다운에서 한 번 바꿔주면 이후 등록이 그 입고분으로 이어진다.
-   직전 등록이 없을 때만 FIFO 소진 위치를 참고 추정으로 제시. */
+/* ⭐ v3.38: 입고분(로트) = 선입선출 '지금 사용 중' 입고분을 기본값으로.
+   선입선출이면 남은 재고는 항상 최신 입고분들에 있다 → 최신 입고분부터 거꾸로 현재고만큼 채우면
+   각 입고분의 남은 수량과 지금 뜯어 쓰는 입고분이 나온다 (출고 기록 없이 입고 기록 + 현재고만으로).
+   입고 기록은 최근 이력(stockLog 3000행) + 서버가 따로 주는 그 밖의 입고(stockLots)를 합침.
+   현재고가 입고 기록 합보다 많으면 그 차이 = 입고 기록 이전부터 있던 재고(선입선출상 이것부터 씀) → 직전 DOA 입고분을 따라감. */
 function _partLots(part) {
   const pid = String(part.id); const pname = String(part.name);
-  const mine = (stockLog || []).filter(l => String(l.partId) === pid || String(l.partName) === pname);
-  // ⭐ v3.37d: 입고분 = '입고'로 시작하는 기록만 — 실사 증가(재고 실사 조정, type in)가 그날짜 가짜 입고분으로 잡히던 것 차단
-  const lots = mine.filter(l => l.type === 'in' && /^입고/.test(String(l.note || '')))
+  const seen = new Set();
+  const lots = (stockLots || []).concat(stockLog || [])
+    .filter(l => (String(l.partId) === pid || String(l.partName) === pname) && l.type === 'in' && /^입고/.test(String(l.note || '')))
+    .filter(l => { const k = String(l.logId); if(seen.has(k)) return false; seen.add(k); return true; })
     // ⭐ v2.91: 입고 기록에 "(YYYY-MM-DD 입고분)" 태그가 있으면 그 날짜를 로트로 (지난 날짜 입고를 뒤늦게 기록해도 정확)
     .map(l => { const m = String(l.note || '').match(/\((\d{4}-\d{2}-\d{2}) 입고분\)/); return { date: m ? m[1] : String(l.date).slice(0,10), qty: Number(l.qty) || 0 }; })
     .sort((a,b) => a.date.localeCompare(b.date));
@@ -20579,20 +20581,13 @@ function _partLots(part) {
     const last = merged[merged.length-1];
     if(last && last.date === l.date) last.qty += l.qty; else merged.push({...l});
   });
-  const consumed = mine.filter(l => l.type === 'out').reduce((s,l) => s + (Number(l.qty)||0), 0);
-  return { lots: merged, consumed };
+  let left = Math.max(0, Number(part.qty) || 0);
+  for(let i = merged.length - 1; i >= 0; i--) { merged[i].left = Math.min(merged[i].qty, left); left -= merged[i].left; }
+  // 사용 중 = 남은 게 있는 가장 오래된 입고분 (재고 0 이하면 최신 입고분). 기록 이전 재고가 남았으면 null
+  const open = left > 0 ? null : (merged.find(l => l.left > 0) || merged[merged.length-1] || null);
+  return { lots: merged, legacy: left, open };
 }
-function _fifoLotEstimate(part) {
-  const { lots, consumed } = _partLots(part);
-  if(!lots.length) return null;
-  let cum = 0;
-  for(const l of lots) {
-    cum += l.qty;
-    if(consumed < cum) return l;   // 소진 위치가 이 로트 안
-  }
-  return lots[lots.length-1];       // 전부 소진 계산이면 최신 로트로
-}
-/* ⭐ v2.79q: 이 부품의 직전 DOA 등록이 어느 입고분이었는지 (릴레이 기준점) */
+/* ⭐ v2.79q: 이 부품의 직전 DOA 등록이 어느 입고분이었는지 (입고 기록으로 못 정할 때의 기본값) */
 function _doaRelayLot(sp) {
   const logs = _doaLogs()
     .filter(l => String(l.partId) === String(sp.id) || String(l.partName) === String(sp.name))
@@ -20608,34 +20603,34 @@ function updateDoaLotSel() {
   const idx = Number(document.getElementById('doa-part')?.value);
   const sp = stock[idx];
   if(!sel || !sp) return;
-  const { lots } = _partLots(sp);
-  const relay = _doaRelayLot(sp);                       // ⭐ 릴레이: 직전 DOA 등록의 입고분
-  const est = relay ? null : _fifoLotEstimate(sp);      // 직전 등록 없을 때만 FIFO 참고 추정
-  const pick = relay || (est && est.date) || '';
+  const { lots, legacy, open } = _partLots(sp);
+  const relay = open ? null : _doaRelayLot(sp);         // 선입선출로 못 정할 때만 직전 DOA 입고분
+  const pick = open ? open.date : (relay || '');
   const listDates = lots.map(l => l.date);
   let opts = lots.slice().reverse().map(l => {
     const isPick = l.date === pick;
-    const tag = isPick ? (relay ? ' — 직전 등록에 이어짐' : ' — FIFO 참고 추정') : '';
-    return `<option value="${l.date}" ${isPick ? 'selected' : ''}>${l.date} 입고분 (${fmt(l.qty)}개)${tag}</option>`;
+    const tag = isPick ? (open ? ' — 지금 사용 중(선입선출)' : ' — 직전 등록에 이어짐') : '';
+    return `<option value="${l.date}" ${isPick ? 'selected' : ''}>${l.date} 입고분 (${fmt(l.qty)}개 중 ${fmt(l.left)}개 남음)${tag}</option>`;
   }).join('');
-  // 직전 등록의 입고분이 입고 로그 목록에 없어도(로그 보존 범위 밖) 그대로 이어 달 수 있게 옵션 추가
+  // 직전 등록의 입고분이 입고 기록에 없어도(전산 이전 입고 등) 그대로 이어 달 수 있게 옵션 추가
   if(relay && !listDates.includes(relay)) {
     opts = `<option value="${relay}" selected>${relay} 입고분 — 직전 등록에 이어짐</option>` + opts;
   }
-  // ⭐ v2.85b: 입고 이력이 없어도(로그 보존 범위 밖·구매 오래됨) 입고분 날짜를 직접 넣을 수 있게
-  // ⭐ v2.87e: '모름'도 직전 기록이 있으면 그 입고분을 따라감 — '-'(미지정)로 남는 걸 최소화
+  // ⭐ v2.85b: 입고 이력이 없어도 입고분 날짜를 직접 넣을 수 있게 / v2.87e: '모름'도 직전 기록을 따라감
   const unknownOpt = relay
     ? `<option value="${relay}">입고분 모름 — 직전 기록(${relay}) 따라감</option>`
     : `<option value="">입고분 모름/기록 안 함</option>`;
   sel.innerHTML = (opts || '') + unknownOpt + `<option value="__custom">📅 입고 날짜 직접 입력…</option>`;
-  // ⭐ v2.85e: 입고 이력이 전혀 없는 부품(액정 등 — 로그 보존 범위 밖 구매분)은
-  //   '날짜 직접 입력'을 기본 선택해 입고분이 비어 기록되는 일을 줄임 (모름 선택도 가능)
+  // ⭐ v2.85e: 입고 이력이 전혀 없는 부품은 '날짜 직접 입력'을 기본 선택 (모름 선택도 가능)
   if(!opts) sel.value = '__custom';
+  else if(!pick) sel.value = '';   // 기록 이전 재고 사용 중 + 직전 DOA 없음 — 최신 입고분이 저절로 선택되지 않게 '모름'
   _doaLotCustomToggle();
   const hint = document.getElementById('doa-lot-hint');
-  if(hint) hint.textContent = relay
-    ? '입고분: 직전 등록과 같은 입고분에 이어 달아요 — 새 입고분 박스를 개봉했을 때만 바꿔주세요.'
-    : (est ? '입고분: 이 부품은 첫 DOA 등록이라 FIFO 소진 위치로 추정했어요 — 실제 개봉한 입고분이 다르면 바꿔주세요.' : '입고분: 전산에 입고 이력이 없는 부품이라 목록이 비어 있어요 — 박스·거래명세서의 입고 날짜를 직접 입력해 주세요 (모르면 "모름" 선택).');
+  if(hint) hint.textContent = open
+    ? `입고분: 선입선출 기준 지금 사용 중인 입고분이에요 (현재고 ${fmt(sp.qty)}개를 최신 입고분부터 채워 계산). 다른 박스를 뜯었으면 바꿔주세요.`
+    : (lots.length || relay
+      ? `입고분: 현재고가 입고 기록보다 ${fmt(legacy)}개 많아요 — 입고 기록 이전부터 있던 재고를 쓰는 중이라 직전 등록 입고분을 따라가요. 실제 입고분이 다르면 바꿔주세요.`
+      : '입고분: 전산에 입고 이력이 없는 부품이라 목록이 비어 있어요 — 박스·거래명세서의 입고 날짜를 직접 입력해 주세요 (모르면 "모름" 선택).');
 }
 // ⭐ v2.85b: '날짜 직접 입력' 선택 시 날짜 입력칸 표시
 function _doaLotCustomToggle() {
