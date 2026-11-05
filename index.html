@@ -20795,25 +20795,35 @@ async function registerDoa() {
   // ⭐ v2.87d: 낙관적 즉시 반영 — 누르는 순간 목록·재고에 바로 표시하고, 서버 전송은 백그라운드
   //   (전송은 내구 큐가 보장 — 실패해도 자동 재전송. 엔지니어가 서버 응답을 기다릴 필요 없음)
   const _note = `DOA 불량 [${sym}]${lot ? ` (${lot} 입고분)` : ''}`;
-  const _pend = { logId: 'pend_' + Date.now(), partId: sp.id, partName: sp.name, type: 'out', qty,
+  // ⭐ v3.37: 전표 번호를 먼저 정해 임시 행·서버 행이 같은 logId — 되돌리기가 이 번호로 짝을 찾음
+  const _lid = 'l' + Date.now() + '_' + (Math.random() * 1e6 | 0);
+  const _pend = { logId: _lid, partId: sp.id, partName: sp.name, type: 'out', qty,
     note: _note + ' · ⏳ 서버 반영 중', date: new Date().toISOString(), worker: currentUser || '', _pending: true };
   stockLog.push(_pend);
   sp.qty = Number(sp.qty) - qty;   // ⭐ v3.25: 서버와 같이 0 아래로도 (음수 = 입고 누락 신호)
   notify(`🚫 DOA 등록 완료 — ${sp.name} −${qty} (실물은 스티커 붙여 DOA 박스에 보관하세요)`);
   const symEl = document.getElementById('doa-sym'); if(symEl) symEl.value = '';
   renderDoa();
-  adjustStockOp({ idx, delta: -qty, type: 'out', note: _note }).then(r => {
-    const i = stockLog.indexOf(_pend);
-    if(r && r.ok) { if(i > -1) stockLog.splice(i, 1); }   // 서버 확정 행이 대신 들어옴 → 임시 행 제거
+  adjustStockOp({ idx, delta: -qty, type: 'out', note: _note, logId: _lid }).then(r => {
+    if(r && r.ok) _settlePend(_pend, _note);
     renderDoa();
   }).catch(() => {});
 }
 // ⭐ v2.87c: 이 DOA 건이 이미 되돌려졌는지 (취소 기록의 참조 시각으로 대조)
+// ⭐ v3.37: 취소 기록은 '#전표번호'로 원 DOA를 가리킴. 옛 취소(번호 없음)는 분 단위 시각으로 대조하되
+//   취소보다 먼저 등록된 DOA만 — 같은 분에 다시 등록한 건이 '되돌려짐'으로 숨던 문제(→ 재등록 이중 차감) 차단
 function _doaUndone(l) {
   try {
-    const ref = `DOA 등록 취소 (${_doaUndoRef(l)})`;
-    return (stockLog||[]).some(x => x !== l && String(x.note||'').includes(ref) &&
-      (String(x.partId) === String(l.partId) || x.partName === l.partName));
+    const id = String(l.logId || ''), ref = `DOA 등록 취소 (${_doaUndoRef(l)})`;
+    return (stockLog||[]).some(x => {
+      if(x === l || x.type !== 'in') return false;
+      const n = String(x.note || '');
+      if(!/DOA 등록 취소/.test(n)) return false;
+      const ref2 = n.match(/#([A-Za-z0-9_]+)/);
+      if(ref2) return ref2[1] === id;
+      return n.includes(ref) && String(x.date) >= String(l.date) &&
+        (String(x.partId) === String(l.partId) || x.partName === l.partName);
+    });
   } catch(e) { return false; }
 }
 async function undoDoa(logId) {
@@ -20829,18 +20839,27 @@ async function undoDoa(logId) {
   if(idx < 0) { notify('해당 부품이 재고 목록에 없습니다.', 'error'); return; }
   if(!confirm(`${l.partName} DOA 등록을 되돌릴까요? 재고에 ${l.qty}개 환입됩니다.`)) return;
   // ⭐ v2.87d: 낙관적 즉시 반영 — 행이 바로 '되돌려짐'으로 바뀌고 재고 환입, 서버 전송은 백그라운드 (내구 큐 보장)
-  const _uNote = `DOA 등록 취소 (${_doaUndoRef(l)})`;
-  const _uPend = { logId: 'pend_' + Date.now(), partId: l.partId, partName: l.partName, type: 'in',
+  const _uNote = `DOA 등록 취소 (${_doaUndoRef(l)}) #${l.logId}`;
+  // ⭐ v3.37: 취소 전표 번호를 원 DOA에 고정 — 다른 기기에서 같은 DOA를 또 취소해도 서버 멱등으로 1번만 환입
+  const _ulid = 'u_' + l.logId;
+  const _uPend = { logId: _ulid, partId: l.partId, partName: l.partName, type: 'in',
     qty: Number(l.qty) || 1, note: _uNote + ' · ⏳ 서버 반영 중', date: new Date().toISOString(), worker: currentUser || '', _pending: true };
   stockLog.push(_uPend);
   const _usp = stock[idx]; if(_usp) _usp.qty = Number(_usp.qty) + (Number(l.qty) || 1);
   notify(`↩ DOA 등록을 되돌렸습니다 — ${l.partName} 재고 +${l.qty} 환입.`);
   renderDoa();
-  adjustStockOp({ idx, delta: Number(l.qty)||1, type: 'in', note: _uNote }).then(r => {
-    const i = stockLog.indexOf(_uPend);
-    if(r && r.ok) { if(i > -1) stockLog.splice(i, 1); }
+  adjustStockOp({ idx, delta: Number(l.qty)||1, type: 'in', note: _uNote, logId: _ulid }).then(r => {
+    if(r && r.ok) _settlePend(_uPend, _uNote);
     renderDoa();
   }).catch(() => {});
+}
+// ⭐ v3.37: 서버 성공 시 임시 행 정리 — 확정 행(같은 logId)이 들어왔으면 임시 행 제거,
+//   재전송 응답(adjusted (already) — prev 없음)이라 확정 행이 안 생겼으면 임시 행을 확정 행으로 남김 (목록에서 사라짐 방지)
+function _settlePend(p, note) {
+  const i = stockLog.indexOf(p);
+  if(i < 0) return;
+  if(stockLog.some(x => x !== p && String(x.logId) === String(p.logId))) stockLog.splice(i, 1);
+  else { delete p._pending; p.note = note; }
 }
 function _doaUndoRef(l) { try { return String(l.date).slice(5,16).replace('T',' '); } catch(e) { return ''; } }
 
@@ -22424,7 +22443,7 @@ async function adjustStockOp(o) {   // o: { idx, delta? | set?, type, note }
     stockLog.push({ logId, partId: sp.id, partName: sp.name,
       type: o.type || (o.set !== undefined ? 'adjust' : (Number(o.delta) < 0 ? 'out' : 'in')),
       qty: Math.abs(o.set !== undefined ? (Number(res.qty) - prev) : Number(o.delta || 0)),
-      note: `${o.note ? o.note + ' · ' : ''}재고 ${prev} → ${res.qty}`, date: new Date().toISOString(), worker: currentUser || '' });
+      note: `${o.note ? o.note + ' · ' : ''}재고 ${prev} → ${res.qty}`, date: payload.date, worker: currentUser || '' });   // ⭐ v3.37: 서버 행과 같은 시각 (응답 시각이면 DOA 되돌리기 대조가 1분 어긋남)
     window._stockDirtyUntil = Date.now() + 120000;
   window._stockAppliedMs = Math.max(window._stockAppliedMs || 0, Date.now() + (serverTimeOffset || 0));   // ⭐ v2.79x
   }
