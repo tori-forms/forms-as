@@ -21796,7 +21796,7 @@ function renderStockAudit() {
       <tbody>${(stock || []).map(p => `<tr>
         <td style="font-weight:600;">${escapeHtml(p.name)}${p.model && p.model !== '공용' ? ` <span style="font-size:10.5px;color:var(--text3);">(${escapeHtml(p.model)})</span>` : ''}</td>
         <td style="text-align:right;" id="recon-book-${p.id}">${fmt(p.qty)}</td>
-        <td style="text-align:center;"><input type="number" id="audit-real-${p.id}" placeholder="${p.qty}" style="width:90px;height:34px;text-align:center;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:6px;" oninput="updateAuditDiff('${p.id}')"></td>
+        <td style="text-align:center;"><input type="number" id="audit-real-${p.id}" placeholder="${p.qty}" style="width:90px;height:34px;text-align:center;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:6px;" oninput="_auditSnap('${p.id}');updateAuditDiff('${p.id}')" onchange="_auditSnap('${p.id}')"></td>
         <td style="text-align:right;font-weight:700;" id="audit-diff-${p.id}">-</td>
       </tr>`).join('')}</tbody></table></div></div>
     <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
@@ -21835,7 +21835,7 @@ function renderStockAudit() {
       <td style="text-align:right;">${overCell}</td>
       <td style="text-align:center;">${r.over > 0 || r.repairs > 0 ? `<input type="number" id="recon-doa-${p.id}" placeholder="${r.over}" style="width:70px;height:32px;text-align:center;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:6px;" oninput="updateReconExpected('${p.id}')">` : '<span style="color:var(--text3);">-</span>'}</td>
       <td style="text-align:right;font-weight:700;" id="recon-exp-${p.id}">${fmt(p.qty)}</td>
-      <td style="text-align:center;"><input type="number" id="audit-real-${p.id}" placeholder="${p.qty}" style="width:80px;height:32px;text-align:center;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:6px;" oninput="updateAuditDiff('${p.id}')"></td>
+      <td style="text-align:center;"><input type="number" id="audit-real-${p.id}" placeholder="${p.qty}" style="width:80px;height:32px;text-align:center;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:6px;" oninput="_auditSnap('${p.id}');updateAuditDiff('${p.id}')" onchange="_auditSnap('${p.id}')"></td>
       <td style="text-align:right;font-weight:700;" id="audit-diff-${p.id}">-</td>
     </tr>
     <tr id="recon-detail-${p.id}" style="display:none;"><td colspan="10" style="background:var(--surface2);padding:10px 16px;">
@@ -21904,6 +21904,20 @@ function exportReconCSV() {
   downloadCSV(csv, `재고대사_${today}.xlsx`);
   notify('재고 대사표 내보내기 완료!');
 }
+// ⭐ v3.37c: 실사 기준값 — 부품 실물 수량을 입력한 순간 그 부품의 서버 장부 수량을 받아 둠(센 순간 장부).
+//   반영 땐 (실물 − 기준값)만 더하므로 세는 동안 수리로 빠진 차감이 지워지지 않는다. 고쳐 입력해도 기준값은 처음 그대로.
+const _auditBase = {};
+async function _auditSnap(id) {
+  const inp = document.getElementById('audit-real-'+id);
+  if(!inp || inp.value === '') { delete _auditBase[id]; return; }
+  if(_auditBase[id]) return;
+  const p = (stock||[]).find(x => String(x.id) === String(id)); if(!p) return;
+  const b = _auditBase[id] = { qty: Number(p.qty), at: Date.now(), est: true };   // 서버 확인 전·실패 시엔 입력 순간 화면 숫자(추정)
+  // logId 없는 delta 0 = 서버는 락 안에서 현재 수량만 돌려줌 (시트·이력 쓰기 없음). 반영 버튼이 이 확인을 기다림
+  b.wait = gasCall({ action: 'adjustStock', partId: p.id, partName: p.name, delta: 0 }).then(r => {
+    if(r && r.ok && r.qty !== undefined && r.qty !== null && _auditBase[id] === b) { b.qty = Number(r.qty); b.est = false; }
+  }).catch(() => {});
+}
 async function applyStockAudit() {
   // ⭐ v2.79x: 실사(set)는 절대값 덮어쓰기라 낡은 화면 기준이면 위험 — 3분 내 서버 확인이 없으면
   //   먼저 서버 재고를 받아온 뒤 화면을 갱신하고, 숫자 재확인 후 다시 누르게 함.
@@ -21921,33 +21935,39 @@ async function applyStockAudit() {
     notify('서버 최신 재고를 못 받았어요 — 잠시 후 다시 [실사 반영]을 눌러주세요. (입력한 수량은 그대로 있어요)', 'error');
     return;
   }
+  // ⭐ v3.37c: 덮어쓰기(set) 대신 '센 순간 장부(기준값) 대비 차이'만 더함 — 세는 동안 수리로 빠진 차감이 지워지지 않음.
+  //   기준값이 없는 부품(입력 직후 확인 실패 등)은 방금 받은 서버 최신 = 예전 방식과 같음
+  await Promise.all(Object.values(_auditBase).map(b => b.wait));   // 입력 직후 누른 경우 — 기준값 확인 끝날 때까지
   const changes = [];
+  const _hm = t => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
   (stock||[]).forEach(p => {
     const inp = document.getElementById('audit-real-'+p.id);
     if(!inp || inp.value === '') return;
     const real = Number(inp.value);
     if(isNaN(real) || real < 0) return;
-    if(real !== p.qty) changes.push({ p, real, diff: real - p.qty });
+    const b = _auditBase[p.id] || { qty: Number(p.qty), at: Date.now(), est: true };
+    if(real !== b.qty) changes.push({ p, real, b, diff: real - b.qty });
+    else { inp.value = ''; delete _auditBase[p.id]; }   // 센 순간 장부와 같음 — 맞음, 입력 정리
   });
-  if(!changes.length) { notify('변경된 항목이 없습니다.'); return; }
+  if(!changes.length) { notify('장부와 다른 부품이 없습니다 (센 순간 기준).'); renderStockAudit(); return; }
   // ⭐ v2.79e: 과차감 의심이 남아있는 부품을 실물로 덮으면 정정 시 환입이 이중으로 잡힘 — 먼저 안내
   const withOver = changes.filter(c => { const r = (window._reconCache||{})[c.p.id]; return r && r.over > 0; });
   const overWarn = withOver.length ? `\n\n⚠ 과차감 의심이 남은 부품 ${withOver.length}개가 포함돼 있어요 (${withOver.map(c=>c.p.name).slice(0,3).join(', ')}${withOver.length>3?' 외':''}). 실사 반영 후에 해당 수리건 수량을 정정하면 그만큼 재고가 다시 늘어나니, 가능하면 정정을 먼저 하세요.` : '';
-  const _lines = changes.slice(0, 25).map(c => `· ${c.p.name}: 전산 ${c.p.qty} → 실사 ${c.real} (${c.diff > 0 ? '+' : ''}${c.diff})`).join('\n');
-  if(!confirm(`${changes.length}개 부품의 재고를 실사 수량으로 조정합니다. (전산 = 방금 받은 서버 최신)\n\n${_lines}${changes.length > 25 ? '\n…' : ''}\n\n진행할까요?${overWarn}`)) return;
-  const conflicts = [], failed = [];
+  const _lines = changes.slice(0, 25).map(c => `· ${c.p.name}: 센 순간(${_hm(c.b.at)}) 장부 ${c.b.qty}${c.b.est ? '(추정)' : ''} → 실물 ${c.real} (${c.diff > 0 ? '+' : ''}${c.diff}) · 지금 장부 ${c.p.qty} → ${c.p.qty + c.diff}`).join('\n');
+  if(!confirm(`${changes.length}개 부품을 실사 차이만큼 조정합니다. (센 뒤 수리로 쓴 차감은 그대로 유지)\n\n${_lines}${changes.length > 25 ? '\n…' : ''}\n\n진행할까요?${overWarn}`)) return;
+  const pending = [];
   for(const c of changes) {
     const idx = stock.findIndex(x => x.id === c.p.id);
     if(idx < 0) continue;
-    // ⭐ v2.68: set 원자 연산 — 실사 수량으로 확정 (서버 시트 기준 이력 기록)
-    // ⭐ v3.37b: expect = 방금 받은 서버 수량 — 그 사이 변동이 있으면 서버가 덮어쓰지 않고 거절(conflict)
+    // 전표 번호 = 부품 + 센 순간 → 두 번 눌러도·재전송돼도 1번만 (내구 큐가 같은 번호로 재전송)
     let r = null;
-    try { r = await adjustStockOp({ idx, set: c.real, expect: c.p.qty, type: c.diff > 0 ? 'in' : 'out', note: '재고 실사 조정' }); } catch(e) {}
-    if(r && r.error === 'conflict') conflicts.push(`${c.p.name} (확인 ${c.p.qty} → 지금 ${r.qty})`);
-    else if(!(r && r.ok)) failed.push(c.p.name);
+    try { r = await adjustStockOp({ idx, delta: c.diff, type: c.diff > 0 ? 'in' : 'out', logId: 'aud_' + c.p.id + '_' + c.b.at,
+      note: `재고 실사 조정 (센 순간 ${_hm(c.b.at)} 장부 ${c.b.qty}개·실물 ${c.real}개)` }); } catch(e) {}
+    if(!(r && r.ok)) pending.push(c.p.name);
+    const inp = document.getElementById('audit-real-'+c.p.id); if(inp) inp.value = '';   // 보냄(대기 포함) — 입력 정리
+    delete _auditBase[c.p.id];
   }
-  const nOk = changes.length - conflicts.length - failed.length;
-  if(conflicts.length || failed.length) notifyPersist(`실사 반영 ${nOk}개 완료${conflicts.length ? ` · ⚠ ${conflicts.length}개는 그 사이 재고가 바뀌어 반영 안 함: ${conflicts.join(', ')} — 숫자를 다시 확인하고 [실사 반영]을 다시 눌러주세요` : ''}${failed.length ? ` · ${failed.length}개 서버 응답 없음(${failed.join(', ')}) — 재고 이력 확인 후 다시 눌러주세요` : ''}`, 'error');
+  if(pending.length) notifyPersist(`실사 반영 ${changes.length - pending.length}개 완료 · ${pending.length}개(${pending.join(', ')})는 서버 확인 대기 — 같은 전표로 자동 재전송돼요. ⚠ 다시 입력하지 마세요.`, 'error');
   else notify(`실사 반영 완료: ${changes.length}개 부품 조정됨`);
   renderStockAudit();
 }
