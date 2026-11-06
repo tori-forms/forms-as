@@ -4999,11 +4999,12 @@ async function _buildDocx(bodyXml){
   return await zip.generateAsync({type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
 }
 
-async function issueQuote(dateKey) {
+async function issueQuote(dateKey, ext) {
+  // ⭐ v3.43: ext = 외부 작업 요청 묶음 견적 {items:[{model,total}], serialNo, file, name(model)} — 양식·계산은 AS 견적서와 동일
   // ⭐ v2.70: 폼즈 AS견적서 양식 + PDF 다운로드 (docx → PDF 전환)
   // ⭐ v2.75g: 무상 건 포함(수량은 실물 출고와 일치) — 단, 금액은 유상만 합산 (무상 total=0)
   //   별도 상계 라인 없이 해당 기종 행의 수량에 자연 합산 (요청)
-  const items = getShipItemsByDate(dateKey, true);
+  const items = ext ? ext.items : getShipItemsByDate(dateKey, true);
   if(!items.length) { notify('해당 날짜의 출고 건이 없습니다.', 'error'); return; }
   const byModel = {};
   items.forEach(it => {
@@ -5011,13 +5012,13 @@ async function issueQuote(dateKey) {
     byModel[it.model].cnt++;
     byModel[it.model].total += it.total;   // 무상 건은 total=0 → 금액 영향 없음
   });
-  const serialYmd = String(dateKey).replace(/-/g,'/');
+  const serialYmd = ext ? ext.serialNo : String(dateKey).replace(/-/g,'/');
   let gSupply=0, gVat=0, gQty=0, gTotal=0;
   const modelRows = Object.entries(byModel).map(([model, v]) => {
     const supply = Math.round(v.total/1.1), vat = v.total - supply;
     gSupply+=supply; gVat+=vat; gQty+=v.cnt; gTotal+=v.total;
     const mq = MODEL_QUOTE[model] || { code:'', name: model+'태블릿' };
-    return { code: mq.code||'', name: mq.name, qty: v.cnt, supply, vat };
+    return { code: mq.code||'', name: ext ? ext.name(model) : mq.name, qty: v.cnt, supply, vat };
   });
   const I = FORMS_INFO;
   // ⭐ v2.75: PDF → 워드(.docx) 복귀 (요청: 발행 후 수정할 일이 종종 있음)
@@ -5028,7 +5029,7 @@ async function issueQuote(dateKey) {
     // 상단 정보 표 (15/33/19/33%)
     const infoGrid = [1446, 3180, 1831, 3181];
     const infoRows = [
-      _docxRow([{...H, t:'일련번호', w:1446}, {t:`${serialYmd} -1`, w:3180}, {t:'Forms', b:1, a:'center', sz:42, span:2, w:5012}]),
+      _docxRow([{...H, t:'일련번호', w:1446}, {t: ext ? serialYmd : `${serialYmd} -1`, w:3180}, {t:'Forms', b:1, a:'center', sz:42, span:2, w:5012}]),
       _docxRow([{...H, t:'수 신', w:1446}, {t:I.receiver, w:3180}, {...H, t:'사업자등록번호', w:1831}, {t:I.bizNo, w:3181}]),
       _docxRow([{...H, t:'참 조', w:1446}, {t:'', w:3180}, {...H, t:'회사명/대표', w:1831}, {t:I.company, w:3181}]),
       _docxRow([{...H, t:'TEL/FAX', w:1446}, {t:'', w:3180}, {...H, t:'주 소', w:1831}, {t:I.addr, w:3181}]),
@@ -5064,7 +5065,7 @@ async function issueQuote(dateKey) {
       _docxPara(' ', { sz:10 }) +
       _docxTable(sumRows, sumGrid);
     const blob = await _buildDocx(body);
-    _downloadBlob(blob, `폼즈_AS견적서_${String(dateKey).replace(/-/g,'')}.docx`);
+    _downloadBlob(blob, ext ? ext.file : `폼즈_AS견적서_${String(dateKey).replace(/-/g,'')}.docx`);
     notify(`견적서 발행: ${dateKey} (${gQty}건 · ${fmt(gTotal)}원) — 워드(.docx) 다운로드 완료`);
   } catch(err) {
     console.error('[견적서] 생성 실패', err);
@@ -17738,6 +17739,13 @@ function srTogAll(i, on) {
   specialReqList.filter(x => x.batch === b).forEach(x => srTog(x.id, on));
   renderSpecialReqs();
 }
+// ⭐ v3.43: 외부 작업 요청 묶음별 견적서 — 묶음 전체 대수 × 단가(VAT 포함), AS 견적서 양식 재사용
+function srQuote(i) {
+  const n = window._srGroups[i], rows = specialReqList.filter(x => x.batch === n);
+  const works = [...new Set(rows.map(r => r.work).filter(Boolean))].join('·');
+  return issueQuote(n, { items: rows.map(r => ({ model: r.model, total: Number(r.price) || 0 })), serialNo: n,
+    name: m => `${m}태블릿 ${works}`, file: `폼즈_외부작업견적서_${String(n).replace(/[\/:*?"<>|\s]+/g, '')}.docx` });
+}
 function srToggleOpen(i) { const b = window._srGroups[i]; window._srOpen[b] = !window._srOpen[b]; renderSpecialReqs(); }
 function renderSpecialReqs() {
   const el = document.getElementById('sr-list'); if(!el) return;
@@ -17779,6 +17787,7 @@ function renderSpecialReqs() {
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
         ${btn(`작업 완료 → 출고대기 (${c.in})`, "'ready','all'", 'btn-primary', !c.in)} ${btn(`출고 완료 (${c.ready})`, "'ship','all'", 'btn-primary', !c.ready)}
         <button class="btn btn-sm" onclick="srToggleOpen(${i})">${open ? '접기' : '시리얼 펼치기'}</button>
+        <button class="btn btn-sm" onclick="srQuote(${i})">🧾 견적서</button>
         ${btn('삭제', "'del','all'", 'btn-danger')}</div>${body}</div>`;
   }).join('');
 }
