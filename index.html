@@ -20917,8 +20917,34 @@ function calcPartsUsage(allEntries, fromDate, toDate) {
 /* ⭐ v3.10a: 데이터 소스를 재고 차감 기록(stockLog)으로 전환 — 서버가 출고(shipped) 처리 시
    수리건의 parts를 비우기 때문에 entries.parts 기준으로는 출고 후 과거 숫자가 줄어드는 버그가 있었음
    (마스터 보고: 출고 이후 장부 숫자 변동). stockLog는 시리얼 태그와 함께 영구 보존되므로 출고와 무관. */
+/* ⭐ v3.38a: 같은 DOA를 두 번 취소한 기록(v3.37 이전 분 단위 참조 버그) — 두 번째 취소는 사용량에서 빼지 않는다.
+   취소 기록이 가리키는 DOA = '#logId'(새 형식) 또는 같은 부품·참조 시각 ±2분(옛 형식, 초 반올림 차이 흡수).
+   원본 DOA가 보관 범위 밖이면 판단할 수 없으니 그대로 센다. */
+function _ledgerDupCancels() {
+  const L = stockLog || [], c = _ledgerDupCancels._c;
+  if(c && c.L === L && c.n === L.length) return c.s;
+  const dup = new Set(), used = new Set();
+  const doas = L.filter(x => x.type === 'out' && /^DOA 불량/.test(String(x.note || '')));
+  L.filter(x => x.type === 'in' && /DOA 등록 취소/.test(String(x.note || '')))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .forEach(x => {
+      const n = String(x.note), id = (n.match(/#([A-Za-z0-9_]+)/) || [])[1];
+      const ref = (n.match(/DOA 등록 취소 \((\d\d-\d\d \d\d:\d\d)\)/) || [])[1];
+      const refT = ref ? Date.parse(String(x.date).slice(0, 4) + '-' + ref.replace(' ', 'T') + ':00Z') : NaN;
+      const cands = doas.filter(d => id ? String(d.logId) === id
+        : (isFinite(refT) && String(d.date) <= String(x.date) && (String(d.partId) === String(x.partId) || d.partName === x.partName) &&
+           Math.abs(Date.parse(d.date) - refT) < 120000))
+        .sort((a, b) => Math.abs(Date.parse(a.date) - refT) - Math.abs(Date.parse(b.date) - refT));
+      if(!cands.length) return;
+      const t = cands.find(d => !used.has(String(d.logId)));
+      if(t) used.add(String(t.logId)); else dup.add(String(x.logId));
+    });
+  _ledgerDupCancels._c = { L, n: L.length, s: dup };
+  return dup;
+}
 function _ledgerDayData(ds, who) {   // ⭐ v3.35: who = 엔지니어 이름(비우면 전체)
   const parts = {};   // name → { repair, doa, byWorker:{}, rows:[] }
+  const dupC = _ledgerDupCancels();
   const slot = n => parts[n] || (parts[n] = { repair: 0, doa: 0, byWorker: {}, rows: [] });
   (stockLog || []).forEach(l => {
     if(toLocalDay(l.date) !== ds) return;
@@ -20933,6 +20959,7 @@ function _ledgerDayData(ds, who) {   // ⭐ v3.35: who = 엔지니어 이름(비
     const t = String(l.date).slice(11, 16);
     const isDoaOut = l.type === 'out' && /^DOA 불량/.test(note);
     const isDoaCancel = l.type === 'in' && /DOA 등록 취소/.test(note);
+    if(isDoaCancel && dupC.has(String(l.logId))) return;   // 이중 취소(이미 취소된 DOA를 또 환입) — 재고는 보정 기록으로 맞춤
     const isCredit = l.type === 'in' && /복구|취소|환입/.test(note);
     if(l.type === 'out' && !isDoaOut) {
       const s = slot(name);
