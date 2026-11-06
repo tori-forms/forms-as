@@ -20930,13 +20930,22 @@ function _ledgerDupCancels() {
     .forEach(x => {
       const n = String(x.note), id = (n.match(/#([A-Za-z0-9_]+)/) || [])[1];
       const ref = (n.match(/DOA 등록 취소 \((\d\d-\d\d \d\d:\d\d)\)/) || [])[1];
-      const refT = ref ? Date.parse(String(x.date).slice(0, 4) + '-' + ref.replace(' ', 'T') + ':00Z') : NaN;
-      const cands = doas.filter(d => id ? String(d.logId) === id
-        : (isFinite(refT) && String(d.date) <= String(x.date) && (String(d.partId) === String(x.partId) || d.partName === x.partName) &&
-           Math.abs(Date.parse(d.date) - refT) < 120000))
-        .sort((a, b) => Math.abs(Date.parse(a.date) - refT) - Math.abs(Date.parse(b.date) - refT));
-      if(!cands.length) return;
-      const t = cands.find(d => !used.has(String(d.logId)));
+      const same = d => String(d.date) <= String(x.date) && (String(d.partId) === String(x.partId) || d.partName === x.partName);
+      const refT = d => Date.parse(String(d.date).slice(0, 4) + '-' + ref.replace(' ', 'T') + ':00Z');   // DOA 자신의 연도 (연말 DOA·연초 취소)
+      let t;
+      if(id) {
+        const cands = doas.filter(d => String(d.logId) === id);
+        if(!cands.length) return;
+        t = cands.find(d => !used.has(String(d.logId)));
+      } else if(ref) {
+        // 참조 분이 정확히 같은 DOA 우선, 없을 때만 ±2분 중 가장 가까운 한 건 — 이미 취소된 대상을 이웃 DOA로 옮겨 잡지 않게
+        const exact = doas.filter(d => same(d) && String(d.date).slice(5, 16).replace('T', ' ') === ref);
+        const near = exact.length ? [] : doas.filter(d => same(d) && Math.abs(Date.parse(d.date) - refT(d)) < 120000)
+          .sort((a, b) => Math.abs(Date.parse(a.date) - refT(a)) - Math.abs(Date.parse(b.date) - refT(b))).slice(0, 1);
+        const cands = exact.length ? exact : near;
+        if(!cands.length) return;
+        t = cands.find(d => !used.has(String(d.logId)));
+      } else return;
       if(t) used.add(String(t.logId)); else dup.add(String(x.logId));
     });
   _ledgerDupCancels._c = { L, n: L.length, s: dup };
