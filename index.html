@@ -1871,7 +1871,8 @@ window.addEventListener('DOMContentLoaded', function(){
     </div>
     <div class="card" style="margin-bottom:16px;">
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
-        <label style="font-size:12.5px;">배치 이름<br><input type="text" id="sr-batch" style="width:200px;"></label>
+        <label style="font-size:12.5px;">입고일<br><input type="date" id="sr-date" style="width:150px;"></label>
+        <label style="font-size:12.5px;">배치 이름 <span style="color:var(--text3);">(비우면 입고일)</span><br><input type="text" id="sr-batch" style="width:200px;"></label>
         <label style="font-size:12.5px;">기종<br><select id="sr-model"><option value="S2">S2</option><option value="S2PRO">S2PRO</option></select></label>
         <label style="font-size:12.5px;">작업<br><input type="text" id="sr-work" value="펌웨어 변경" style="width:180px;"></label>
         <label style="font-size:12.5px;">단가(원)<br><input type="number" id="sr-price" value="2500" min="0" style="width:100px;"></label>
@@ -13315,7 +13316,7 @@ function switchTab(name, btn) {
   if(name==='shipview') { setSvFilter('all', true); }
   if(name==='exchange') { renderWorkerSel(); renderExchangeList(); setTimeout(excUpdatePreview, 0); }
   if(name==='insreq') { try { renderInspReqs(); } catch(e) {} }   // ⭐ v3.23d
-  if(name==='specialreq') { const b = document.getElementById('sr-batch'); if(b && !b.value) b.value = todayStr() + ' 요청'; try { renderSpecialReqs(); srPreview(); } catch(e) {} }   // ⭐ v3.40
+  if(name==='specialreq') { const d = document.getElementById('sr-date'); if(d && !d.value) d.value = todayStr(); try { renderSpecialReqs(); srPreview(); } catch(e) {} }   // ⭐ v3.40
   if(name==='admin') { switchAdminTab('workers'); }
   if(name==='aging') { renderAging(); startAgingTimer(); } else { stopAgingTimer(); }
   if(name==='inspect') { renderInspect(); }
@@ -17634,12 +17635,13 @@ function _srUnpend(ids) {
 const _srChunks = (a, n) => { const o = []; for(let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; };
 async function srRegister() {
   const p = srParse(document.getElementById('sr-text').value);
-  const batch = document.getElementById('sr-batch').value.trim();
+  // ⭐ v3.44: 입고일 지정 (기본 오늘) — 배치 이름을 비우면 입고일을 이름으로
+  const inDay = document.getElementById('sr-date').value || toLocalDay(new Date().toISOString());
+  const batch = document.getElementById('sr-batch').value.trim() || inDay;
   const model = document.getElementById('sr-model').value;
   const work = document.getElementById('sr-work').value.trim();
   const price = Number(document.getElementById('sr-price').value);
   const worker = (document.getElementById('sel-worker') || {}).value || currentUser || '';
-  if(!batch) { notify('배치 이름을 입력하세요.', 'error'); return; }
   if(!work) { notify('작업 내용을 입력하세요.', 'error'); return; }
   if(document.getElementById('sr-price').value === '' || !(price >= 0)) { notify('단가를 확인하세요.', 'error'); return; }
   if(!p.serials.length) { notify('등록할 시리얼이 없습니다.', 'error'); return; }
@@ -17656,11 +17658,11 @@ async function srRegister() {
     btn.textContent = `등록 중... ${i + 1}/${chunks.length}`;
     try {
       const res = await gasCall({ action: 'addSpecialReqBatch', items: JSON.stringify(c.map(s => ({ id: 'sr_' + bk + '_' + s, serial: s }))),
-        batch, model, work, price, worker });
+        batch, model, work, price, worker, inAt: inDay });
       if(!res || res.ok === false) throw new Error((res && res.error) || 'fail');
       const sk = new Set((res.skipped || []).map(normalizeSerial));
       const now = new Date().toISOString();
-      const rows = c.filter(s => !sk.has(s)).map(s => ({ id: 'sr_' + bk + '_' + s, batch, serial: s, model, work, price, status: 'in', inAt: now, statusAt: now, worker, shipDate: '' }));
+      const rows = c.filter(s => !sk.has(s)).map(s => ({ id: 'sr_' + bk + '_' + s, batch, serial: s, model, work, price, status: 'in', inAt: inDay, statusAt: now, worker, shipDate: '' }));
       specialReqList.push(...rows); _srPend(rows, 'add');
       added += rows.length; skipped.push(...sk);
     } catch(e) { failed.push(...c); }
