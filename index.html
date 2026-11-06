@@ -1153,7 +1153,7 @@ window.addEventListener('DOMContentLoaded', function(){
   <button class="nav-btn" id="nav-doa" onclick="switchTab('doa',this)">🚫 부품 DOA</button>
   <button class="nav-btn" onclick="switchTab('exchange',this)">💸 교품 처리</button>
   <button class="nav-btn" id="nav-insreq" onclick="switchTab('insreq',this)">🔍 검사요청 현황</button>
-  <button class="nav-btn" id="nav-specialreq" onclick="switchTab('specialreq',this)">📦 FW 설치 요청</button>
+  <button class="nav-btn" id="nav-specialreq" onclick="switchTab('specialreq',this)">📦 외부 작업 요청</button>
   <button class="nav-btn" id="nav-inspect" onclick="switchTab('inspect',this)">🧪 검수대기</button>
   <button class="nav-btn" id="nav-aging" onclick="switchTab('aging',this)">🕐 에이징</button>
   <button class="nav-btn" onclick="switchTab('summary',this)">📊 일일 현황</button>
@@ -1864,10 +1864,10 @@ window.addEventListener('DOMContentLoaded', function(){
     <div id="ir-list"></div>
   </div>
 
-  <!-- ⭐ v3.40: FW 설치 요청 — 펌웨어·시리얼 라이팅 등 수리 아닌 대량 작업. 수리 통계와 분리 -->
+  <!-- ⭐ v3.40: 외부 작업 요청 — 펌웨어·시리얼 라이팅 등 수리 아닌 대량 작업. 수리 통계와 분리 -->
   <div id="tab-specialreq" class="section">
     <div class="section-header">
-      <span class="section-title">📦 FW 설치 요청 <span id="sr-count" style="font-size:13px;color:var(--text2);font-weight:500;"></span></span>
+      <span class="section-title">📦 외부 작업 요청 <span id="sr-count" style="font-size:13px;color:var(--text2);font-weight:500;"></span></span>
     </div>
     <div class="card" style="margin-bottom:16px;">
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
@@ -2474,7 +2474,7 @@ let kpiMap = {};
 let holidayCache = {};
 let stock = [], stockLog = [], stockLots = [], docs = [];
 let exchangeList = []; // 교품 처리 목록
-let specialReqList = [];  // ⭐ v3.40: FW 설치 요청 목록 (수리 통계와 분리)
+let specialReqList = [];  // ⭐ v3.40: 외부 작업 요청 목록 (수리 통계와 분리)
 let inspReqList = [];  // ⭐ v3.23: 고객사 검사요청 목록
 let tierMap = {}; // { 이름: 'T1'|'T2'|'T3'|'T4' }
 let partMap = {}; // { 이름: 'nonbat'|'battery'|'all' }
@@ -2854,7 +2854,7 @@ const _DATA_MUTATION_ACTIONS = new Set([
   'add', 'edit', 'delete',                                  // 수리 등록/수정/삭제
   'addExchange', 'deleteExchange',                          // 교품
   'addInspReq', 'updateInspReq', 'deleteInspReq',           // ⭐ v3.23: 검사요청
-  'addSpecialReqBatch', 'updateSpecialReq', 'deleteSpecialReq',   // ⭐ v3.40: FW 설치 요청
+  'addSpecialReqBatch', 'updateSpecialReq', 'deleteSpecialReq',   // ⭐ v3.40: 외부 작업 요청
   'addShipLog', 'addShipLogBulk', 'deleteShipLog', 'bulkDeleteShipLog', // 출고
   'addInspection', 'updateInspection', 'deleteInspection', 'completeRework', // 검수
   'addDoc', 'deleteDoc',                                    // 교육자료
@@ -3357,7 +3357,7 @@ async function syncData(silent=false, force=false, _snapData=null) {
     // ⭐ v3.23: 검사요청 — 서버(Code.gs) 미배포면 필드가 없으므로 로컬 유지
     //   낡은 캐시가 방금 한 등록·상태 변경을 되돌리지 않게 entries와 같은 변경 보호를 적용
     if(Array.isArray(data.inspReqs) && !isClientMode()) inspReqList = applyPendingChanges(data.inspReqs, 'inspReqs', 'id');
-    // ⭐ v3.40: FW 설치 요청 — 서버 미배포면 필드가 없으므로 로컬 유지 (tbl 해제는 _decodeZEnvelope가 전 필드 공통 처리)
+    // ⭐ v3.40: 외부 작업 요청 — 서버 미배포면 필드가 없으므로 로컬 유지 (tbl 해제는 _decodeZEnvelope가 전 필드 공통 처리)
     if(Array.isArray(data.specialReqs) && !isClientMode()) specialReqList = applyPendingChanges(data.specialReqs, 'specialReqs', 'id');
     // ⭐ v2.66b: 회사 지정 휴무일 (법정 공휴일 아닌 자체 휴무 — 예: 제헌절)
     // ⭐ v2.66d: 서버 응답(캐시 파이프라인)이 아직 낡아 필드가 없으면 localStorage 백업으로 복원 —
@@ -3517,7 +3517,7 @@ async function syncData(silent=false, force=false, _snapData=null) {
 function renderAll() {
   if(ENGRAVE_MODE) return;  // 각인 모드에서는 메인 UI 렌더링 스킵
   renderWorkerSel(); renderToday(); renderWorkers();
-  try { renderSpecialReqs(); } catch(e) { console.warn('[FW 설치 요청]', e); }   // ⭐ v3.40
+  try { renderSpecialReqs(); } catch(e) { console.warn('[외부 작업 요청]', e); }   // ⭐ v3.40
   try { renderInspReqs(); } catch(e) { console.warn('[검사요청]', e); }   // ⭐ v3.23: 배지·배너는 탭 무관하게 갱신
   const tab = document.querySelector('.nav-btn.active')?.textContent.trim();
   if(tab==='일일 마감' || tab?.includes('일일')) renderSummary();
@@ -17591,7 +17591,7 @@ function renderInspReqs() {
         <td><span style="font-weight:700;color:${stC};white-space:nowrap;">${stL}</span></td><td style="white-space:nowrap;">${acts.join(' ')}</td></tr>`;
     }).join('')}</tbody></table></div>`;
 }
-/* ⭐ v3.40: FW 설치 요청(펌웨어·시리얼 라이팅 등) — 수리가 아닌 대량 작업. 수리 통계·목표·수당과 분리된 specialReqList 배열(entries에 안 섞음).
+/* ⭐ v3.40: 외부 작업 요청(펌웨어·시리얼 라이팅 등) — 수리가 아닌 대량 작업. 수리 통계·목표·수당과 분리된 specialReqList 배열(entries에 안 섞음).
    시리얼 붙여넣기 → 배치 등록 → 입고·작업중(in) → 출고대기(ready) → 출고완료(shipped). 서버 액션: addSpecialReqBatch / updateSpecialReq / deleteSpecialReq */
 const SR_ST = { in: ['입고·작업중', '#2563eb'], ready: ['출고대기', '#d97706'], shipped: ['출고완료', '#16a34a'] };
 // URL(JSONP GET) 길이 한계: 출고 벌크가 20건×269자(≈5.7KB)를 '안전'으로 잡은 것과 같은 기준. 등록 50건≈5KB, id만 보내는 변경은 150건≈5KB
@@ -17668,7 +17668,7 @@ async function srRegister() {
   document.getElementById('sr-result').innerHTML = `<b>${added}개 등록</b>` + (skipped.length ? ` · <span style="color:#d97706;">건너뜀 ${skipped.length}개(다른 요청에서 진행 중): ${escapeHtml(skipped.join(', '))}</span>` : '')
     + (failed.length ? ` · <span style="color:#dc2626;">실패 ${failed.length}개 — 입력란에 남겼습니다. [배치 등록]을 다시 누르세요.</span>` : '');
   if(failed.length) { window._srRetry = { batch, bk }; document.getElementById('sr-text').value = failed.join('\n'); notify('일부 등록 실패. 다시 시도해주세요.', 'error'); }
-  else { window._srRetry = null; document.getElementById('sr-text').value = ''; notify(`FW 설치 요청 ${added}개 등록 완료`); }
+  else { window._srRetry = null; document.getElementById('sr-text').value = ''; notify(`외부 작업 요청 ${added}개 등록 완료`); }
   srPreview(); renderSpecialReqs();
 }
 // 낙관적 반영 → 서버 호출 → 실패한 묶음만 되돌림
@@ -17696,7 +17696,7 @@ async function srMove(ids, status, shipDate) {
 async function srDelete(ids, label) {
   const rows = ids.map(id => specialReqList.find(x => x.id === id)).filter(Boolean);
   if(!rows.length) return;
-  const ok = await uiConfirm({ title: 'FW 설치 요청 삭제', msg: `${escapeHtml(label)} — ${rows.length}개 기록을 삭제할까요? 되돌릴 수 없습니다.`, okText: '삭제', tone: 'danger' });
+  const ok = await uiConfirm({ title: '외부 작업 요청 삭제', msg: `${escapeHtml(label)} — ${rows.length}개 기록을 삭제할까요? 되돌릴 수 없습니다.`, okText: '삭제', tone: 'danger' });
   if(!ok) return;
   const gone = new Set(rows.map(r => r.id));
   specialReqList = specialReqList.filter(x => !gone.has(x.id));
@@ -17749,7 +17749,7 @@ function renderSpecialReqs() {
   window._srGroups = names;
   const cnt = document.getElementById('sr-count');
   if(cnt) cnt.textContent = `배치 ${groups.size}개 / 진행 중 ${specialReqList.filter(x => x.status !== 'shipped').length}개`;
-  if(!names.length) { el.innerHTML = '<div class="empty" style="padding:18px;">등록된 FW 설치 요청이 없습니다.</div>'; return; }
+  if(!names.length) { el.innerHTML = '<div class="empty" style="padding:18px;">등록된 외부 작업 요청이 없습니다.</div>'; return; }
   el.innerHTML = names.map((n, i) => {
     const rows = groups.get(n), f = rows[0];
     const c = { in: 0, ready: 0, shipped: 0 }; let amt = 0;
