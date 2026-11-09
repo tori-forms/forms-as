@@ -20811,10 +20811,10 @@ function _partLots(part) {
   const pid = String(part.id); const pname = String(part.name);
   const seen = new Set();
   const lots = (stockLots || []).concat(stockLog || [])
-    .filter(l => (String(l.partId) === pid || String(l.partName) === pname) && l.type === 'in' && /^입고/.test(String(l.note || '')))
+    .filter(l => (String(l.partId) === pid || String(l.partName) === pname) && _isRcvLog(l))
     .filter(l => { const k = String(l.logId); if(seen.has(k)) return false; seen.add(k); return true; })
     // ⭐ v2.91: 입고 기록에 "(YYYY-MM-DD 입고분)" 태그가 있으면 그 날짜를 로트로 (지난 날짜 입고를 뒤늦게 기록해도 정확)
-    .map(l => { const m = String(l.note || '').match(/\((\d{4}-\d{2}-\d{2}) 입고분\)/); return { date: m ? m[1] : String(l.date).slice(0,10), qty: Number(l.qty) || 0 }; })
+    .map(l => { const m = String(l.note || '').match(/\((\d{4}-\d{2}-\d{2}) 입고분\)/); return { date: m ? m[1] : String(l.date).slice(0,10), qty: _rcvSignedQty(l) }; })
     .sort((a,b) => a.date.localeCompare(b.date));
   // 같은 날짜 입고는 하나의 로트로 합침
   const merged = [];
@@ -21920,7 +21920,7 @@ function renderReceive() {
   // 최근 입고 기록 (환입·복구 제외한 'in' 로그를 입고분 날짜로 묶어 표시)
   const groups = {};
   (stockLog || []).forEach(l => {
-    if(l.type !== 'in' || /복구|취소|환입/.test(String(l.note || ''))) return;
+    if(!_isRcvFixDown(l) && (l.type !== 'in' || /복구|취소|환입/.test(String(l.note || '')))) return;
     const m = String(l.note || '').match(/\((\d{4}-\d{2}-\d{2}) 입고분\)/);
     const d = m ? m[1] : String(l.date).slice(0, 10);
     (groups[d] = groups[d] || []).push(l);
@@ -21930,18 +21930,48 @@ function renderReceive() {
     ${days.length ? days.map(d => {
       const ls = groups[d];
       const byPart = {};
-      ls.forEach(l => { byPart[l.partName || '?'] = (byPart[l.partName || '?'] || 0) + (Number(l.qty) || 0); });
+      ls.forEach(l => { byPart[l.partName || '?'] = (byPart[l.partName || '?'] || 0) + _rcvSignedQty(l); });
       const who = Array.from(new Set(ls.map(l => l.worker).filter(Boolean))).join('·');
       return `<div style="padding:10px 16px;border-bottom:1px solid var(--border);">
         <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;">
           <span style="font-size:13px;font-weight:800;">${d} 입고분</span>
-          <span style="font-size:11px;color:var(--text3);">총 ${fmt(ls.reduce((s, l) => s + (Number(l.qty) || 0), 0))}개${who ? ` · ${escapeHtml(who)}` : ''}</span>
+          <span style="font-size:11px;color:var(--text3);">총 ${fmt(ls.reduce((s, l) => s + _rcvSignedQty(l), 0))}개${who ? ` · ${escapeHtml(who)}` : ''}</span>
         </div>
-        <div style="font-size:12px;color:var(--text2);margin-top:3px;">${Object.entries(byPart).map(([n, q]) => `${escapeHtml(n)} <b>+${fmt(q)}</b>`).join(' · ')}</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:3px;">${Object.entries(byPart).map(([n, q]) => `${escapeHtml(n)} <b>+${fmt(q)}</b><button class="btn btn-sm" title="이 입고분 수량 정정" style="height:20px;padding:0 5px;margin-left:3px;font-size:10.5px;vertical-align:1px;" onclick='_rcvEdit(${JSON.stringify(d)}, ${escapeHtml(JSON.stringify(n))}, ${q})'>✏️</button>`).join(' · ')}</div>
       </div>`;
     }).join('') : '<div class="empty" style="padding:24px;">아직 입고 기록이 없습니다.</div>'}
   </div>`;
   el.innerHTML = h;
+}
+/* ⭐ v3.47: 입고 수정 — 입고분(날짜)·부품별 합계를 새 수량으로 정정. 원 기록은 그대로 두고 정정 전표만 추가.
+   늘림 = 'in' "입고 (날짜 입고분) · 입고 정정 A→B (+d)" (입고 기록·로트에 그대로 합산)
+   줄임 = 'adjust' "입고 정정 (날짜 입고분) A→B (-d)" — adjust라 소모(out) 집계엔 안 섞이고, 입고 합계·로트에서만 뺌.
+   재고 대사는 이 adjust를 실사 기준점으로 쓰지 않음 (_isRcvFixDown). */
+function _isRcvFixDown(l) { return l.type === 'adjust' && /^입고 정정/.test(String(l.note || '')); }
+function _isRcvLog(l) { return (l.type === 'in' && /^입고/.test(String(l.note || ''))) || _isRcvFixDown(l); }
+function _rcvSignedQty(l) { const q = Number(l.qty) || 0; return _isRcvFixDown(l) ? -q : q; }
+function _rcvEdit(lot, partName, cur) {
+  if(!isAdmin) { notify('입고 수정은 관리자만 가능합니다.', 'error'); return; }
+  const idx = (stock || []).findIndex(p => p.name === partName);
+  if(idx < 0) { notify('재고 목록에 없는 부품입니다: ' + partName, 'error'); return; }
+  openPromptModal('✏️ 입고 수량 정정', `${lot} 입고분 · ${partName}
+지금 기록 ${fmt(cur)}개 → 실제 입고 수량을 입력하세요. (재고도 그 차이만큼 바뀝니다)`, '실제 입고 수량', async (v) => {
+    const nv = Number(String(v || '').replace(/,/g, '').trim());
+    if(!Number.isInteger(nv) || nv < 0) { notify('0 이상의 정수를 입력하세요.', 'error'); return; }
+    const d = nv - cur;
+    if(!d) { notify('수량이 같아서 바꿀 게 없어요.'); return; }
+    if(!confirm(`${lot} 입고분 ${partName}
+${fmt(cur)} → ${fmt(nv)}개 (${d > 0 ? '+' : ''}${fmt(d)})
+재고도 ${d > 0 ? '+' : ''}${fmt(d)} 반영됩니다. 진행할까요?`)) return;
+    const tag = `${fmt(cur)}→${fmt(nv)} (${d > 0 ? '+' : ''}${d})`;
+    const res = await adjustStockOp(d > 0
+      ? { idx, delta: d, type: 'in', note: `입고 (${lot} 입고분) · 입고 정정 ${tag}` }
+      : { idx, delta: d, type: 'adjust', note: `입고 정정 (${lot} 입고분) ${tag}` });
+    if(res && res.ok) notify(`✏️ ${lot} 입고분 ${partName} ${fmt(nv)}개로 정정 완료`);
+    renderReceive();
+    try { renderStock(); } catch(e) {}
+  }, '정정');
+  try { const el = document.getElementById('prompt-modal-input'); if(el) { el.type = 'number'; el.value = cur; } } catch(e) {}
 }
 async function applyReceive() {
   if(!isAdmin) { notify('입고 기록은 관리자만 가능합니다.', 'error'); return; }
@@ -21981,7 +22011,7 @@ function _reconPartData(p) {
   let base = null;
   for(let i=logs.length-1;i>=0;i--) {
     const l = logs[i];
-    if(l.type==='adjust' || /실사|재고 수정/.test(String(l.note||''))) {
+    if((l.type==='adjust' && !_isRcvFixDown(l)) || /실사|재고 수정/.test(String(l.note||''))) {
       const xy = parseXY(l.note);
       base = { date:l.date, qty: xy ? xy.to : null, label:'직전 실사' };
       break;
@@ -21997,6 +22027,7 @@ function _reconPartData(p) {
   // 시리얼별 순차감 · 수동(시리얼 없는) 입출고
   const ser = {}; let manIn = 0, manOut = 0;
   win.forEach(l => {
+    if(_isRcvFixDown(l)) { manIn -= Number(l.qty)||0; return; }   // ⭐ v3.47: 입고 정정(감소)은 수동 입고에서 뺌
     if(l.type==='adjust') return;
     const m = String(l.note||'').match(/\[([A-Z0-9_-]+)\]/);
     const q = Number(l.qty)||0;
