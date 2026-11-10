@@ -8153,7 +8153,7 @@ function freeLabel(e) { return isFreeEntry(e) ? '[무상 재작업] ' : isPartFr
 const MANUAL_FREE_RE = /\s?\[무상작업:([a-z0-9_,]*)\]/;
 window._regFreeWorks = new Set(); window._editFreeWorks = new Set();
 function parseManualFree(note) { const m = String(note || '').match(MANUAL_FREE_RE); return m ? m[1].split(',').filter(Boolean) : []; }
-function canManualFree() { try { return isFullAdmin() || isPartMaster(); } catch(e) { return false; } }
+function canManualFree() { return true; }   // v3.48a: 모든 엔지니어 사용 (마스터 지시 2026-11-10)
 // full = 무상 전 원공임, total = 자동 무상까지 적용한 금액, skip = 자동 무상으로 이미 뺀 작업
 function applyManualFree(full, total, note, works, manual, skip) {
   note = String(note || '').replace(FREE_TAG_RE, '').replace(PART_FREE_TAG_RE, '').replace(MANUAL_FREE_RE, '').trim();
