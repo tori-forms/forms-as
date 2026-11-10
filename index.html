@@ -110,6 +110,10 @@ textarea::placeholder{color:var(--text3);}
 .work-check:hover{border-color:var(--accent);background:var(--accent-bg);}
 .work-check input[type=checkbox]{margin-top:2px;accent-color:var(--accent);width:15px;height:15px;flex-shrink:0;cursor:pointer;}
 .work-check.checked{border-color:var(--accent);background:var(--accent-bg);}
+.wfree-btn{display:none;margin-top:4px;font-size:10.5px;font-weight:700;color:#10b981;background:none;border:1px solid #10b98188;border-radius:99px;padding:1px 8px;cursor:pointer;}
+.work-check.checked .wfree-btn{display:inline-block;}
+.work-check.wfree .wfree-btn{background:#10b981;color:#fff;}
+.work-check.checked.wfree .work-check-price{text-decoration:line-through;opacity:.6;}
 .work-check-name{font-size:13px;font-weight:500;line-height:1.4;}
 .work-check-price{font-size:12px;color:var(--text2);margin-top:2px;font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:visible;}
 
@@ -8144,6 +8148,32 @@ function freeBadge(e) {
   return '';
 }
 function freeLabel(e) { return isFreeEntry(e) ? '[무상 재작업] ' : isPartFreeEntry(e) ? '[부분 무상] ' : ''; }
+// v3.48: 작업별 수동 무상 — 관리자가 고른 작업의 공임만 빼고 나머지(기타작업 등)는 청구, 부품은 정상 차감.
+//   금액은 기존 무상/부분 무상 태그로 남기고, 어떤 작업인지는 [무상작업:키] 태그로 남겨 수정 화면에서 복원한다.
+const MANUAL_FREE_RE = /\s?\[무상작업:([a-z0-9_,]*)\]/;
+window._regFreeWorks = new Set(); window._editFreeWorks = new Set();
+function parseManualFree(note) { const m = String(note || '').match(MANUAL_FREE_RE); return m ? m[1].split(',').filter(Boolean) : []; }
+function canManualFree() { try { return isFullAdmin() || isPartMaster(); } catch(e) { return false; } }
+// full = 무상 전 원공임, total = 자동 무상까지 적용한 금액, skip = 자동 무상으로 이미 뺀 작업
+function applyManualFree(full, total, note, works, manual, skip) {
+  note = String(note || '').replace(FREE_TAG_RE, '').replace(PART_FREE_TAG_RE, '').replace(MANUAL_FREE_RE, '').trim();
+  const keys = works.filter(k => manual.has(k));
+  const cut = keys.filter(k => !skip.includes(k)).reduce((s, k) => s + ((WORKS[k] && WORKS[k].price) || 0), 0);
+  const t = Math.max(0, total - cut);
+  if(t < full) note = `${note} [${t === 0 ? '무상 재작업' : '부분 무상'}·원공임 ${fmt(full)}원]`.trim();
+  if(keys.length) note = `${note} [무상작업:${keys.join(',')}]`.trim();
+  return { total: t, note };
+}
+function workFreeBtn(k, edit) {
+  return canManualFree() ? `<button type="button" class="wfree-btn" title="이 작업 공임만 무상 (부품은 정상 차감)" onclick="toggleWorkFree(event,'${k}',${edit ? 1 : 0})">🆓 무상</button>` : '';
+}
+function toggleWorkFree(ev, k, edit) {
+  ev.preventDefault(); ev.stopPropagation();
+  const s = edit ? window._editFreeWorks : window._regFreeWorks;
+  s.has(k) ? s.delete(k) : s.add(k);
+  document.getElementById((edit ? 'ewc-' : 'wc-') + k)?.classList.toggle('wfree', s.has(k));
+  edit ? updateEditPP() : updatePP();
+}
 // 무상 대상이면 { shipDay, until, overlap, freeAmt, partial }, 아니면 null.
 //   직전 출고일을 못 찾으면 { unknown:true } — 공임을 더 받는 쪽으로 틀리지 않게 '확인 필요'로 띄운다.
 function warrantyInfo(e) {
@@ -8184,7 +8214,7 @@ function warrantyChip(e) {
 function freeToggleCalc(e) {
   const note = String(e.note || '');
   const m = note.match(FREE_TAG_RE) || note.match(PART_FREE_TAG_RE);
-  if(m) return { restore: true, newTotal: Number(m[1].replace(/,/g, '')) || 0, newNote: note.replace(FREE_TAG_RE, '').replace(PART_FREE_TAG_RE, '').trim() };
+  if(m) return { restore: true, newTotal: Number(m[1].replace(/,/g, '')) || 0, newNote: note.replace(FREE_TAG_RE, '').replace(PART_FREE_TAG_RE, '').replace(MANUAL_FREE_RE, '').trim() };
   const total = Number(e.total || 0), w = warrantyInfo(e);
   if(w && w.partial) return { restore: false, partial: true, newTotal: total - w.freeAmt, newNote: `${note.trim()} [부분 무상·원공임 ${fmt(total)}원]`.trim() };
   return { restore: false, newTotal: 0, newNote: `${note.trim()} [무상 재작업·원공임 ${fmt(total)}원]`.trim() };
@@ -13397,11 +13427,11 @@ function getWorkParts(k, model) {
 
 function _renderWorkCheckHTML(k, v, model) {
   const visibleParts = getWorkParts(k, model);
-  return `<label class="work-check" id="wc-${k}" style="cursor:pointer;">
+  return `<label class="work-check${window._regFreeWorks.has(k) ? ' wfree' : ''}" id="wc-${k}" style="cursor:pointer;">
     <input type="checkbox" value="${k}" style="margin-top:4px;accent-color:var(--accent);width:15px;height:15px;flex-shrink:0;cursor:pointer;" onchange="toggleCheck('${k}');nbExclusive('${k}','wc-');updatePP();renderPartQtys('${k}')">
     <div style="flex:1;">
       <div class="work-check-name">${v.label}</div>
-      <div class="work-check-price">${fmt(v.price)}원</div>
+      <div class="work-check-price">${fmt(v.price)}원</div>${workFreeBtn(k, false)}
       <div id="parts-${k}" style="display:none;margin-top:10px;border-top:1px dashed var(--border2);padding-top:10px;">
         <div style="font-size:10.5px;color:var(--text3);margin-bottom:6px;">수량 0 = 미사용 (재고 차감 안 함)</div>
         ${visibleParts.map(p=>`
@@ -13582,7 +13612,9 @@ function updatePP() {
   try { syncEtcRule(); } catch(e) {}   // ⭐ v2.79n: 금액 계산 전에 기타작업 상태 동기화
   const cs = [...document.querySelectorAll('#work-checks input:checked')].map(c=>c.value);
   if(typeof irOn === 'function' && irOn()) { irPreview(); return; }   // ⭐ v3.23a: 검사요청 모드
-  document.getElementById('price-preview').textContent = cs.length ? `공임비 합계: ${fmt(cs.reduce((s,k)=>s+WORKS[k].price,0))}원` : '';
+  const _sum = cs.reduce((s,k)=>s+WORKS[k].price,0), _mk = cs.filter(k => window._regFreeWorks.has(k));
+  document.getElementById('price-preview').textContent = !cs.length ? '' : `공임비 합계: ${fmt(_sum)}원` +
+    (_mk.length ? ` → 청구 ${fmt(Math.max(0, _sum - _mk.reduce((s,k)=>s+WORKS[k].price,0)))}원 (🆓 ${_mk.map(k => WORKS[k].tag || k).join('·')} 무상)` : '');
   try { renderDeductPreview(); } catch(e) {}   // ⭐ v2.70c: 재고 차감 미리보기 갱신
 }
 
@@ -13652,6 +13684,7 @@ function clearChecks() {
   });
   extraPartCounters = {};
   initPartQtys();
+  window._regFreeWorks.clear(); document.querySelectorAll('#work-checks .wfree').forEach(el => el.classList.remove('wfree'));
   try { syncEtcRule(); } catch(e) {}   // ⭐ v2.79n: 초기화 후 기타작업 기본 선택 복원
   // ⭐ v2.78: T2N 재현 여부 입력 초기화 (⭐ v2.87: 고객과실도)
   window._t2nRepro = '';
@@ -13854,6 +13887,8 @@ async function addEntry() {
   // ⭐ v2.62c: catch(응답 유실)에서도 낙관 반영할 수 있게 try 밖에서 선계산
   const id = Date.now(), date = new Date().toISOString();
   let total = works.reduce((s,k)=>s+WORKS[k].price, 0);
+  const _fullTotal = total;
+  let _autoOv = [];
   const partsSnapshot0 = getPartsData();
   const parts = JSON.stringify(partsSnapshot0);
   // ⭐ v2.64: 재인입 정보 캡처 후 즉시 소진 (모든 종료 경로에서 잔존 방지)
@@ -13867,9 +13902,13 @@ async function addEntry() {
     const _wi = warrantyInfo(_syn);
     if(_wi && !_wi.unknown && _wi.freeAmt > 0) {
       const _fc = freeToggleCalc(_syn);
-      total = _fc.newTotal; note = _fc.newNote;
+      total = _fc.newTotal; note = _fc.newNote; _autoOv = _wi.overlap;
       notify(`🛡 6개월 이내 재인입 · 직전과 같은 작업 — ${_wi.overlap.map(k => WORKS[k]?.tag || k).join('·')} 공임 ${fmt(_wi.freeAmt)}원 무상 적용 (청구 ${fmt(total)}원)`);
     }
+  }
+  if(canManualFree() && works.some(k => window._regFreeWorks.has(k))) {
+    const _mf = applyManualFree(_fullTotal, total, note, works, window._regFreeWorks, _autoOv);
+    total = _mf.total; note = _mf.note;
   }
   // ⭐ v3.25: 저장 전에 정산 마커 — 응답이 유실돼도 서버 저장이 확인되면 같은 전표로 차감 (예전엔 차감이 통째로 빠짐)
   const _addLogKey = 'a' + id;
@@ -15731,14 +15770,15 @@ async function openEditModal(id) {
   if(serialInput) serialInput.value = e.serial || '';
   if(modelInput) modelInput.value = e.model || '';
   const ws = parseWorks(e.works);
+  const _efw = window._editFreeWorks = new Set(parseManualFree(e.note));
   const orderedEditEntries = WORK_DISPLAY_ORDER
     .filter(k => WORKS[k] && (k !== 'nonbat_full' || ws.includes(k)))   // ⭐ v2.79h: 임시 키는 해당 건에만 표시
     .map(k => [k, WORKS[k]]);
   document.getElementById('edit-work-checks').innerHTML = orderedEditEntries.map(([k,v])=>{
     return `
-    <label class="work-check ${ws.includes(k)?'checked':''}" id="ewc-${k}">
+    <label class="work-check ${ws.includes(k)?'checked':''}${_efw.has(k)?' wfree':''}" id="ewc-${k}">
       <input type="checkbox" value="${k}" ${ws.includes(k)?'checked':''} onchange="document.getElementById('ewc-${k}').classList.toggle('checked',this.checked);nbExclusive('${k}','ewc-');updateEditPP()">
-      <div><div class="work-check-name">${v.label}</div><div class="work-check-price">${fmt(v.price)}원</div></div>
+      <div><div class="work-check-name">${v.label}</div><div class="work-check-price">${fmt(v.price)}원</div>${_lockShipped ? '' : workFreeBtn(k, true)}</div>
     </label>`;
   }).join('');
   try { syncEtcRuleEdit(); } catch(err) {}   // ⭐ v2.79n: 논배(포함) 건은 기타작업 잠금 상태로 열기
@@ -15749,7 +15789,7 @@ async function openEditModal(id) {
     const _repM = _rawNote.match(T2N_REP_TAG_RE);
     window._editT2nRepro = _repM ? _repM[1] : '';
     window._editT2nFault = T2N_FAULT_TAG_RE.test(_rawNote);   // ⭐ v2.87
-    let _cleanNote = _rawNote.replace(T2N_REP_TAG_RE, '').replace(/\[고객과실\]\s*/g, '').trim();
+    let _cleanNote = _rawNote.replace(T2N_REP_TAG_RE, '').replace(/\[고객과실\]\s*/g, '').replace(MANUAL_FREE_RE, '').trim();
     if(_repM && _repM[2] && _repM[2].trim() && !_cleanNote.includes(_repM[2].trim())) _cleanNote = `${_repM[2].trim()} ${_cleanNote}`.trim();
     document.getElementById('edit-note').value = _cleanNote;
     try { updateEditT2nRow(e.model); } catch(err) {}
@@ -16103,16 +16143,18 @@ function updateEditPP() {
   try { syncEtcRuleEdit(); } catch(e) {}
   const cs = [...document.querySelectorAll('#edit-work-checks input:checked')].map(c=>c.value);
   const _sum = cs.reduce((s,k)=>s+WORKS[k].price,0);
-  let _pv = cs.length ? `공임비 합계: ${fmt(_sum)}원` : '';
+  let _pv = cs.length ? `공임비 합계: ${fmt(_sum)}원` : '', _auto = 0, _ov = [];
   // v3.36a: 6개월 무상이 붙는 재인입 건이면 저장될 청구액을 미리 보여줌 (저장 때 saveEdit가 같은 규칙으로 계산)
   try {
     const _oe = entries.find(x => String(x.id) === String(editTargetId)), _r = parseReentry(_oe);
     const _rs = document.querySelector('input[name="edit-reentry-rs"]:checked')?.value || (_r && _r.rs);
     if(cs.length && _r && WARRANTY_REASONS.has(_rs)) {
       const _wi = warrantyInfo({ id: editTargetId, serial: _oe.serial, works: JSON.stringify(cs), total: _sum, note: '', date: _oe.date, reentry: JSON.stringify({ ..._r, rs: _rs }) });
-      if(_wi && !_wi.unknown && _wi.freeAmt > 0) _pv += ` → 청구 ${fmt(_sum - _wi.freeAmt)}원 (${_wi.overlap.map(k => WORKS[k]?.tag || k).join('·')} 공임 ${fmt(_wi.freeAmt)}원 6개월 무상)`;
+      if(_wi && !_wi.unknown && _wi.freeAmt > 0) { _auto = _wi.freeAmt; _ov = _wi.overlap; _pv += ` → 청구 ${fmt(_sum - _wi.freeAmt)}원 (${_wi.overlap.map(k => WORKS[k]?.tag || k).join('·')} 공임 ${fmt(_wi.freeAmt)}원 6개월 무상)`; }
     }
   } catch(e) {}
+  const _mk = cs.filter(k => window._editFreeWorks.has(k) && !_ov.includes(k));
+  if(_mk.length) _pv += ` → 청구 ${fmt(Math.max(0, _sum - _auto - _mk.reduce((s,k)=>s+WORKS[k].price,0)))}원 (🆓 ${_mk.map(k => WORKS[k]?.tag || k).join('·')} 무상)`;
   document.getElementById('edit-price-preview').textContent = _pv;
   renderEditParts(cs);
 }
@@ -16239,13 +16281,20 @@ async function saveEdit() {
       const _rsNow = _newReJson ? JSON.parse(_newReJson).rs : '';
       const _syn = { id: editTargetId, serial: newSerial, works: JSON.stringify(works), total, note, date: origEntry?.date, reentry: _newReJson };
       const _wi = WARRANTY_REASONS.has(_rsNow) ? warrantyInfo(_syn) : null;
+      const _fullNow = total, _hadManual = parseManualFree(origEntry?.note).length > 0;
+      let _autoOv = [];
       if(_wi && !_wi.unknown && _wi.freeAmt > 0) {
-        const _fc = freeToggleCalc(_syn); total = _fc.newTotal; note = _fc.newNote;
-      } else if(_tagM) {
+        const _fc = freeToggleCalc(_syn); total = _fc.newTotal; note = _fc.newNote; _autoOv = _wi.overlap;
+      } else if(_tagM && !_hadManual) {
         // 사람이 직접 건 무상(규칙 밖)은 유지 — 원공임만 새 작업 기준으로
         const _cut = _tagFull ? total : Math.max(0, _origFull - origTotal);
         note = `${note} [${_tagFull ? '무상 재작업' : '부분 무상'}·원공임 ${fmt(total)}원]`.trim();
         total = Math.max(0, total - _cut);
+      }
+      // 버튼이 없는 사용자(엔지니어)가 고쳐도 기존 작업 무상은 note에서 복원한 그대로 유지
+      if(_hadManual || (canManualFree() && works.some(k => window._editFreeWorks.has(k)))) {
+        const _mf = applyManualFree(_fullNow, total, note, works, window._editFreeWorks, _autoOv);
+        total = _mf.total; note = _mf.note;
       }
     }
     // ⭐ v2.57g: 수정은 서버 저장 확인 후 성공 표시 (실패를 숨기지 않음 → 새로고침 원복 방지)
