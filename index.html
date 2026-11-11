@@ -8143,8 +8143,8 @@ const WARRANTY_REASONS = new Set(['defect', 'newdefect']);
 function isPartFreeEntry(e) { return PART_FREE_TAG_RE.test(String(e && e.note || '')); }
 function hasFreeTag(e) { return isFreeEntry(e) || isPartFreeEntry(e); }
 function freeBadge(e) {
-  if(isFreeEntry(e)) return ' <span style="font-size:10px;font-weight:800;background:#10b9811a;color:#10b981;border:1px solid #10b98155;padding:1px 6px;border-radius:99px;">무상</span>';
-  if(isPartFreeEntry(e)) return ' <span style="font-size:10px;font-weight:800;background:#10b9811a;color:#10b981;border:1px dashed #10b98188;padding:1px 6px;border-radius:99px;">부분 무상</span>';
+  if(isFreeEntry(e)) return ' <span style="font-size:10px;font-weight:800;background:#10b9811a;color:#10b981;border:1px solid #10b98155;padding:1px 6px;border-radius:99px;white-space:nowrap;display:inline-block;">무상</span>';
+  if(isPartFreeEntry(e)) return ' <span style="font-size:10px;font-weight:800;background:#10b9811a;color:#10b981;border:1px dashed #10b98188;padding:1px 6px;border-radius:99px;white-space:nowrap;display:inline-block;">부분 무상</span>';
   return '';
 }
 function freeLabel(e) { return isFreeEntry(e) ? '[무상 재작업] ' : isPartFreeEntry(e) ? '[부분 무상] ' : ''; }
