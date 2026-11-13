@@ -11646,10 +11646,13 @@ async function renderFinance() {
   } catch(e) {}
   // ⭐ v2.84b: 폴백 사슬 유지 — 출고 평균 → (출고 없음) 등록 평균 → 수동 기준값
   const _regRevMonth = monthEntries.reduce((s, e) => s + (Number(e.total) || 0), 0);
-  const avgUnit = shipAvgUnit || (totalCnt > 0 ? Math.round(totalRev / totalCnt)
+  const _autoUnit = shipAvgUnit || (totalCnt > 0 ? Math.round(totalRev / totalCnt)
     : (regCntMonth > 0 ? Math.round(_regRevMonth / regCntMonth) : (f.unitPrice || 27000)));
-  const avgUnitSrc = shipAvgUnit ? `이 달 출고 ${fmt(shipAvgCnt)}건 평균`
+  const _autoSrc = shipAvgUnit ? `이 달 출고 ${fmt(shipAvgCnt)}건 평균`
     : (totalCnt > 0 ? '출고 건 평균' : (regCntMonth > 0 ? '등록 건 평균 (출고 없음)' : '수동 기준값'));
+  // v3.50: 기준 건당가 고정 (마스터 2026-11-13) — 실제 평균은 참고로만 표시
+  const avgUnit = FIN_FIXED_UNIT;
+  const avgUnitSrc = `고정값 · 실제 ${_autoSrc} ${fmt(_autoUnit)}원`;
 
   // 분석 대상: 현재 명단(활동중, 마스터 제외) + 퇴사자(연봉 데이터가 남아 있는 비명단자)
   const team = (workers || []).filter(n => n !== MASTER_NAME && isActiveWorker(n));
@@ -12158,6 +12161,7 @@ async function renderFinance() {
    월별 건당 평균 공임(유상 출고 기준)은 달마다 변하므로, 수당을 공임 % 연동으로 하면 매달 금액이
    바뀌어 운영이 곤란 → 최근 6개월 중 '가장 낮았던 달'의 건당 공임을 바닥으로 잡고,
    그 바닥 기준으로도 부담률이 낮은 '고정가'를 추천한다. 초과 건수는 실데이터(개인 일일 목표 초과분)로 집계. */
+var FIN_FIXED_UNIT = 26000;     // v3.50: 경영분석 평균 수리비용(기준 건당가) 고정 (마스터 2026-11-13)
 var FIN_PROFIT_GOAL = 11750000;   // v3.49: 영업이익 기준 — 넘어야 초과건 수당 운영, 넘은 금액은 부서 인센티브 (마스터 2026-11-13)
 function _finOverBonusData() {
   const pad = n => String(n).padStart(2, '0');
