@@ -11767,7 +11767,7 @@ async function renderFinance() {
     <div class="card" style="padding:14px 16px;border-color:${teamProfit >= 0 ? 'var(--accent)' : '#dc2626'};"><div style="font-size:11px;color:var(--text3);font-weight:700;">영업이익 (매출−인건비−고정비)</div>
       <div style="font-size:20px;">${_pc(teamProfit)}</div>
       <div style="font-size:11px;color:var(--text3);margin-top:2px;">이익률 <b style="color:${teamMargin >= 0 ? 'var(--green,#16a34a)' : '#dc2626'};">${teamMargin.toFixed(1)}%</b></div>
-      <div style="font-size:11px;margin-top:4px;padding-top:4px;border-top:1px dashed var(--border);" title="영업이익이 이 기준을 넘어야 초과건 수당 운영 가능 · 넘은 금액은 부서 인센티브 (마스터 2026-11-13)">기준 ${fmt(FIN_PROFIT_GOAL)}원 ${teamProfit >= FIN_PROFIT_GOAL ? `<b style="color:var(--green,#16a34a);">✓ 달성 (+${fmt(Math.round(teamProfit - FIN_PROFIT_GOAL))})</b>` : `<b style="color:#dc2626;">미달 (−${fmt(Math.round(FIN_PROFIT_GOAL - teamProfit))})</b>`}</div></div>
+      <div style="font-size:11px;margin-top:4px;padding-top:4px;border-top:1px dashed var(--border);" title="영업이익이 이 지점을 넘은 금액부터 부서이익 (초과건 수당·부서 인센티브 재원) — 영업이익·이익률 계산엔 안 들어감 (마스터 2026-11-13)">부서이익 발생지점 ${fmt(FIN_PROFIT_GOAL)}원 · 부서이익 ${teamProfit > FIN_PROFIT_GOAL ? `<b style="color:var(--green,#16a34a);">+${fmt(Math.round(teamProfit - FIN_PROFIT_GOAL))}원</b>` : `<b style="color:var(--text3);">0원 (발생 전)</b>`}</div></div>
     <div class="card" style="padding:14px 16px;"><div style="font-size:11px;color:var(--text3);font-weight:700;">팀 손익분기 (BEP)</div>
       <div style="font-size:20px;font-weight:800;margin-top:4px;">${avgUnit > 0 ? fmt(Math.ceil((teamCost + fixed) / avgUnit)) : '?'}건/월</div>
       <div style="font-size:11px;color:var(--text3);margin-top:2px;">${avgUnit > 0 && workdays > 0 ? `일 ${(Math.ceil((teamCost + fixed) / avgUnit) / workdays).toFixed(1)}건 필요 · 현재 일 ${(totalCnt / Math.max(1, workdays)).toFixed(1)}건` : ''}</div></div>
@@ -12162,7 +12162,7 @@ async function renderFinance() {
    바뀌어 운영이 곤란 → 최근 6개월 중 '가장 낮았던 달'의 건당 공임을 바닥으로 잡고,
    그 바닥 기준으로도 부담률이 낮은 '고정가'를 추천한다. 초과 건수는 실데이터(개인 일일 목표 초과분)로 집계. */
 var FIN_FIXED_UNIT = 26000;     // v3.50a: 경영분석 평균 수리비용(기준 건당가) 상한 (마스터 2026-11-13)
-var FIN_PROFIT_GOAL = 11750000;   // v3.49: 영업이익 기준 — 넘어야 초과건 수당 운영, 넘은 금액은 부서 인센티브 (마스터 2026-11-13)
+var FIN_PROFIT_GOAL = 11750000;   // v3.50b: 부서이익 발생지점 — 영업이익 중 이 금액을 넘은 부분이 부서이익(초과건 수당·인센티브) (마스터 2026-11-13)
 function _finOverBonusData() {
   const pad = n => String(n).padStart(2, '0');
   const now = new Date();
