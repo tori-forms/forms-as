@@ -11742,7 +11742,14 @@ async function renderFinance() {
     } else { r.alloc = 0; r.profit = r.rev - r.cost; r.bepCnt = 0; }
   });
   const fixed = f.fixedMonthly || 0;
-  const teamProfit = totalRev - teamCost - fixed;
+  // v3.50c: 진행 중인 달은 인건비·고정비를 지난 영업일(평일, 오늘 포함) 비율만큼만 — 매출(오늘까지 출고)과 기간 맞춤 (마스터 2026-11-13)
+  let _elapsedFrac = 1, _wdPast = 0, _wdAll = 0;
+  { const _now = new Date(), _dim = new Date(fy, fm, 0).getDate();
+    if(_now.getFullYear() === fy && _now.getMonth() + 1 === fm) {
+      for(let d = 1; d <= _dim; d++) { const dow = new Date(fy, fm - 1, d).getDay(); if(dow === 0 || dow === 6) continue; _wdAll++; if(d <= _now.getDate()) _wdPast++; }
+      _elapsedFrac = _wdAll ? Math.max(1, _wdPast) / _wdAll : 1;
+    } }
+  const teamProfit = totalRev - (teamCost + fixed) * _elapsedFrac;
   const teamMargin = totalRev > 0 ? (teamProfit / totalRev * 100) : (teamCost + fixed > 0 ? -100 : 0);
   const _w = v => fmt(Math.round(v)) + '원';
   const _pc = v => `<span style="font-weight:800;color:${v >= 0 ? 'var(--green,#16a34a)' : '#dc2626'};">${v >= 0 ? '+' : '−'}${fmt(Math.abs(Math.round(v)))}원</span>`;
@@ -11766,6 +11773,7 @@ async function renderFinance() {
       <div style="font-size:11px;color:var(--text3);margin-top:2px;">${incCnt}명 반영${fixed ? ` · 고정비 ${_w(fixed)} 별도` : ''}</div></div>
     <div class="card" style="padding:14px 16px;border-color:${teamProfit >= 0 ? 'var(--accent)' : '#dc2626'};"><div style="font-size:11px;color:var(--text3);font-weight:700;">영업이익 (매출−인건비−고정비)</div>
       <div style="font-size:20px;">${_pc(teamProfit)}</div>
+      ${_elapsedFrac < 1 ? `<div style="font-size:10.5px;color:var(--text3);margin-top:2px;">진행 중 — 인건비·고정비 ${_wdPast}/${_wdAll} 영업일분(${_w(Math.round((teamCost + fixed) * _elapsedFrac))})만 반영</div>` : ''}
       <div style="font-size:11px;color:var(--text3);margin-top:2px;">이익률 <b style="color:${teamMargin >= 0 ? 'var(--green,#16a34a)' : '#dc2626'};">${teamMargin.toFixed(1)}%</b></div>
       <div style="font-size:11px;margin-top:4px;padding-top:4px;border-top:1px dashed var(--border);" title="영업이익이 이 지점을 넘은 금액부터 부서이익 (초과건 수당·부서 인센티브 재원) — 영업이익·이익률 계산엔 안 들어감 (마스터 2026-11-13)">부서이익 발생지점 ${fmt(FIN_PROFIT_GOAL)}원 · 부서이익 ${teamProfit > FIN_PROFIT_GOAL ? `<b style="color:var(--green,#16a34a);">+${fmt(Math.round(teamProfit - FIN_PROFIT_GOAL))}원</b>` : `<b style="color:var(--text3);">0원 (발생 전)</b>`}</div></div>
     <div class="card" style="padding:14px 16px;"><div style="font-size:11px;color:var(--text3);font-weight:700;">팀 손익분기 (BEP)</div>
