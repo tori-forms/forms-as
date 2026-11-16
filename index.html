@@ -3,6 +3,8 @@
 <meta charset="UTF-8">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>/* 태블릿(짧은 변 600px 이상 터치 기기)은 기종마다 해상도가 달라도 PC 폭 1280에 맞춰 자동 배율 — 휴대폰은 그대로 */
+if(Math.min(screen.width,screen.height)>=600&&matchMedia('(pointer:coarse)').matches)document.querySelector('meta[name=viewport]').content='width=1280';</script>
 <title>t'order AS 현황</title>
 <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAABCGlDQ1BJQ0MgUHJvZmlsZQAAeJxjYGA8wQAELAYMDLl5JUVB7k4KEZFRCuwPGBiBEAwSk4sLGHADoKpv1yBqL+viUYcLcKakFicD6Q9ArFIEtBxopAiQLZIOYWuA2EkQtg2IXV5SUAJkB4DYRSFBzkB2CpCtkY7ETkJiJxcUgdT3ANk2uTmlyQh3M/Ck5oUGA2kOIJZhKGYIYnBncAL5H6IkfxEDg8VXBgbmCQixpJkMDNtbGRgkbiHEVBYwMPC3MDBsO48QQ4RJQWJRIliIBYiZ0tIYGD4tZ2DgjWRgEL7AwMAVDQsIHG5TALvNnSEfCNMZchhSgSKeDHkMyQx6QJYRgwGDIYMZAKbWPz9HbOBQAAACM0lEQVR4nO2TMWhaQRjH77t778l7T2IFBSW8IoUOWUrBVJRODhksVCxYQekS3DKLS+zm0DaTWEIHRQfbl4DyRGggwZfWIWR06JChpSChkNEM8ip6dx0ehGBMU0iXFn/T3f+4j//3v+8QWrBgwX8PXKcDYIxvURcA4Lrifw8H4DtYxAAYsG35gpWVlY2NDbiErV8tMivZxgPa3XsPHzzm0lv3fcY544xzzi7h8XhisRjnHAA45xenN7smhADAu+3tL9++vnzy7KmgfPxkfj48lCRpa2ur1+utrq7u7u4OBoNyuez1ek9PT3VdV1W1Xq8fHBz4/f4Ll3M6AADG2NLSUjD0CKyfxo/v6ovnXsXpkOVsNhsOh4fDYSKR0DRtMBgoipLL5SqViiiKmUwmEomcn5+PRqPZSGb2giBMp9PNzc2zs7Nqtaq///DqzWvGWD6fFwQhnU6XSiVd14fDYaFQcLlcDofD5/MdHx9LkrS+vn41EmFuUKqqyrKMEKKcybJMKbXzVRSFECLLsmVZCKHxeLy3t2dZlmVZqVRKFMXJZDJTav4sn5ycFIvFYDDYarV0Xd/Z2TFN0+12E0K63W6tVjMMAwD6/X4oFEomkxhjVVWn0+nNHVBKEULNZjMajTqdTsMw4vE4Y6zRaCwvLxNC2u322tqapmn7+/vNZtM0zaOjo06nEwgEOOdz7f6O23+3+fcBgBBCKeWcE0IQQpRSjLH9ErZij7/twF780T9YsGDBv8gvOuvwC2bIq7IAAAAASUVORK5CYII=">
 <style>
@@ -507,6 +509,7 @@ tr:hover td{background:var(--surface2);}
   overflow-x:auto;scrollbar-width:none;
 }
 .nav::-webkit-scrollbar{display:none;}
+@media(min-width:641px){.nav{flex-wrap:wrap;}}  /* 탭이 화면보다 많으면 숨기지 말고 다음 줄로 — 휴대폰은 가로 스크롤 유지 */
 .nav-btn{
   height:36px!important;padding:0 14px!important;
   border-radius:10px!important;border:none!important;
