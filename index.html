@@ -20944,48 +20944,57 @@ function _doaLotCustomToggle() {
   if(!sel || !wrap) return;
   wrap.style.display = (sel.value === '__custom') ? '' : 'none';
 }
+/* ⭐ v3.53: 부품·증상 필터. 증상은 자유 입력이라 앞의 S/N("TO2307FB01692N /")과 띄어쓰기를 빼고 같은 증상으로 묶음. */
+let _doaF = { part: '', sym: '', q: '' };
+const _doaSym = n => { const m = String(n||'').match(/^DOA[^\[]*\[([^\]]*)\]/); return m ? m[1] : '-'; };
+const _doaSymLabel = n => _doaSym(n).replace(/^TO\d{4}[A-Z]{2}\d+N?[\s\/]*/, '').trim() || '-';
+const _doaSymKey = n => _doaSymLabel(n).replace(/\s+/g, '');
+function _doaMatch(l) {
+  const q = _doaF.q.replace(/\s+/g, '').toLowerCase();
+  return (!_doaF.part || (l.partName || '?') === _doaF.part)
+    && (!_doaF.sym || _doaSymKey(l.note) === _doaF.sym)
+    && (!q || _doaSym(l.note).replace(/\s+/g, '').toLowerCase().includes(q));
+}
+function _renderDoaFilter() {
+  const el = document.getElementById('doa-filter');
+  if(!el) return;
+  const logs = _doaLogs().filter(l => !_doaUndone(l));
+  const pc = {}; logs.forEach(l => { const p = l.partName || '?'; pc[p] = (pc[p] || 0) + 1; });
+  if(_doaF.part && !pc[_doaF.part]) _doaF.part = '';
+  const sc = {};
+  logs.forEach(l => {
+    if(_doaF.part && (l.partName || '?') !== _doaF.part) return;
+    const k = _doaSymKey(l.note);
+    (sc[k] = sc[k] || { n: 0, label: _doaSymLabel(l.note) }).n++;
+  });
+  if(_doaF.sym && !sc[_doaF.sym]) _doaF.sym = '';
+  const sel = (v, cur) => v === cur ? ' selected' : '';
+  const partOpts = Object.entries(pc).sort((a,b) => b[1] - a[1])
+    .map(([p,n]) => `<option value="${escapeHtml(p)}"${sel(p,_doaF.part)}>${escapeHtml(p)} (${n})</option>`).join('');
+  const symOpts = Object.entries(sc).sort((a,b) => b[1].n - a[1].n)
+    .map(([k,v]) => `<option value="${escapeHtml(k)}"${sel(k,_doaF.sym)}>${escapeHtml(v.label)} (${v.n})</option>`).join('');
+  el.innerHTML = `<div class="card" style="margin-bottom:14px;padding:12px 16px;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+      <div class="form-group" style="margin:0;min-width:200px;flex:1;">
+        <label class="form-label">부품 필터</label>
+        <select style="width:100%;height:36px;" onchange="_doaF.part=this.value;_doaF.sym='';_renderDoaFilter();_renderDoaTables()"><option value="">전체 부품 (${logs.length})</option>${partOpts}</select>
+      </div>
+      <div class="form-group" style="margin:0;min-width:200px;flex:1;">
+        <label class="form-label">증상 필터</label>
+        <select style="width:100%;height:36px;" onchange="_doaF.sym=this.value;_renderDoaTables()"><option value="">전체 증상</option>${symOpts}</select>
+      </div>
+      <div class="form-group" style="margin:0;min-width:160px;flex:1;">
+        <label class="form-label">증상·S/N 검색</label>
+        <input type="text" value="${escapeHtml(_doaF.q)}" placeholder="예: 가로줄, 찍힘, TO2307" style="width:100%;height:36px;" oninput="_doaF.q=this.value;_renderDoaTables()">
+      </div>
+      <button class="btn" style="height:36px;white-space:nowrap;" onclick="_doaF={part:'',sym:'',q:''};_renderDoaFilter();_renderDoaTables()">초기화</button>
+    </div>
+  </div>`;
+}
 function renderDoa() {
   const el = document.getElementById('doa-content');
   if(!el) return;
-  const logs = _doaLogs().slice().sort((a,b) => String(b.date).localeCompare(String(a.date)));
-  const curMonth = new Date().toISOString().slice(0,7);
-  const _symOf = n => { const m = String(n||'').match(/^DOA[^\[]*\[([^\]]*)\]/); return m ? m[1] : '-'; };
-  // ⭐ v2.79p: 노트의 입고분 태그 파싱 — "DOA 불량 [증상] (2026-08-26 입고분)"
-  const _lotOf = n => { const m = String(n||'').match(/\((\d{4}-\d{2}-\d{2}) 입고분\)/); return m ? m[1] : ''; };
-  // ⭐ v2.87e: 입고분 미기재('-') 건은 같은 부품의 가장 가까운(직전 우선) 기록의 입고분을 따라 '추정' 처리
-  const _datedByPart = {};
-  logs.forEach(l => { const d0 = _lotOf(l.note); if(d0) (_datedByPart[l.partName] = _datedByPart[l.partName] || []).push({ t: new Date(l.date).getTime() || 0, date: d0 }); });
-  const _lotResolved = (l) => {
-    const d0 = _lotOf(l.note);
-    if(d0) return { date: d0, est: false };
-    const arr = _datedByPart[l.partName] || [];
-    if(!arr.length) return { date: '', est: false };
-    const t = new Date(l.date).getTime() || 0;
-    let best = null;
-    arr.forEach(x => { if(x.t <= t && (!best || x.t > best.t)) best = x; });   // 직전 기록 우선
-    if(!best) arr.forEach(x => { if(!best || x.t < best.t) best = x; });      // 없으면 이후 기록
-    return { date: best.date, est: true };
-  };
-  // 부품 × 입고분별 집계 (추정 포함)
-  // ⭐ v2.88a: 되돌려진(취소된) DOA는 집계에서 제외 — 중복 정리한 건이 누적 DOA에 계속 잡히던 문제
-  const agg = {};
-  logs.forEach(l => {
-    if(_doaUndone(l)) return;
-    const lr = _lotResolved(l);
-    const k = (l.partName || '?') + '|' + (lr.date || '미지정');
-    if(!agg[k]) agg[k] = { part: l.partName || '?', lot: lr.date || '', total: 0, month: 0, est: 0 };
-    agg[k].total += Number(l.qty)||0;
-    if(lr.est) agg[k].est += Number(l.qty)||0;
-    if(String(l.date).slice(0,7) === curMonth) agg[k].month += Number(l.qty)||0;
-  });
-  // 입고분별 입고 수량 조회용 (부품명 → {입고일: 수량})
-  const lotQty = {};
-  (stock||[]).forEach(p => {
-    try { _partLots(p).lots.forEach(l => { (lotQty[p.name] = lotQty[p.name] || {})[l.date] = l.qty; }); } catch(e) {}
-  });
-  const _d = v => { const d = new Date(v); return isNaN(d) ? '' : `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
   const partOpts = (stock||[]).map((p,i) => `<option value="${i}">${escapeHtml(p.name)}${p.model&&p.model!=='공용'?` (${p.model})`:''} — 재고 ${p.qty}</option>`).join('');
-
   let h = `
   <div class="card" style="margin-bottom:14px;">
     <div class="card-title" style="margin-bottom:6px;">🚫 DOA(개봉 불량) 등록</div>
@@ -21025,12 +21034,62 @@ function renderDoa() {
       <button class="btn btn-primary" style="height:36px;margin-top:23px;white-space:nowrap;" onclick="registerDoa()">🚫 DOA 등록</button>
     </div>
     <div id="doa-lot-hint" style="font-size:10.5px;color:var(--text3);margin-top:6px;line-height:1.4;"></div>
-  </div>`;
+  </div>
+  <div id="doa-filter"></div><div id="doa-tables"></div>`;
+  el.innerHTML = h;
+  _renderDoaFilter();
+  _renderDoaTables();
+  try { updateDoaLotSel(); } catch(e) {}   // ⭐ v2.79q: 첫 부품 기준 입고분(릴레이) 채우기
+}
+function _renderDoaTables() {
+  const el = document.getElementById('doa-tables');
+  if(!el) return;
+  const all = _doaLogs().slice().sort((a,b) => String(b.date).localeCompare(String(a.date)));
+  const logs = all.filter(_doaMatch);
+  const _filtered = !!(_doaF.part || _doaF.sym || _doaF.q.trim());
+  const curMonth = new Date().toISOString().slice(0,7);
+  const _symOf = _doaSym;
+  // ⭐ v2.79p: 노트의 입고분 태그 파싱 — "DOA 불량 [증상] (2026-08-26 입고분)"
+  const _lotOf = n => { const m = String(n||'').match(/\((\d{4}-\d{2}-\d{2}) 입고분\)/); return m ? m[1] : ''; };
+  // ⭐ v2.87e: 입고분 미기재('-') 건은 같은 부품의 가장 가까운(직전 우선) 기록의 입고분을 따라 '추정' 처리
+  //   v3.53: 추정은 필터와 무관하게 전체 기록(all) 기준
+  const _datedByPart = {};
+  all.forEach(l => { const d0 = _lotOf(l.note); if(d0) (_datedByPart[l.partName] = _datedByPart[l.partName] || []).push({ t: new Date(l.date).getTime() || 0, date: d0 }); });
+  const _lotResolved = (l) => {
+    const d0 = _lotOf(l.note);
+    if(d0) return { date: d0, est: false };
+    const arr = _datedByPart[l.partName] || [];
+    if(!arr.length) return { date: '', est: false };
+    const t = new Date(l.date).getTime() || 0;
+    let best = null;
+    arr.forEach(x => { if(x.t <= t && (!best || x.t > best.t)) best = x; });   // 직전 기록 우선
+    if(!best) arr.forEach(x => { if(!best || x.t < best.t) best = x; });      // 없으면 이후 기록
+    return { date: best.date, est: true };
+  };
+  // 부품 × 입고분별 집계 (추정 포함)
+  // ⭐ v2.88a: 되돌려진(취소된) DOA는 집계에서 제외 — 중복 정리한 건이 누적 DOA에 계속 잡히던 문제
+  const agg = {};
+  logs.forEach(l => {
+    if(_doaUndone(l)) return;
+    const lr = _lotResolved(l);
+    const k = (l.partName || '?') + '|' + (lr.date || '미지정');
+    if(!agg[k]) agg[k] = { part: l.partName || '?', lot: lr.date || '', total: 0, month: 0, est: 0 };
+    agg[k].total += Number(l.qty)||0;
+    if(lr.est) agg[k].est += Number(l.qty)||0;
+    if(String(l.date).slice(0,7) === curMonth) agg[k].month += Number(l.qty)||0;
+  });
+  // 입고분별 입고 수량 조회용 (부품명 → {입고일: 수량})
+  const lotQty = {};
+  (stock||[]).forEach(p => {
+    try { _partLots(p).lots.forEach(l => { (lotQty[p.name] = lotQty[p.name] || {})[l.date] = l.qty; }); } catch(e) {}
+  });
+  const _d = v => { const d = new Date(v); return isNaN(d) ? '' : `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+  let h = '';
 
   // ⭐ v2.79p: 부품 × 입고분별 집계 — 어느 로트에서 얼마나 나왔는지 (공급사 클레임 근거)
   const aggRows = Object.values(agg).sort((a,b) => (a.part+a.lot).localeCompare(b.part+b.lot) || b.total - a.total)
     .sort((a,b) => b.total - a.total);
-  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">부품 × 입고분별 DOA 집계 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 전체 DOA 기록 기준 · 되돌려진 건 제외</span></div>
+  h += `<div class="card" style="padding:0;margin-bottom:14px;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">부품 × 입고분별 DOA 집계 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 전체 DOA 기록 기준${_filtered ? ' · <b style="color:var(--accent,#2563eb);">필터 적용 중</b>' : ''} · 되돌려진 건 제외</span></div>
     <div class="table-wrap"><table>
     <thead><tr><th>부품명</th><th>입고분</th><th style="text-align:right">입고 수량</th><th style="text-align:right">이번 달</th><th style="text-align:right">누적 DOA</th><th style="text-align:right">DOA율</th></tr></thead>
     <tbody>${aggRows.length ? aggRows.map(v => {
@@ -21042,13 +21101,13 @@ function renderDoa() {
         <td style="text-align:right;">${fmt(v.month)}</td>
         <td style="text-align:right;font-weight:700;color:var(--red);">${fmt(v.total)}</td>
         <td style="text-align:right;">${rate !== null ? rate.toFixed(2) + '%' : '-'}</td></tr>`;
-    }).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:18px;">DOA 기록이 없습니다.</td></tr>'}</tbody>
+    }).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:18px;">${_filtered ? '조건에 맞는 DOA가 없습니다.' : 'DOA 기록이 없습니다.'}</td></tr>`}</tbody>
     </table></div></div>`;
 
   // 상세 목록 — ⭐ v2.92a/b: 되돌려진(취소된) 건은 목록에서 완전히 제외 (요청).
   //   되돌린 내역은 재고 이력 탭의 'DOA 등록 취소' 로그로 추적 가능.
   const listLogs = logs.filter(l => !_doaUndone(l));
-  h += `<div class="card" style="padding:0;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">DOA 상세 목록 <span style="font-size:11px;color:var(--text3);font-weight:400;">· 전체 ${listLogs.length}건 · 되돌려진 건 제외 (내역은 재고 이력에)</span></div>
+  h += `<div class="card" style="padding:0;"><div style="padding:12px 16px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);">DOA 상세 목록 <span style="font-size:11px;color:var(--text3);font-weight:400;">· ${_filtered ? '필터 결과' : '전체'} ${listLogs.length}건 · 되돌려진 건 제외 (내역은 재고 이력에)</span></div>
     <div class="table-wrap"><table>
     <thead><tr><th>일시</th><th>부품</th><th>입고분</th><th style="text-align:right">수량</th><th>증상</th><th>등록자</th><th></th></tr></thead>
     <tbody>${listLogs.length ? listLogs.map(l => `<tr>
@@ -21059,10 +21118,9 @@ function renderDoa() {
       <td>${escapeHtml(_symOf(l.note))}</td>
       <td>${escapeHtml(String(l.worker||'').split('::')[0])}</td>
       <td>${_doaUndone(l) ? '<span style="font-size:11px;color:var(--text3);">↩ 되돌려짐</span>' : ((isAdmin || String(l.worker||'').split('::')[0] === currentUser) ? `<button class="btn btn-sm" onclick="undoDoa('${escapeJs(String(l.logId||''))}')" title="잘못/중복 등록한 DOA 되돌리기 (재고 환입) — 본인 등록건은 직접 가능">되돌리기</button>` : '')}</td>
-    </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:18px;">DOA 기록이 없습니다.</td></tr>`}</tbody>
+    </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:18px;">${_filtered ? '조건에 맞는 DOA가 없습니다.' : 'DOA 기록이 없습니다.'}</td></tr>`}</tbody>
     </table></div></div>`;
   el.innerHTML = h;
-  try { updateDoaLotSel(); } catch(e) {}   // ⭐ v2.79q: 첫 부품 기준 입고분(릴레이) 채우기
 }
 async function registerDoa() {
   // ⭐ v2.87b: 이중 등록 방지 ① — 처리 중이면 무시 (버튼 연타·응답 대기 중 재클릭)
