@@ -4004,7 +4004,6 @@ function getModel() {
   return auto || manual;
 }
 // 비밀번호 SHA-256 해시
-// 마스터 PW: 1231
 // ⭐ v3.24: 마스터 예전 비밀번호 해시는 서버(Code.js MASTER_FALLBACK_PW_HASH)로 옮김 — 공개 코드에 두지 않음
 
 async function sha256(str) {
@@ -4324,6 +4323,16 @@ async function pwLoginSubmit() {
     loginAs(name);
     setTimeout(() => notify('비밀번호가 설정되었습니다. 다음부터 이 비밀번호로 로그인하세요.'), 600);
     gasCall({ action: 'savePassword', name: name, hash: newHash })
+      .then(r => {
+        if(r && r.ok === true) return;
+        const er = (r && r.error) || 'save-failed';
+        // ⭐ v3.54: 서버가 첫 설정을 거절(이미 비번이 있음 등) → 낙관 입장 취소, 다시 로그인
+        if(er === 'auth' || er === 'bad-name' || er === 'bad-hash') {
+          _pwLocalSave(name, ''); try { localStorage.removeItem('fa_pw_ov'); } catch(e) {}
+          alert('서버가 비밀번호 설정을 거절했습니다. 다시 로그인해주세요.'); location.reload(); return;
+        }
+        throw new Error(er);
+      })
       .catch(() => notifyPersist(`⚠ ${name}님 비밀번호가 서버에 저장되지 않았습니다 — 프로필의 '비밀번호 변경'에서 한 번 더 설정해주세요.`, 'error'));
   } else {
     // 기존 비번 검증 — ⭐ v3.24: 서버 비교. 방금 이 기기에서 설정한 비번(서버 저장 전일 수 있음)은 로컬로 통과
@@ -4424,7 +4433,8 @@ async function submitPasswordChange() {
 
   // GAS 호출
   try {
-    await gasCall({ action: 'savePassword', name: currentUser, hash: newHash });
+    const _sr = await gasCall({ action: 'savePassword', name: currentUser, hash: newHash, oldHash: curHash });
+    if(!_sr || _sr.ok !== true) { errorEl.textContent = (_sr && _sr.error) === 'locked' ? _pwErrMsg({message:'locked'}) : '현재 비밀번호가 틀렸습니다.'; return; }
     // 로컬 PASSWORD_MAP 즉시 갱신
     if(!window.PASSWORD_MAP) window.PASSWORD_MAP = {};
     window.PASSWORD_MAP[currentUser] = newHash;
@@ -7917,13 +7927,13 @@ function renderShipping() {
         <th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>특이사항</th>
       </tr></thead>
       <tbody>${ok.map((x,i) => `<tr>
-        <td style="text-align:center;"><input type="checkbox" class="ship-row-check" data-idx="${i}" data-serial="${x.entry.serial}" style="accent-color:var(--accent);" onchange="onShipCheckChange()"></td>
+        <td style="text-align:center;"><input type="checkbox" class="ship-row-check" data-idx="${i}" data-serial="${escapeHtml(x.entry.serial)}" style="accent-color:var(--accent);" onchange="onShipCheckChange()"></td>
         <td>${(() => { const __m = normalizeModel(x.entry.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
-        <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${x.entry.serial}</span>${freeBadge(x.entry)}${warrantyChip(x.entry)}</td>
-        <td>${x.entry.worker}</td>
+        <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${escapeHtml(x.entry.serial)}</span>${freeBadge(x.entry)}${warrantyChip(x.entry)}</td>
+        <td>${escapeHtml(x.entry.worker)}</td>
         <td>${workTags(x.entry.works)}</td>
         <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
-        <td style="font-size:12px;color:${x.entry.note?'var(--amber-text)':'var(--text3)'};">${x.entry.note||'-'}</td>
+        <td style="font-size:12px;color:${x.entry.note?'var(--amber-text)':'var(--text3)'};">${escapeHtml(x.entry.note||'-')}</td>
       </tr>`).join('')}</tbody>
     </table></div>
   </div>`;
@@ -7940,11 +7950,11 @@ function renderShipping() {
         <thead><tr><th>기종</th><th>시리얼 번호</th><th>엔지니어</th><th>수리 항목</th><th>수리 등록 시간</th><th>특이사항</th><th></th></tr></thead>
         <tbody>${holdExcluded.map((x,i) => `<tr style="box-shadow:inset 3px 0 0 #ef4444;">
           <td>${(() => { const __m = normalizeModel(x.entry.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
-          <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${x.entry.serial}</span></td>
-          <td>${x.entry.worker}</td>
+          <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${escapeHtml(x.entry.serial)}</span></td>
+          <td>${escapeHtml(x.entry.worker)}</td>
           <td>${workTags(x.entry.works)}</td>
           <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
-          <td style="font-size:12px;color:${x.entry.note?'var(--amber-text)':'var(--text3)'};">${x.entry.note||'-'}</td>
+          <td style="font-size:12px;color:${x.entry.note?'var(--amber-text)':'var(--text3)'};">${escapeHtml(x.entry.note||'-')}</td>
           <td><button class="btn btn-sm btn-primary" onclick="moveExcludedToOk(${i})" style="background:#10b981;">${String(x.entry.status)==='hold_aging' ? '↩️ 에이징으로' : '↩️ 출고 가능으로'}</button></td>
         </tr>`).join('')}</tbody>
       </table></div>
@@ -7972,12 +7982,12 @@ function renderShipping() {
           }[x.status] || 'var(--text2)';
           return `<tr>
           <td>${(() => { const __m = normalizeModel(x.entry.model); return `<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;">${__m||'-'}</span>`; })()}</td>
-          <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${x.entry.serial}</span></td>
-          <td>${x.entry.worker}</td>
+          <td class="mono"><span class="serial-copy" onclick="copySerial('${escapeJs(x.entry.serial)}')" title="클릭하면 복사">${escapeHtml(x.entry.serial)}</span></td>
+          <td>${escapeHtml(x.entry.worker)}</td>
           <td>${workTags(x.entry.works)}</td>
           <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${fmtDT2(x.repairDT)}</td>
           <td style="font-size:11px;font-weight:600;color:${statusColor};white-space:nowrap;">${statusLabel}</td>
-          <td style="font-size:12px;color:${x.entry.note?'var(--amber-text)':'var(--text3)'};">${x.entry.note||'-'}</td>
+          <td style="font-size:12px;color:${x.entry.note?'var(--amber-text)':'var(--text3)'};">${escapeHtml(x.entry.note||'-')}</td>
           <td><button class="btn btn-sm btn-primary" onclick="moveToOk(${i})">출고 추가</button></td>
         </tr>`}).join('')}</tbody>
       </table></div>
@@ -8074,7 +8084,7 @@ function checkSerials() {
     html += `<div style="margin-bottom:8px;">
       <div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:6px;">⚠️ 출고 불가 (${notInOk.length}건)</div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;">
-        ${notInOk.map(x => `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;background:#fef9c3;color:#92400e;padding:3px 8px;border-radius:6px;" title="${x.reason}">${x.serial} <span style="opacity:.7;">(${x.reason})</span></span>`).join('')}
+        ${notInOk.map(x => `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;background:#fef9c3;color:#92400e;padding:3px 8px;border-radius:6px;" title="${escapeHtml(x.reason)}">${escapeHtml(x.serial)} <span style="opacity:.7;">(${escapeHtml(x.reason)})</span></span>`).join('')}
       </div>
     </div>`;
   }
@@ -12885,7 +12895,8 @@ function escapeHtml(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 function escapeJs(s) {
-  return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"');
+  // ⭐ v3.54: 따옴표·&·<>를 \xNN으로 — onclick="…('${escapeJs(x)}')" 처럼 HTML 속성 안에서도 속성이 안 끊김 (XSS 차단)
+  return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,'\\x27').replace(/"/g,'\\x22').replace(/&/g,'\\x26').replace(/</g,'\\x3c').replace(/>/g,'\\x3e').replace(/\r/g,'\\r').replace(/\n/g,'\\n');
 }
 
 /* ⭐ v2.20: 시리얼 정규화 — _ 제거 후 대문자 통일 */
@@ -18820,7 +18831,7 @@ function doSearch() {
             <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#fef3c7;color:#92400e;">📦 교품 처리 · ${REASON_LABEL[x.reason]||x.reason}</span>
           </div>
         </div>
-        <div style="margin-bottom:6px;">${(() => { const __m = normalizeModel(x.model); return __m?`<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;margin-right:4px;">${__m}</span>`:''; })()}</div>
+        <div style="margin-bottom:6px;">${(() => { const __m = normalizeModel(x.model); return __m?`<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;margin-right:4px;">${escapeHtml(__m)}</span>`:''; })()}</div>
         <div style="margin-bottom:8px;">${worksArr.map(k=>workTag(k)).join('')}</div>
         ${x.note?`<div style="font-size:12px;color:var(--amber-text);background:var(--amber-bg);padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:8px;">📝 ${x.note}</div>`:''}
         ${x.estimatedCost?`<div style="font-size:12px;color:var(--text2);margin-bottom:8px;">예상 수리비: ${fmt(x.estimatedCost)}원</div>`:''}
@@ -18844,7 +18855,7 @@ function doSearch() {
         </div>
       </div>
       <div style="margin-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;">${statusBadgeHtml(e)}</div>
-      <div style="margin-bottom:6px;">${(() => { const __m = normalizeModel(e.model); return __m?`<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;margin-right:4px;">${__m}</span>`:''; })()}</div>
+      <div style="margin-bottom:6px;">${(() => { const __m = normalizeModel(e.model); return __m?`<span style="font-size:11px;font-weight:700;background:${__m==='S2PRO_N'?'#ede9fe':'#dbeafe'};color:${__m==='S2PRO_N'?'#6d28d9':'#1d4ed8'};padding:2px 8px;border-radius:99px;margin-right:4px;">${escapeHtml(__m)}</span>`:''; })()}</div>
       <div style="margin-bottom:8px;">${workTags(e.works)}</div>
       ${e.note?`<div style="font-size:12px;color:var(--amber-text);background:var(--amber-bg);padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:8px;">📝 ${e.note}</div>`:''}
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -19912,13 +19923,21 @@ function renderWorkers() {
 async function resetWorkerPassword(name) {
   if(!isFullAdmin()) { notify('마스터만 비밀번호를 초기화할 수 있습니다.', 'error'); return; }
   if(!confirm(`${name}님의 비밀번호를 초기화할까요?\n\n초기화하면 기존 비밀번호는 즉시 무효가 되고,\n다음 로그인 때 본인이 새 비밀번호를 설정하는 화면이 뜹니다.`)) return;
-  // 로컬 즉시 반영 + 12분 보호 (낡은 캐시 페이로드가 옛 해시를 되살리는 것 방지 — v2.73b와 같은 원리)
-  window.PASSWORD_MAP = window.PASSWORD_MAP || {};
-  window.PASSWORD_MAP[String(name).trim()] = '';
-  try { localStorage.setItem('fa_pw_ov', JSON.stringify({ name: String(name).trim(), hash: '', ts: Date.now() })); } catch(e) {}
   try {
-    const r = await gasCall({ action: 'savePassword', name: name, hash: '' });
-    if(r && r.ok === false) { notify('⚠ 서버 저장 실패 — 잠시 후 다시 시도해주세요.', 'error'); return; }
+    // ⭐ v3.54: 서버가 마스터 확인 — 이 기기에 서버 확인된 마스터 해시가 없으면 비밀번호를 한 번 물음
+    let adminHash = '';
+    try { adminHash = JSON.parse(localStorage.getItem('fa_pw_ok') || '{}')[MASTER_NAME] || ''; } catch(e) {}
+    if(!adminHash) {
+      const pw = await new Promise(res => { openPromptModal('마스터 확인', '초기화하려면 마스터 비밀번호를 입력하세요.', '마스터 비밀번호', v => res(v || ''), '확인', '', () => res('')); const el = document.getElementById('prompt-modal-input'); if(el) el.type = 'password'; });
+      if(!pw) return;
+      adminHash = await sha256(pw);
+    }
+    const r = await gasCall({ action: 'savePassword', name: name, hash: '', adminHash });
+    if(!r || r.ok !== true) { const er = (r && r.error) || ''; notify(er === 'auth' ? '⚠ 마스터 비밀번호가 틀렸습니다.' : er === 'locked' ? '⚠ 여러 번 틀려 10분간 잠겼습니다.' : '⚠ 서버 저장 실패 — 잠시 후 다시 시도해주세요.', 'error'); if(er === 'auth') _pwLocalSave(MASTER_NAME, ''); return; }
+    // 서버 성공 뒤에 로컬 반영 + 12분 보호 (낡은 캐시 페이로드가 옛 해시를 되살리는 것 방지 — v2.73b와 같은 원리)
+    window.PASSWORD_MAP = window.PASSWORD_MAP || {};
+    window.PASSWORD_MAP[String(name).trim()] = '';
+    try { localStorage.setItem('fa_pw_ov', JSON.stringify({ name: String(name).trim(), hash: '', ts: Date.now() })); } catch(e) {}
     notify(`✅ ${name}님 비밀번호 초기화 완료 — 다음 로그인 때 새 비밀번호를 설정하면 됩니다.`);
   } catch(e) {
     notify('⚠ 서버 저장 실패 (네트워크) — 다시 시도해주세요.', 'error');
@@ -23237,19 +23256,19 @@ function renderDocs() {
   filtered.forEach(d => {
     const isMemo = (d.type === 'memo') || !d.link;
     const memoText = (d.memo || '').replace(/\[BR\]/g, '\n');
-    const memoHtml = memoText ? memoText.replace(/\n/g, '<br>') : '';
+    const memoHtml = memoText ? escapeHtml(memoText).replace(/\n/g, '<br>') : '';
     const bg = typeBg[d.type] || 'var(--surface)';
     const border2 = typeBorder[d.type] || 'var(--border)';
     h += `<div style="background:${isMemo?bg:'var(--surface)'};border:1px solid ${isMemo?border2:'var(--border)'};border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <span style="font-size:11px;background:rgba(0,0,0,.06);padding:3px 9px;border-radius:99px;color:var(--text2);font-weight:600;">${d.category||'기타'}</span>
+        <span style="font-size:11px;background:rgba(0,0,0,.06);padding:3px 9px;border-radius:99px;color:var(--text2);font-weight:600;">${escapeHtml(d.category||'기타')}</span>
         <span style="font-size:12px;color:var(--text3);">${typeIcon[d.type]||'🔗'} ${typeLabel[d.type]||'링크'}</span>
       </div>
-      <div style="font-size:15px;font-weight:700;margin-bottom:${memoHtml?'10px':'0'};line-height:1.4;color:var(--text);">${d.title}</div>
+      <div style="font-size:15px;font-weight:700;margin-bottom:${memoHtml?'10px':'0'};line-height:1.4;color:var(--text);">${escapeHtml(d.title)}</div>
       ${memoHtml?`<div style="font-size:13px;color:var(--text2);line-height:1.8;flex:1;">${memoHtml}</div>`:''}
       <div style="display:flex;gap:6px;margin-top:12px;">
-        ${d.link?`<a href="${d.link}" target="_blank" class="btn btn-sm btn-primary" style="flex:1;text-align:center;text-decoration:none;">열기</a>`:''}
-        ${isAdmin?`<button class="btn btn-sm btn-danger" onclick="deleteDoc('${d.id}')">삭제</button>`:''}
+        ${/^https?:\/\//i.test(d.link||'')?`<a href="${escapeHtml(d.link)}" target="_blank" rel="noopener" class="btn btn-sm btn-primary" style="flex:1;text-align:center;text-decoration:none;">열기</a>`:''}
+        ${isAdmin?`<button class="btn btn-sm btn-danger" onclick="deleteDoc('${escapeJs(d.id)}')">삭제</button>`:''}
       </div>
     </div>`;
   });
@@ -23294,7 +23313,7 @@ async function saveDoc() {
 
 function deleteDoc(id) {
   const d = docs.find(x=>x.id===id); if(!d) return;
-  openModal('자료 삭제', `"${d.title}" 자료를 삭제할까요?`, async()=>{
+  openModal('자료 삭제', `"${escapeHtml(d.title)}" 자료를 삭제할까요?`, async()=>{
     try {
       await gasCall({action:'deleteDoc', id});
       docs = docs.filter(x=>x.id!==id);
