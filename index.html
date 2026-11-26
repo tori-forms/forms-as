@@ -7920,6 +7920,7 @@ function renderShipping() {
       <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-size:13px;font-weight:700;color:var(--green);">✅ 출고 가능 (${ok.length}건)</span>${_shipMChips ? `<span style="display:inline-flex;gap:4px;flex-wrap:wrap;">${_shipMChips}</span>` : ''}</span>
       <button class="btn btn-sm btn-danger" id="exclude-selected-btn" style="display:none;" onclick="excludeSelected()">출고 제외</button>
       <button class="btn btn-sm" id="free-selected-btn" style="display:none;color:#10b981;border-color:#10b98155;font-weight:700;" onclick="freeSelected()">🆓 무상 처리/해제</button>
+      <button class="btn btn-sm" id="rework-selected-btn" style="display:none;color:#dc2626;border-color:#dc262655;font-weight:700;" onclick="openShipReworkModal()">🔁 재작업 보내기</button>
     </div>
     <div class="table-wrap"><table>
       <thead><tr>
@@ -8132,6 +8133,8 @@ function onShipCheckChange() {
   if(excludeBtn) excludeBtn.style.display = checked.length ? 'inline-flex' : 'none';
   const freeBtn = document.getElementById('free-selected-btn');   // ⭐ v2.70z: 무상 처리 버튼
   if(freeBtn) freeBtn.style.display = checked.length ? 'inline-flex' : 'none';
+  const reworkBtn = document.getElementById('rework-selected-btn');   // ⭐ v3.56: 출고 대기 → 재작업
+  if(reworkBtn) reworkBtn.style.display = checked.length ? 'inline-flex' : 'none';
   // 출고 완료 버튼 텍스트 - 체크 있으면 선택 건수 표시
   if(completeBtn) {
     completeBtn.textContent = checked.length
@@ -8402,6 +8405,101 @@ function moveToOk(i) {
   }
   renderShipping();
   notify('출고 목록에 추가되었습니다.');
+}
+
+// ⭐ v3.56: 출고 대기(검수완료) 건을 재작업으로 되돌림. 검수 불합격과 똑같이 addInspection(fail)로 기록
+//   (품질 점수와 수당 게이트 반영, 사용자 지시 2026-11-26). 불량처리 → 재작업 완료 → 검수대기 → 재검수.
+function openShipReworkModal() {
+  if(!canInspect(currentUser)) { notify('QC 권한이 없습니다 (T3 이상 또는 QC만 가능).', 'error'); return; }
+  const allOk = window._shipOk || [];
+  const targets = [...document.querySelectorAll('.ship-row-check:checked')]
+    .map(cb => allOk[parseInt(cb.dataset.idx)]?.entry).filter(Boolean);
+  if(!targets.length) { notify('재작업으로 보낼 항목을 선택하세요.', 'error'); return; }
+  window._shipReworkIds = targets.map(e => String(e.id));
+  const boxes = ['기능', '외관', '조립', '부품누락'].map(label =>
+    `<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--border2,#d1d5db);border-radius:8px;cursor:pointer;font-size:13px;background:var(--bg,#fff);">
+      <input type="checkbox" class="ship-rework-cb" value="${label}" style="accent-color:#dc2626;width:16px;height:16px;"><span style="color:var(--text,#000);">${label}</span></label>`).join('');
+  const list = targets.map(e => `${escapeHtml(e.serial)} <span style="color:var(--text2,#666);">(${escapeHtml(String(e.worker||'').split('::')[0])})</span>`).join('<br>');
+  document.body.insertAdjacentHTML('beforeend', `
+  <div id="ship-rework-modal" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:var(--surface,#fff);color:var(--text,#111);max-width:560px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;max-height:90vh;display:flex;flex-direction:column;border:1px solid var(--border,#e5e7eb);">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border,#e5e7eb);display:flex;justify-content:space-between;align-items:center;background:var(--surface2,#f9fafb);">
+        <span style="font-size:16px;font-weight:700;">🔁 재작업 보내기 (${targets.length}건)</span>
+        <button onclick="document.getElementById('ship-rework-modal')?.remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text2,#666);">×</button>
+      </div>
+      <div style="padding:20px;overflow-y:auto;">
+        <div style="margin-bottom:14px;padding:12px;background:var(--surface2,#f9fafb);border-radius:8px;font-size:13px;line-height:1.6;max-height:120px;overflow-y:auto;">${list}</div>
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;">불량 유형 (다중 선택 가능)</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">${boxes}</div>
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">재작업 사유 (필수)</label>
+        <textarea id="ship-rework-reason" rows="3" placeholder="출고 대기 중 발견된 내용을 입력하세요..." style="width:100%;padding:8px 10px;border:1px solid var(--border,#d1d5db);border-radius:6px;font-size:13px;font-family:inherit;background:var(--surface,#fff);color:var(--text,#111);resize:vertical;"></textarea>
+        <div style="margin-top:10px;padding:10px;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.4);border-radius:8px;font-size:12px;">
+          ⚠️ <strong>검수 불합격 1건</strong>으로 기록되어 담당 엔지니어 품질 점수에 반영됩니다.<br>
+          "🚨 불량처리" 탭으로 이동 → 재작업 완료 → 검수대기 → 다시 검수해야 출고 관리로 돌아옵니다.<br>
+          출고 보류함에 있는 건은 먼저 [출고 가능으로] 되돌린 뒤 보내세요.
+        </div>
+      </div>
+      <div style="padding:14px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px;background:var(--surface2,#f9fafb);">
+        <button onclick="document.getElementById('ship-rework-modal')?.remove()" style="padding:0 18px;height:38px;border:1px solid var(--border,#d1d5db);background:var(--surface,#fff);color:var(--text,#111);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
+        <button id="ship-rework-submit" onclick="submitShipRework()" style="padding:0 18px;height:38px;border:none;background:#dc2626;color:#fff;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">재작업 보내기</button>
+      </div>
+    </div>
+  </div>`);
+}
+
+async function submitShipRework() {
+  if(!canInspect(currentUser)) { notify('QC 권한이 없습니다 (T3 이상 또는 QC만 가능).', 'error'); return; }
+  const types = [...document.querySelectorAll('.ship-rework-cb:checked')].map(cb => cb.value);
+  const reason = (document.getElementById('ship-rework-reason')?.value || '').trim();
+  if(!types.length) { notify('불량 유형을 1개 이상 선택하세요.', 'error'); return; }
+  if(!reason) { notify('재작업 사유를 입력하세요.', 'error'); return; }
+  const btn = document.getElementById('ship-rework-submit');
+  if(btn) { if(btn.disabled) return; btn.disabled = true; btn.textContent = '처리 중...'; }
+  const ids = window._shipReworkIds || [];
+  const qMap = window._shipReworkQ = window._shipReworkQ || {};   // 건별 qualityId 고정: 응답 유실 뒤 다시 눌러도 서버 멱등으로 1줄만
+  let done = 0, skipped = 0;
+  try {
+    notifyPersist('재작업 처리 중...');
+    // 다른 PC에서 방금 출고했을 수 있어 출고 이력을 서버에서 새로 받아 확인 (못 받으면 진행 안 함)
+    // shortcut: 확인과 저장 사이 몇 초 틈은 남음, 서버 addInspection에 상태 확인을 넣으면 완전히 막힘
+    const sl = await gasCall({ action: 'loadShipLog' });
+    if(!sl || !Array.isArray(sl.shipLog)) throw new Error('출고 이력 확인 실패, 잠시 뒤 다시 시도하세요');
+    shipHistory = _dedupShipRows(_applyShipCancelOv(sl.shipLog));
+    const lastShip = {};
+    shipHistory.forEach(h => { const t = new Date(h.shipDate).getTime() || 0; const s = String(h.serial); if(!(s in lastShip) || t > lastShip[s]) lastShip[s] = t; });
+    for(const id of ids) {
+      const e = entries.find(x => String(x.id) === id);
+      if(!e || String(e.status || '') === STATUS_DEFECT) continue;   // 이미 처리된 건 (재시도)
+      const shipT = lastShip[String(e.serial)];
+      const shipped = shipT !== undefined && (new Date(e.date).getTime() || 0) <= shipT;
+      if(shipped || ![STATUS_INSPECTED, ''].includes(String(e.status || ''))) { skipped++; continue; }   // 그새 출고되거나 상태가 바뀐 건
+      const qId = qMap[id] = qMap[id] || ('Q' + Date.now() + '_' + (Math.random() * 1000 | 0));
+      const registrant = String(e.worker || '').split('::')[0];
+      const defectReason = '[출고 후 재작업] ' + reason;
+      const resp = await gasCall({ action: 'addInspection', qualityId: qId, repairId: e.id, serial: e.serial || '', model: e.model || '',
+        registrant, inspector: currentUser || '', result: 'fail', defectTypes: JSON.stringify(types), defectReason,
+        expectStatus: 'inspected|' });   // 서버(@148~)가 시트 상태를 보고 출고완료 등이면 거절
+      if(resp && resp.error === 'status-changed') { delete qMap[id]; skipped++; continue; }
+      if(!resp || resp.ok !== true) throw new Error((resp && (resp.error || resp.msg)) || '서버 응답 없음');
+      const idx = entries.findIndex(x => String(x.id) === id);
+      if(idx >= 0) { entries[idx].status = STATUS_DEFECT; entries[idx].agingStart = new Date().toISOString(); }
+      const rec = { qualityId: qId, repairId: e.id, serial: e.serial, model: e.model, registrant, inspector: currentUser,
+        inspectedAt: new Date().toISOString(), result: 'fail', defectTypes: types, defectReason };
+      if(!inspections.some(i => String(i.qualityId) === qId)) inspections.push(rec);
+      markPendingChange('entries', e.id, { type: 'update', data: { status: STATUS_DEFECT } }, 5000);
+      markPendingChange('inspections', qId, { type: 'add', data: rec }, 5000);   // 낡은 동기화 응답이 새 불합격 기록을 지우지 않게
+      delete qMap[id];
+      done++;
+    }
+    document.getElementById('ship-rework-modal')?.remove();
+    notify(`${done}건을 재작업(불량처리)으로 보냈습니다.` + (skipped ? ` 이미 출고됐거나 상태가 바뀐 ${skipped}건은 건너뛰었습니다.` : ''));
+  } catch(err) {
+    notify(`실패 (${done}건 처리됨): ` + (err.message || err), 'error');
+    if(btn) { btn.disabled = false; btn.textContent = '재작업 보내기'; }
+  }
+  window._shipOk = null;
+  renderShipping();
+  setTimeout(() => syncData(true, true), 2000);   // submitInspect와 같은 강제 동기화 (gasCall 직후엔 일반 동기화가 멈춰 있음)
 }
 
 // ⭐ 출고 보류 → 출고 가능으로 (서버에 status=inspected 저장)
